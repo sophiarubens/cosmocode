@@ -1,8 +1,9 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import pygtc
+from scipy.special import erf
 
-def Pgau(k,pars):
+def Pgau(k,pars): # STANDS IN FOR SOMETHING MORE PHYSICALLY INTERESTING AND REALISTIC LIKE A CAMB MPS ... STICK WITH THIS FOR NOW BECAUSE MY TESTS WILL RUN MORE QUICKLY
     mup,sigp,Ap=pars
     return Ap*np.exp(-(k-mup)**2/(2*sigp**2))
 
@@ -63,6 +64,14 @@ def printparswbiases(pars,biases):
         print(parnames[p].ljust(10),'=',str(par).ljust(5),'with bias',str(round(biases[p],2)).ljust(5))
     return None
 
+def Wmat(kvec,sigma): 
+   k,kp=np.meshgrid(kvec,kvec)
+   return 2*np.pi*sigma**2*np.exp(-sigma**2*(k-kp)**2)
+
+def Wmatskew(kvec,sigma): 
+   k,kp=np.meshgrid(kvec,kvec)
+   return 2*np.pi*sigma**2*np.exp(-sigma**2*(k-kp)**2)*(1+erf(5*k))
+
 nk=132
 kvec=np.linspace(0.05,0.7,nk)
 mup=0.11
@@ -72,20 +81,23 @@ pars=[mup,sigp,ampp]
 parnames=['mean','std dev','amp']
 npars=len(pars)
 Ptrue=Pgau(kvec,pars)
-sigk=0.05*np.cos(2*np.pi*(kvec-kvec[0])/(kvec[-1]-kvec[0]))+0.01 # uncertainty in the power spectrum at each k-mode
+sigk=0.05*np.cos(2*np.pi*(kvec-kvec[0])/(kvec[-1]-kvec[0]))+0.01 # uncertainty in the power spectrum at each k-mode ... just a toy case sinusoidally more sensitive in the middle but offset vertically so there is a positive uncertainty at each k
 
-def Wmat(kvec,sigma): # same as in the window_meshgrid.py script
-   k,kp=np.meshgrid(kvec,kvec)
-   return (2*np.pi*sigma**2)**3*np.exp(-sigma**2*(k-kp)**2/2.)
+sigw=1e-1 # window width (following the form I derived)
+W=Wmat(kvec,sigw)
+# epssigw=0.8 # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width?"
+epssigws=np.logspace(-5,0,10)
 
-sigw=1e-9 # window width (following the form I derived)
-Pcont=Wmat(kvec,sigw)@Ptrue-Ptrue
-dpar=1e-9*np.ones(npars)
-Ppartials=build_partials(kvec,pars,dpar,nk) # build_partials(m,p,dpar,nmodes)
-F=fisher(Ppartials,sigk)
+for epssigw in epssigws:
+    print('\nepssigw=',epssigw)
+    Wthought=Wmat(kvec,(1+epssigw)*sigw)
+    Pcont=(W-Wthought)@Ptrue
+    dpar=1e-9*np.ones(npars)
+    Ppartials=build_partials(kvec,pars,dpar,nk) # build_partials(m,p,dpar,nmodes)
+    F=fisher(Ppartials,sigk)
 
-B=(Pcont/sigk)@Ppartials # should be a three-element vector (verified by printing the shape) !!
-Finv=np.linalg.inv(F)
-b=Finv@B # should be a three-element vector (verified by printing the shape) !!
+    B=(Pcont/sigk)@Ppartials # should be a three-element vector (verified by printing the shape) !!
+    Finv=np.linalg.inv(F)
+    b=Finv@B # should be a three-element vector (verified by printing the shape) !!
 
-printparswbiases(pars,b)
+    printparswbiases(pars,b)
