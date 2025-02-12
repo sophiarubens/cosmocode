@@ -25,13 +25,14 @@ def fisher(partials,unc):
     unc      = nmodes x 1 vector of standard deviations at each mode (could be k-mode, l-mode, etc.)
     '''
     V=0.0*partials # want the same shape
-    nprm=len(unc)
+    nprm=partials.shape[1]
     for i in range(nprm):
         V[:,i]=partials[:,i]/unc
+    print('in Fisher, after populating V, V=',V)
     return V.T@V
 
 scale=1e-9
-def get_mps(pars,zs,kmax=2.0,linear=False,minkh=1e-4,maxkh=1,npts=200):
+def get_mps(pars,zs,minkh=1e-4,maxkh=1,npts=200):
     '''
     get matter power spectrum
 
@@ -51,7 +52,6 @@ def get_mps(pars,zs,kmax=2.0,linear=False,minkh=1e-4,maxkh=1,npts=200):
     ns=pars[4]
 
     pars=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0)
-#     pars=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0,tau=tau)
     pars.InitPower.set_params(As=As,ns=ns,r=0)
     pars.set_matter_power(redshifts=zs, kmax=2.0)
     lin=True
@@ -71,10 +71,8 @@ def CAMBpartial(p,zs,n,dpar):
     n    = take the partial derivative WRT the nth parameter in p
     dpar = vector (you might want dif step sizes for dif params) of step sizes (npar x 1)
     '''
-    nprm=len(p)
     kh,pk=get_mps(p,zs) # model should be get_spec for the unperturbed params
     npts=pk.shape[1]
-    Ap=np.zeros([npts,1])
     pcopy=p.copy()
     pcopy[n]=pcopy[n]+dpar[n]
     khp,pkp=get_mps(pcopy,zs)
@@ -94,16 +92,12 @@ def cornerplot(fishermat,params,pnames,nsamp=10000,savename=None):
                       plotName=savename)
     return None
 
-# p0=np.asarray([67.7,0.022,0.119,0.056,2.1e-9, 0.97])
-# pnames=['$H_0$','$\Omega_b h^2$','$\Omega_c h^2$','$\\tau$','$A_S$','$n_s$']
 p0=np.asarray([67.7,0.022,0.119,2.1e-9, 0.97])
 pnames=['$H_0$','$\Omega_b h^2$','$\Omega_c h^2$','$A_S$','$n_s$']
 p0[3]/=scale
 nprm=len(p0) # number of parameters
 dpar=1e-3*np.ones(nprm)
 dpar[3]*=scale
-# ztest=tuple(np.arange(5,11))
-# ztest=[3.7]
 ztest=3.7
 kh0,spec0=get_mps(p0,ztest,linear=True)
 
@@ -122,8 +116,9 @@ plt.title('sample matter power spectrum')
 plt.legend()
 plt.show()
 
-alpha=0.01
+alpha=0.07
 unc=alpha*spec0 # this says that the precision at each k-mode is alpha times the simulated spectrum value
+print('\nunc.shape=',unc.shape,'\nunc=\n',unc)
 
 plt.figure()
 plt.plot(unc[0,:])
@@ -140,8 +135,9 @@ if INITIAL:
     np.savetxt('camb_mps_partials_alpha.txt',partials)
 else:
     partials=np.genfromtxt('camb_mps_partials_alpha.txt')
+print('\npartials.shape=',partials.shape,'\npartials=\n',partials)
 fish=fisher(partials,unc)
-# print(fish)
+print('\nfish.shape=',fish.shape,'\nfish=\n',fish)
 
 cornerplot(fish,p0,pnames,savename='test_mps_alpha.pdf')
 
