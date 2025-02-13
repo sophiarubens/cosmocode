@@ -168,19 +168,20 @@ calcCAMBPpartials=False
 
 sigw=1e-1 # window width (following the form I derived)
 W=Wmat(kvec,sigw)
-epssigws=np.logspace(-5,0,10) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+epssigws=np.logspace(-7,0,20) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
 
 for epssigw in epssigws:
     print('\nepssigw=',epssigw)
     Wthought=Wmat(kvec,(1+epssigw)*sigw)
 
     # TOY GAUSSIAN POWER SPECTRUM CASE
-    # Pcont=(W-Wthought)@Ptrue
-    # Ppartials=build_partials(kvec,Ppartial,pars,dpar,nk) # build_partials(m,getP,p,dpar,nmodes)
-    # F=fisher(Ppartials,sigk)
-    # B=(Pcont/sigk)@Ppartials # should be a three-element vector (verified by printing the shape) !!
-    # b=bias(F,B)
-    # printparswbiases(pars,parnames,b)
+    Pcont=(W-Wthought)@Ptrue
+    Ppartials=build_partials(kvec,Ppartial,pars,dpar,nk) # build_partials(m,getP,p,dpar,nmodes)
+    F=fisher(Ppartials,sigk)
+    B=(Pcont/sigk)@Ppartials # should be a three-element vector (verified by printing the shape) !!
+    b=bias(F,B)
+    print('Gaussian PS:')
+    printparswbiases(pars,parnames,b)
 
     # CAMB MATTER POWER SPECTRUM CASE
     CAMBPcont=(W-Wthought)@Ptrue
@@ -197,4 +198,5 @@ for epssigw in epssigws:
     CAMBpars2[3]*=scale
     CAMBb2=CAMBb.copy()
     CAMBb2[3]*=scale
+    print('\nCAMB matter PS')
     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
