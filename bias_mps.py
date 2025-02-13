@@ -16,7 +16,6 @@ def build_partials(m,getP,p,dpar,nmodes):
     dpar   = vector (since you might want dif step sizes for dif params) of step sizes (npar x 1)
     nmodes = [scalar] number of modes in the spectrum - could be l-modes for CMB, k-modes for 21 cm, etc.
     '''
-    # print('in build_partials, p=',p)
     nprm=len(p)
     V=np.zeros((nmodes,nprm))
     for n in range(nprm):
@@ -30,12 +29,10 @@ def buildCAMBpartials(p,z,NMODES,dpar):
     dpar   = vector (since you might want dif step sizes for dif params) of step sizes (npar x 1)
     nmode = [scalar] number of modes in the spectrum - could be l-modes for CMB, k-modes for 21 cm, etc.
     '''
-    # print('in buildCAMBpartials, p=',p)
     nprm=len(p)
     V=np.zeros((NMODES,nprm))
     for n in range(nprm):
         V[:,n]=CAMBpartial(p,z,n,dpar,nmodes=NMODES) # THIS CALL IS WRONG?? ... for CAMB, I call build_partials with getP=CAMBpartial, which is called as CAMBpartial(p,zs,n,dpar)
-    print('at the end of buildCAMBpartials, V.shape=',V.shape)
     return V
 
 def fisher(partials,unc):
@@ -43,7 +40,6 @@ def fisher(partials,unc):
     partials = nmodes x nprm array where each column is an nmodes x 1 vector of the PS's partial WRT a dif param
     unc      = nmodes x 1 vector of standard deviations at each mode (could be k-mode, l-mode, etc.)
     '''
-    # print('at the beginning of fisher, partials.shape=',partials.shape,'and unc.shape=',unc.shape)
     V=0.0*partials # want the same shape
     nprm=partials.shape[1]
     for i in range(nprm):
@@ -79,13 +75,8 @@ def cornerplot(fishermat,params,pnames,nsamp=10000,savename=None):
     return None
 
 def printparswbiases(pars,parnames,biases):
-    print('in printparswbiases, pars.shape=',pars.shape,', pars=',pars,'\nbiases.shape=',biases.shape,', biases=',biases)
-    print()
     for p,par in enumerate(pars):
-        # print('p=',p,'; par=',par)
-        # print(parnames[p],'=',str(par),'with bias',str(round(biases[p],2)))
-        # print(parnames[p].ljust(12),'=',str(par).ljust(5),'with bias',str(round(biases[p],2)).ljust(5))
-        print('{:12} = {:-10.3e} with bias {:-10.5e}'.format(parnames[p], par, biases[p]))
+        print('{:12} = {:-10.3e} with bias {:-12.5e}'.format(parnames[p], par, biases[p]))
     return None
 
 def Wmat(kvec,sigma): 
@@ -110,7 +101,6 @@ def get_mps(pars,zs,minkh=1e-4,maxkh=1,npts=200):
     npts   = number of points in the calculated MPS
     '''
     zs=[zs]
-    # print('in get_mps, pars=',pars)
     H0=pars[0]
     ombh2=pars[1]
     omch2=pars[2]
@@ -137,7 +127,6 @@ def CAMBpartial(p,zs,n,dpar,nmodes=200):
     n    = take the partial derivative WRT the nth parameter in p
     dpar = vector (you might want dif step sizes for dif params) of step sizes (npar x 1)
     '''
-    # print('in CAMBpartial, pars=',p)
     kh,pk=get_mps(p,zs,npts=nmodes) # model should be get_spec for the unperturbed params
     npts=pk.shape[1]
     pcopy=p.copy()
@@ -173,11 +162,9 @@ nprm=len(CAMBpars) # number of parameters
 CAMBdpar=1e-3*np.ones(nprm)
 CAMBdpar[3]*=scale
 ztest=7.4
-# print('in main, CAMBpars=', CAMBpars)
 CAMBk,CAMBPtrue=get_mps(CAMBpars,ztest,npts=nk)
-# print('after calling get_mps from main, CAMBpars=',CAMBpars)
 CAMBnpars=len(CAMBpars)
-calcCAMBPpartials=True
+calcCAMBPpartials=False
 
 sigw=1e-1 # window width (following the form I derived)
 W=Wmat(kvec,sigw)
@@ -197,15 +184,11 @@ for epssigw in epssigws:
 
     # CAMB MATTER POWER SPECTRUM CASE
     CAMBPcont=(W-Wthought)@Ptrue
-    # print('in the epssigws loop, before establishing CAMBPpartials, CAMBpars=',CAMBpars)
     if calcCAMBPpartials:
-        # print('about to calculate CAMBPpartials')
         CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar) # buildCAMBpartials(p,z,nmodes,dpar)
         np.save('cambppartials.npy',CAMBPpartials)
-        # print('calculated and saved CAMBPpartials')
     else:
         CAMBPpartials=np.load('cambppartials.npy')
-    print('established CAMBPpartials without issue')
     CAMBF=fisher(CAMBPpartials,sigk)
     CAMBB=(CAMBPcont/sigk)@CAMBPpartials
     CAMBb=bias(CAMBF,CAMBB)
@@ -215,4 +198,3 @@ for epssigw in epssigws:
     CAMBb2=CAMBb.copy()
     CAMBb2[3]*=scale
     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
-
