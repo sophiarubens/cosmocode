@@ -110,35 +110,92 @@ def printparswbiases(pars,parnames,biases):
 
 # NUMERICALLY INTEGRATING TO OBTAIN A SPHERICALLY HARMONICALLY BINNED WINDOW FUNCTION
 # THIS USES AN AIRY BEAM WITH GAUSSIAN CHROMATICITY ... WORK THROUGH THE BUGS WITH THIS, BUT GENERALIZE LATER
-def r_arg(r,rk,rkp,sig):
-    return np.exp(-1j*(rk-rkp)*r-((r**2)/(2*sig**2)))*r**2
-def inner_r_integral(rk,rkp,sig):
-    integral,_=quad(r_arg,0,np.infty,args=(rk,rkp,sig,),complex_func=True)
+# ####################################################### START OF COMPLEX_FUNC=TRUE VERSION
+# def r_arg(r,rk,rkp,sig):
+#     return np.exp(-1j*(rk-rkp)*r-((r**2)/(2*sig**2)))*r**2
+# def inner_r_integral(rk,rkp,sig):
+#     integral,_=quad(r_arg,0,np.infty,args=(rk,rkp,sig,),complex_func=True)
+#     return integral
+
+# def theta_arg(theta,thetak,thetakp):
+#     return np.exp(-1j*(thetak-thetakp)*theta)*(j1(theta)/theta)**2*np.sin(theta)
+# def inner_theta_integral(thetak,thetakp):
+#     integral,_=quad(theta_arg,0,pi,args=(thetak,thetakp,),complex_func=True)
+#     return integral
+# def theta_k_and_kp_arg(thetak,thetakp):
+#     return np.abs(inner_theta_integral(thetak,thetakp))**2*np.sin(thetak)*np.sin(thetakp) # apparently it makes all the difference to do np.abs()**2 instead of manually taking ()**2
+
+# def phi_arg(phi,phik,phikp):
+#     return np.exp(-1j*(phik-phikp)*phi)
+# def inner_phi_integral(phik,phikp):
+#     integral,_=quad(phi_arg,0,twopi,args=(phik,phikp,),complex_func=True)
+#     return integral
+# def phi_k_and_kp_arg(phik,phikp):
+#     return np.abs(inner_phi_integral(phik,phikp))**2
+
+# def W_binned_airy_beam_entry(rk,rkp,sig): # ONE ENTRY in the kind of W_binned square array that is useful to build
+#     r_like=np.abs(inner_r_integral(rk,rkp,sig))**2
+#     print('r_like=',r_like)
+#     theta_like,_=dblquad(theta_k_and_kp_arg,0,pi,0,pi) # thetak and thetakp aren't args; they're variables of integration
+#     print('theta_like=',theta_like)
+#     phi_like,_=dblquad(phi_k_and_kp_arg,0,twopi,0,twopi) # phik and phikp are vars of integration
+#     print('phi_like=',phi_like)
+#     return 4*pi**2*r_like*theta_like*phi_like 
+# ####################################################### END OF COMPLEX_FUNC=TRUE VERSION
+
+# NUMERICALLY INTEGRATING TO OBTAIN A SPHERICALLY HARMONICALLY BINNED WINDOW FUNCTION
+# THIS USES AN AIRY BEAM WITH GAUSSIAN CHROMATICITY ... WORK THROUGH THE BUGS WITH THIS, BUT GENERALIZE LATER
+def r_arg_real(r,rk,rkp,sig):
+    arg=np.exp(-1j*(rk-rkp)*r-((r**2)/(2*sig**2)))*r**2
+    return arg.real
+def r_arg_imag(r,rk,rkp,sig):
+    arg=np.exp(-1j*(rk-rkp)*r-((r**2)/(2*sig**2)))*r**2
+    return arg.imag
+def inner_r_integral_real(rk,rkp,sig):
+    integral,_=quad(r_arg_real,0,np.infty,args=(rk,rkp,sig,))
+    return integral
+def inner_r_integral_imag(rk,rkp,sig):
+    integral,_=quad(r_arg_imag,0,np.infty,args=(rk,rkp,sig,))
     return integral
 
-def theta_arg(theta,thetak,thetakp):
-    return np.exp(-1j*(thetak-thetakp)*theta)*(j1(theta)/theta)**2*np.sin(theta)
-def inner_theta_integral(thetak,thetakp):
-    integral,_=quad(theta_arg,0,pi,args=(thetak,thetakp,),complex_func=True)
+def theta_arg_real(theta,thetak,thetakp):
+    arg=np.exp(-1j*(thetak-thetakp)*theta)*(j1(theta)/theta)**2*np.sin(theta)
+    return arg.real
+def theta_arg_imag(theta,thetak,thetakp):
+    arg=np.exp(-1j*(thetak-thetakp)*theta)*(j1(theta)/theta)**2*np.sin(theta)
+    return arg.imag
+def inner_theta_integral_real(thetak,thetakp):
+    integral,_=quad(theta_arg_real,0,pi,args=(thetak,thetakp,))
+    return integral
+def inner_theta_integral_imag(thetak,thetakp):
+    integral,_=quad(theta_arg_imag,0,pi,args=(thetak,thetakp,))
     return integral
 def theta_k_and_kp_arg(thetak,thetakp):
-    return np.abs(inner_theta_integral(thetak,thetakp))**2*np.sin(thetak)*np.sin(thetakp) # apparently it makes all the difference to do np.abs()**2 instead of manually taking ()**2
+    inner_theta_integral=inner_theta_integral_real(thetak,thetakp)**2+inner_theta_integral_imag(thetak,thetakp)**2
+    return inner_theta_integral*np.sin(thetak)*np.sin(thetakp)
 
-def phi_arg(phi,phik,phikp):
-    return np.exp(-1j*(phik-phikp)*phi)
-def inner_phi_integral(phik,phikp):
-    integral,_=quad(phi_arg,0,twopi,args=(phik,phikp,),complex_func=True)
+def phi_arg_real(phi,phik,phikp):
+    arg=np.exp(-1j*(phik-phikp)*phi)
+    return arg.real
+def phi_arg_imag(phi,phik,phikp):
+    arg=np.exp(-1j*(phik-phikp)*phi)
+    return arg.imag
+def inner_phi_integral_real(phik,phikp):
+    integral,_=quad(phi_arg_real,0,twopi,args=(phik,phikp,))
+    return integral
+def inner_phi_integral_imag(phik,phikp):
+    integral,_=quad(phi_arg_imag,0,twopi,args=(phik,phikp,))
     return integral
 def phi_k_and_kp_arg(phik,phikp):
-    return np.abs(inner_phi_integral(phik,phikp))**2
+    return inner_phi_integral_real(phik,phikp)**2+inner_phi_integral_imag(phik,phikp)**2
 
 def W_binned_airy_beam_entry(rk,rkp,sig): # ONE ENTRY in the kind of W_binned square array that is useful to build
-    r_like=np.abs(inner_r_integral(rk,rkp,sig))**2
-    print('r_like=',r_like)
+    r_like=inner_r_integral_real(rk,rkp,sig)**2+inner_r_integral_imag(rk,rkp,sig)**2
+    # print('r_like=',r_like)
     theta_like,_=dblquad(theta_k_and_kp_arg,0,pi,0,pi) # thetak and thetakp aren't args; they're variables of integration
-    print('theta_like=',theta_like)
+    # print('theta_like=',theta_like)
     phi_like,_=dblquad(phi_k_and_kp_arg,0,twopi,0,twopi) # phik and phikp are vars of integration
-    print('phi_like=',phi_like)
+    # print('phi_like=',phi_like)
     return 4*pi**2*r_like*theta_like*phi_like 
 
 def W_binned_airy_beam(rk_vector,sig,save=True,timeout=200,verbose=False): # accumulate the kind of term we're interested in into a square grid
