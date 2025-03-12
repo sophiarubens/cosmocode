@@ -154,34 +154,56 @@ def inner_phi_integral_imag(phik,phikp):
 def phi_k_and_kp_arg(phik,phikp):
     return inner_phi_integral_real(phik,phikp)**2+inner_phi_integral_imag(phik,phikp)**2
 
-def W_binned_airy_beam(rk,rkp,sig):
+def W_binned_airy_beam_entry(rk,rkp,sig): # ONE ENTRY in the kind of W_binned square array that is useful to build
     r_like=inner_r_integral_real(rk,rkp,sig)**2+inner_r_integral_imag(rk,rkp,sig)**2
-    print('r_like=',r_like)
+    # print('r_like=',r_like)
     theta_like,_=dblquad(theta_k_and_kp_arg,0,pi,0,pi) # thetak and thetakp aren't args; they're variables of integration
-    print('theta_like=',theta_like)
+    # print('theta_like=',theta_like)
     phi_like,_=dblquad(phi_k_and_kp_arg,0,twopi,0,twopi) # phik and phikp are vars of integration
-    print('phi_like=',phi_like)
+    # print('phi_like=',phi_like)
     return 4*pi**2*r_like*theta_like*phi_like 
 
-npts=4
+def W_binned_airy_beam(rk_vector,sig,save=True,timeout=600): # accumulate the kind of term we're interested in into a square grid
+    npts=len(rk_vector)
+    arr=np.zeros((npts,npts))
+    for i in range(npts):
+        t00=time.time()
+        for j in range(i,npts):
+            t0=time.time()
+            arr[i,j]=W_binned_airy_beam_entry(rk_vector[i],rk_vector[j],sig)
+            arr[j,i]=arr[i,j] # probably a negligible difference to leave it this way vs. adding an if stmt to manually catch the off-diagonal terms
+            t1=time.time()
+            if(t1-t00>timeout):
+                break
+    if (save):
+        np.save('W_binned_airy_beam_array_'+str(time.time())+'.txt',arr)
+    return arr
+
+npts=20
 rkmax=100.
 rk_test=np.linspace(0,rkmax,npts)
 sig_test=rkmax/2
-W_binned_airy_beam_array_test=np.zeros((npts,npts))
-for i in range(npts):
-    for j in range(npts):
-        t0=time.time()
-        W_binned_airy_beam_array_test[i,j]=W_binned_airy_beam(rk_test[i],rk_test[j],sig_test)
-        t1=time.time()
-        print('populated W_binned_airy_beam_array_test[',i,',',j,'] in',t1-t0,'s')
-        # assert(1==0), "still trying to debug a single point"
+W_binned_airy_beam_array_test=W_binned_airy_beam(rk_test,sig_test)
+# W_binned_airy_beam_array_test=np.zeros((npts,npts))
+# t00=time.time()
+# for i in range(npts):
+#     for j in range(npts):
+#         t0=time.time()
+#         W_binned_airy_beam_array_test[i,j]=W_binned_airy_beam(rk_test[i],rk_test[j],sig_test)
+#         t1=time.time()
+#         print('populated W_binned_airy_beam_array_test[',i,',',j,'] in',t1-t0,'s')
+#         if (t1-t00>600.):
+#             break # just to figure out if weird things are actually happening in the integral or my previous weird results were because my k-grid was too low in resolution
+#         # assert(1==0), "still trying to debug a single point"
+# np.save('W_binned_airy_beam_test',W_binned_airy_beam_array_test)
 
-plt.figure(layout='constrained')
-plt.imshow(W_binned_airy_beam_array_test)
+plt.figure()
+plt.imshow(W_binned_airy_beam_array_test,extent=[rk_test[0],rk_test[-1],rk_test[-1],rk_test[0]]) # L,R,B,T
 plt.colorbar()
-plt.xlabel('rk [dimensions of 1/L; units not specified]')
-plt.ylabel('rkp [dimensions of 1/L; units not specified]')
+plt.xlabel('scalar k; arbitrary units w/ dimensions of 1/L')
+plt.ylabel('scalar k-prime; arbitrary units w/ dimensions of 1/L')
 plt.title('Visualization check: spherical harmonic binning of an Airy beam')
+plt.tight_layout()
 plt.show()
 
 # # reality check ... does this seem like the Bessel function I meant to use and the Airy beam I meant to describe?
