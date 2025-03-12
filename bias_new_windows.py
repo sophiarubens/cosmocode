@@ -166,10 +166,11 @@ def W_binned_airy_beam(rk_vector,sig,save=True,timeout=200,verbose=False): # acc
         if earlyexit:
             print('due to time constraints, off-diagonal entries with row AND column indices above',i-1,': were not populated')
         print('evaluation took',t3-t0,'s')
-        print('eval time per element:',np.mean(element_times),'+/-',np.std(element_times))
+        nonzero_element_times=element_times[np.nonzero(element_times)]
+        print('eval time per element:',np.mean(nonzero_element_times),'+/-',np.std(nonzero_element_times)) # x2 since half the array doesn't get populated ... easier than using nan-aware quantities
     return arr
 
-npts=12
+npts=15
 rkmax=100.
 rk_test=np.linspace(0,rkmax,npts)
 sig_test=rkmax/2
