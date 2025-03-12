@@ -163,27 +163,32 @@ def W_binned_airy_beam_entry(rk,rkp,sig): # ONE ENTRY in the kind of W_binned sq
     # print('phi_like=',phi_like)
     return 4*pi**2*r_like*theta_like*phi_like 
 
-def W_binned_airy_beam(rk_vector,sig,save=True,timeout=600): # accumulate the kind of term we're interested in into a square grid
+def W_binned_airy_beam(rk_vector,sig,save=True,timeout=600,verbose=False): # accumulate the kind of term we're interested in into a square grid
+    t0=time.time()
     npts=len(rk_vector)
     arr=np.zeros((npts,npts))
     for i in range(npts):
-        t00=time.time()
         for j in range(i,npts):
-            t0=time.time()
+            t1=time.time()
             arr[i,j]=W_binned_airy_beam_entry(rk_vector[i],rk_vector[j],sig)
             arr[j,i]=arr[i,j] # probably a negligible difference to leave it this way vs. adding an if stmt to manually catch the off-diagonal terms
-            t1=time.time()
-            if(t1-t00>timeout):
+            t2=time.time()
+            if verbose:
+                print('populated entries [',i,',',j,'] and [',j,',',i,'] of W_binned_airy_beam in',t2-t1,'s')
+            if(t2-t0>timeout):
                 break
     if (save):
         np.save('W_binned_airy_beam_array_'+str(time.time())+'.txt',arr)
+    t3=time.time()
+    if verbose:
+        print('filled the',npts,'x',npts,'W_binned_airy_beam_array in',t3-t0,'s')
     return arr
 
 npts=20
 rkmax=100.
 rk_test=np.linspace(0,rkmax,npts)
 sig_test=rkmax/2
-W_binned_airy_beam_array_test=W_binned_airy_beam(rk_test,sig_test)
+W_binned_airy_beam_array_test=W_binned_airy_beam(rk_test,sig_test,verbose=True)
 # W_binned_airy_beam_array_test=np.zeros((npts,npts))
 # t00=time.time()
 # for i in range(npts):
@@ -205,11 +210,3 @@ plt.ylabel('scalar k-prime; arbitrary units w/ dimensions of 1/L')
 plt.title('Visualization check: spherical harmonic binning of an Airy beam')
 plt.tight_layout()
 plt.show()
-
-# # reality check ... does this seem like the Bessel function I meant to use and the Airy beam I meant to describe?
-# lim=25
-# npts=1000
-# x=np.linspace(-lim,lim,npts)
-# plt.figure()
-# plt.plot(x,(j1(x)/x)**2)
-# plt.show()
