@@ -1,4 +1,5 @@
 import numpy as np
+from matplotlib import pyplot as plt
 from scipy.special import j1 # first-order Bessel function of the first kind
 from scipy.integrate import quad,dblquad
 import time
@@ -8,19 +9,18 @@ twopi=2.*pi
 
 # NUMERICALLY INTEGRATING TO OBTAIN A SPHERICALLY HARMONICALLY BINNED WINDOW FUNCTION
 # THIS USES AN AIRY BEAM WITH GAUSSIAN CHROMATICITY ... WORK THROUGH THE BUGS WITH THIS, BUT GENERALIZE LATER
-r0=25 # another global variable for now ... I don't want to pass r0 because it's not an arg and might screw up quadpack wrapper things?? Although I should test that... the main concern here is slowdown from the flow of eval having to look outside its scope repeatedly
-def r_arg_real(r,rk,rkp,sig):
+def r_arg_real(r,rk,rkp,sig,r0):
     arg=np.exp(-1j*(rk-rkp)*r-(((r-r0)**2)/(2*sig**2)))*r**2
     return arg.real
-def r_arg_imag(r,rk,rkp,sig):
+def r_arg_imag(r,rk,rkp,sig,r0):
     arg=np.exp(-1j*(rk-rkp)*r-(((r-r0)**2)/(2*sig**2)))*r**2
     return arg.imag
 new_max_n_subdiv=200
-def inner_r_integral_real(rk,rkp,sig):
-    integral,_=quad(r_arg_real,0,np.infty,args=(rk,rkp,sig,),limit=new_max_n_subdiv)
+def inner_r_integral_real(rk,rkp,sig,r0):
+    integral,_=quad(r_arg_real,0,np.infty,args=(rk,rkp,sig,r0,),limit=new_max_n_subdiv)
     return integral
-def inner_r_integral_imag(rk,rkp,sig):
-    integral,_=quad(r_arg_imag,0,np.infty,args=(rk,rkp,sig,),limit=new_max_n_subdiv)
+def inner_r_integral_imag(rk,rkp,sig,r0):
+    integral,_=quad(r_arg_imag,0,np.infty,args=(rk,rkp,sig,r0,),limit=new_max_n_subdiv)
     return integral
 
 def theta_arg_real(theta,thetak,thetakp):
@@ -58,12 +58,52 @@ def phi_k_and_kp_arg(phik,phikp):
 phi_like_global,_=dblquad(phi_k_and_kp_arg,0,twopi,0,twopi)
 print('phi_like_global=',phi_like_global)
 
-def W_binned_airy_beam_entry(rk,rkp,sig,theta_like=theta_like_global,phi_like=phi_like_global): # ONE ENTRY in the kind of W_binned square array that is useful to build
-    r_like=inner_r_integral_real(rk,rkp,sig)**2+inner_r_integral_imag(rk,rkp,sig)**2
-    # print('r_like=',r_like)
-    return 4*pi**2*r_like*theta_like*phi_like 
+check_inner_phi_integral=True
+if check_inner_phi_integral:
+    npts=151
+    phik_vec=np.linspace(0,2*np.pi,npts)
+    scipy_quad_inner_phi_integral=np.zeros((npts,npts))
+    for i,phik in enumerate(phik_vec):
+        for j,phikp in enumerate(phik_vec):
+            scipy_quad_inner_phi_integral[i,j]=inner_phi_integral_real(phik,phikp)**2+inner_phi_integral_imag(phik,phikp)**2
 
-def W_binned_airy_beam(rk_vector,sig,save=True,timeout=600,verbose=False): # accumulate the kind of term we're interested in into a square grid
+    phik,phikp=np.meshgrid(phik_vec,phik_vec)
+    analytical_inner_phi_integral=2.*(1.-np.cos(2*np.pi*(phik-phikp)))/(phik-phikp)**2
+    fig,axs=plt.subplots(1,3,figsize=(15,5))
+    im=axs[0].imshow(scipy_quad_inner_phi_integral,extent=[0.,2.*np.pi,2.*np.pi,0.]) # [L,R,B,T]
+    plt.colorbar(im, ax=axs[0])
+    axs[0].set_xlabel('$\phi_k$')
+    axs[0].set_ylabel("$\phi_{k'}$")
+    axs[0].set_title('scipy quad')
+    im=axs[1].imshow(analytical_inner_phi_integral,extent=[0.,2.*np.pi,2.*np.pi,0.])
+    plt.colorbar(im, ax=axs[1])
+    axs[1].set_xlabel('$\phi_k$')
+    axs[1].set_ylabel("$\phi_{k'}$")
+    axs[1].set_title('analytical')
+    im=axs[2].imshow(analytical_inner_phi_integral-scipy_quad_inner_phi_integral,extent=[0.,2.*np.pi,2.*np.pi,0.])
+    plt.colorbar(im, ax=axs[2])
+    axs[2].set_xlabel('$\phi_k$')
+    axs[2].set_ylabel("$\phi_{k'}$")
+    axs[2].set_title('analytical-scipy')
+    plt.suptitle('comparison of inner phi integrals')
+    plt.tight_layout()
+    plt.savefig('analytical_scipy_quad_comparison.png',dpi=500)
+    plt.show()
+
+def W_binned_airy_beam_entry(rk,rkp,sig,r0,theta_like=theta_like_global,phi_like=phi_like_global): # ONE ENTRY in the kind of W_binned square array that is useful to build
+    r_like=inner_r_integral_real(rk,rkp,sig,r0)**2+inner_r_integral_imag(rk,rkp,sig,r0)**2
+    deltak=rk-rkp
+    longterm=(sig**4-2*deltak**2*sig**6+2*r0*sig**2+deltak**4*sig**8+r0**4+2*deltak**2*sig**4*r0**2)
+    print('longterm=',longterm)
+    expterm=twopi*sig**2*np.exp(-deltak**2*sig**2)
+    print('expterm=',expterm)
+    r_like_hand=expterm*longterm
+    print('r_like=',r_like)
+    print('r_like_hand',r_like_hand)
+    return 4*pi**2*r_like_hand*theta_like*phi_like
+    # return 4*pi**2*r_like*theta_like*phi_like 
+
+def W_binned_airy_beam(rk_vector,sig,r0,save=True,timeout=600,verbose=False): # accumulate the kind of term we're interested in into a square grid
     earlyexit=False # so far
     t0=time.time()
     npts=len(rk_vector)
@@ -72,13 +112,12 @@ def W_binned_airy_beam(rk_vector,sig,save=True,timeout=600,verbose=False): # acc
     for i in range(npts):
         for j in range(i,npts):
             t1=time.time()
-            arr[i,j]=W_binned_airy_beam_entry(rk_vector[i],rk_vector[j],sig)
+            arr[i,j]=W_binned_airy_beam_entry(rk_vector[i],rk_vector[j],sig,r0)
             arr[j,i]=arr[i,j] # probably a negligible difference to leave it this way vs. adding an if stmt to manually catch the off-diagonal terms
             t2=time.time()
             element_times[i*npts+j]=t2-t1
             if verbose:
-                print('[',i,',',j,'] and [',j,',',i,']')
-                # print('populated entries [',i,',',j,'] and [',j,',',i,'] of W_binned_airy_beam in',t2-t1,'s')
+                print('[{:3},{:3}]'.format(i,j)) # other info I had been including when my code was so poorly optimized the eval took significantly longer: entries of W_binned_airy_beam in',t2-t1,'s')
             if((t2-t0)>timeout):
                 earlyexit=True
                 break
@@ -96,8 +135,18 @@ def W_binned_airy_beam(rk_vector,sig,save=True,timeout=600,verbose=False): # acc
         print('eval time per element:',np.mean(nonzero_element_times),'+/-',np.std(nonzero_element_times)) # x2 since half the array doesn't get populated ... easier than using nan-aware quantities
     return arr
 
-npts=20
+npts=25
 rkmax=100.
 rk_test=np.linspace(0,rkmax,npts)
 sig_test=rkmax/2
-W_binned_airy_beam_array_test=W_binned_airy_beam(rk_test,sig_test,timeout=20,verbose=True)
+r0_test=25
+W_binned_airy_beam_array_test=W_binned_airy_beam(rk_test,sig_test,r0_test,timeout=20,verbose=True)
+
+plt.figure()
+plt.imshow(W_binned_airy_beam_array_test,extent=[rk_test[0],rk_test[-1],rk_test[-1],rk_test[0]]) # L,R,B,T
+plt.colorbar()
+plt.xlabel('scalar k; arbitrary units w/ dimensions of 1/L')
+plt.ylabel('scalar k-prime; arbitrary units w/ dimensions of 1/L')
+plt.title('Visualization check: spherical harmonic binning of an Airy beam')
+plt.tight_layout()
+plt.show()
