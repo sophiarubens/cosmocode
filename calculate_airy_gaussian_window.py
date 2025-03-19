@@ -2,6 +2,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from scipy.special import j1 # first-order Bessel function of the first kind
 from scipy.integrate import quad,dblquad
+from scipy.linalg import toeplitz
 import time
 
 pi=np.pi
@@ -16,11 +17,18 @@ def r_arg_imag(r,rk,rkp,sig,r0):
     arg=np.exp(-1j*(rk-rkp)*r-(((r-r0)**2)/(2*sig**2)))*r**2
     return arg.imag
 new_max_n_subdiv=200
-def inner_r_integral_real(rk,rkp,sig,r0, tol=1e-5):
-    integral,_=quad(r_arg_real,0,np.infty,args=(rk,rkp,sig,r0,),limit=new_max_n_subdiv)
+new_epsrel=1e-1
+def inner_r_integral_real(rk,rkp,sig,r0, tol=1e-2):
+    expterm=np.exp(-r0**2/(2.*sig**2))
+    print('real part: np.exp(-r0**2/(2.*sig**2))=',expterm)
+    assert(expterm<tol), "this numerical case is inconsistent with the assumption governing the analytic version to which I am comparing it"
+    integral,_=quad(r_arg_real,0,np.infty,args=(rk,rkp,sig,r0,),epsrel=new_epsrel,limit=new_max_n_subdiv)
     return integral
-def inner_r_integral_imag(rk,rkp,sig,r0, tol=1e-5):
-    integral,_=quad(r_arg_imag,0,np.infty,args=(rk,rkp,sig,r0,),limit=new_max_n_subdiv)
+def inner_r_integral_imag(rk,rkp,sig,r0, tol=1e-2):
+    expterm=np.exp(-r0**2/(2.*sig**2))
+    print('imag part: np.exp(-r0**2/(2.*sig**2))=',expterm)
+    assert(expterm<tol), "this numerical case is inconsistent with the assumption governing the analytic version to which I am comparing it"
+    integral,_=quad(r_arg_imag,0,np.infty,args=(rk,rkp,sig,r0,),epsrel=new_epsrel,limit=new_max_n_subdiv)
     return integral
 
 check_inner_r_integral=True
@@ -28,7 +36,7 @@ if check_inner_r_integral:
     npts=25
     ubound=104
     sigma=25
-    r00=43
+    r00=80
     rk_vec=np.linspace(0,ubound,npts)
     scipy_quad_inner_r_integral=np.zeros((npts,npts))
     for i,rk in enumerate(rk_vec):
@@ -39,26 +47,38 @@ if check_inner_r_integral:
     deltak=rk-rkp
     prefac=2*np.pi*sigma**2*np.exp(-deltak**2*sigma**2)
     long_term=sigma**4-2*deltak**2*sigma**6+2*r00**2*sigma**2+deltak**4*sigma**8+r00**4+2*deltak**2+sigma**4+r00**2
-    analytical_inner_r_integral=prefac*long_term
+    approximate_inner_r_integral=prefac*long_term
+
+    plt.figure()
+    slice_to_inspect=14
+    plt.plot(rk_vec,scipy_quad_inner_r_integral[slice_to_inspect],label='scipy')
+    plt.plot(rk_vec,approximate_inner_r_integral[slice_to_inspect],linestyle='--',label='approximate')
+    plt.xlabel("rk (constant rk')")
+    plt.ylabel('mod-squared of inner r integral')
+    plt.legend()
+    plt.title("rk' slice index "+str(slice_to_inspect))
+    plt.savefig('slice_'+str(slice_to_inspect)+'_r_term_r0_'+str(r00)+'.png')
+    plt.show()
+
     fig,axs=plt.subplots(1,3,figsize=(15,5))
     im=axs[0].imshow(scipy_quad_inner_r_integral,extent=[0.,ubound,ubound,0.]) # [L,R,B,T]
     plt.colorbar(im, ax=axs[0])
     axs[0].set_xlabel('$r_k$')
     axs[0].set_ylabel("$r_{k'}$")
     axs[0].set_title('scipy quad')
-    im=axs[1].imshow(analytical_inner_r_integral,extent=[0.,ubound,ubound,0.])
+    im=axs[1].imshow(approximate_inner_r_integral,extent=[0.,ubound,ubound,0.])
     plt.colorbar(im, ax=axs[1])
-    axs[1].set_xlabel('$ri_k$')
+    axs[1].set_xlabel('$r_k$')
     axs[1].set_ylabel("$r_{k'}$")
-    axs[1].set_title('analytical')
-    im=axs[2].imshow(analytical_inner_r_integral-scipy_quad_inner_r_integral,extent=[0.,ubound,ubound,0.])
+    axs[1].set_title('approximate')
+    im=axs[2].imshow((approximate_inner_r_integral-scipy_quad_inner_r_integral),extent=[0.,ubound,ubound,0.])
     plt.colorbar(im, ax=axs[2])
     axs[2].set_xlabel('$r_k$')
     axs[2].set_ylabel("$r_{k'}$")
-    axs[2].set_title('analytical-scipy')
+    axs[2].set_title('(approximate-scipy)')
     plt.suptitle('comparison of inner r integrals')
     plt.tight_layout()
-    plt.savefig('r_analytical_scipy_quad_comparison.png',dpi=500)
+    plt.savefig('r_approximate_scipy_quad_comparison.png',dpi=500)
     plt.show()
 
 def theta_arg_real(theta,thetak,thetakp):
@@ -96,7 +116,7 @@ def phi_k_and_kp_arg(phik,phikp):
 phi_like_global,_=dblquad(phi_k_and_kp_arg,0,twopi,0,twopi)
 print('phi_like_global=',phi_like_global)
 
-check_inner_phi_integral=True
+check_inner_phi_integral=False
 if check_inner_phi_integral:
     npts=151
     phik_vec=np.linspace(0,2*np.pi,npts)
@@ -118,11 +138,11 @@ if check_inner_phi_integral:
     axs[1].set_xlabel('$\phi_k$')
     axs[1].set_ylabel("$\phi_{k'}$")
     axs[1].set_title('analytical')
-    im=axs[2].imshow(analytical_inner_phi_integral-scipy_quad_inner_phi_integral,extent=[0.,2.*np.pi,2.*np.pi,0.])
+    im=axs[2].imshow((analytical_inner_phi_integral-scipy_quad_inner_phi_integral)/scipy_quad_inner_phi_integral,extent=[0.,2.*np.pi,2.*np.pi,0.])
     plt.colorbar(im, ax=axs[2])
     axs[2].set_xlabel('$\phi_k$')
     axs[2].set_ylabel("$\phi_{k'}$")
-    axs[2].set_title('analytical-scipy')
+    axs[2].set_title('(analytical-scipy)/scipy')
     plt.suptitle('comparison of inner phi integrals')
     plt.tight_layout()
     plt.savefig('phi_analytical_scipy_quad_comparison.png',dpi=500)
@@ -132,12 +152,12 @@ def W_binned_airy_beam_entry(rk,rkp,sig,r0,theta_like=theta_like_global,phi_like
     r_like=inner_r_integral_real(rk,rkp,sig,r0)**2+inner_r_integral_imag(rk,rkp,sig,r0)**2
     deltak=rk-rkp
     longterm=(sig**4-2*deltak**2*sig**6+2*r0*sig**2+deltak**4*sig**8+r0**4+2*deltak**2*sig**4*r0**2)
-    print('longterm=',longterm)
+    # print('longterm=',longterm)
     expterm=twopi*sig**2*np.exp(-deltak**2*sig**2)
-    print('expterm=',expterm)
+    # print('expterm=',expterm)
     r_like_hand=expterm*longterm
-    print('r_like=',r_like)
-    print('r_like_hand',r_like_hand)
+    # print('r_like=',r_like)
+    # print('r_like_hand',r_like_hand)
     return 4*pi**2*r_like_hand*theta_like*phi_like
     # return 4*pi**2*r_like*theta_like*phi_like 
 
@@ -145,23 +165,20 @@ def W_binned_airy_beam(rk_vector,sig,r0,save=True,timeout=600,verbose=False): # 
     earlyexit=False # so far
     t0=time.time()
     npts=len(rk_vector)
-    arr=np.zeros((npts,npts))
+    row=np.zeros(npts)
+    # arr=np.zeros((npts,npts))
     element_times=np.zeros(npts**2)
-    for i in range(npts):
-        for j in range(i,npts):
-            t1=time.time()
-            arr[i,j]=W_binned_airy_beam_entry(rk_vector[i],rk_vector[j],sig,r0)
-            arr[j,i]=arr[i,j] # probably a negligible difference to leave it this way vs. adding an if stmt to manually catch the off-diagonal terms
-            t2=time.time()
-            element_times[i*npts+j]=t2-t1
-            if verbose:
-                print('[{:3},{:3}]'.format(i,j)) # other info I had been including when my code was so poorly optimized the eval took significantly longer: entries of W_binned_airy_beam in',t2-t1,'s')
-            if((t2-t0)>timeout):
-                earlyexit=True
-                break
-        if ((t2-t0)>timeout):
+    for i in range(npts): # symmetric, circulant
+        t1=time.time()
+        row[i]=W_binned_airy_beam_entry(rk_vector[i],rk_vector[0],sig,r0)
+        t2=time.time()
+        element_times[i*npts+j]=t2-t1
+        if verbose:
+            print('[{:3},{:3}]'.format(i,j)) # other info I had been including when my code was so poorly optimized the eval took significantly longer: entries of W_binned_airy_beam in',t2-t1,'s')
+        if((t2-t0)>timeout):
             earlyexit=True
             break
+    arr=toeplitz(row)
     if (save):
         np.save('W_binned_airy_beam_array_'+str(time.time())+'.txt',arr)
     t3=time.time()
@@ -174,10 +191,10 @@ def W_binned_airy_beam(rk_vector,sig,r0,save=True,timeout=600,verbose=False): # 
     return arr
 
 npts=25
-rkmax=100.
+rkmax=104.
 rk_test=np.linspace(0,rkmax,npts)
-sig_test=rkmax/2
-r0_test=25
+sig_test=25
+r0_test=124
 W_binned_airy_beam_array_test=W_binned_airy_beam(rk_test,sig_test,r0_test,timeout=20,verbose=True)
 
 plt.figure()
