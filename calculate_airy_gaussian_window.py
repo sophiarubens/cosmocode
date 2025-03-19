@@ -20,13 +20,13 @@ new_max_n_subdiv=200
 new_epsrel=1e-1
 def inner_r_integral_real(rk,rkp,sig,r0, tol=1e-2):
     expterm=np.exp(-r0**2/(2.*sig**2))
-    print('real part: np.exp(-r0**2/(2.*sig**2))=',expterm)
+    # print('real part: np.exp(-r0**2/(2.*sig**2))=',expterm)
     assert(expterm<tol), "this numerical case is inconsistent with the assumption governing the analytic version to which I am comparing it"
     integral,_=quad(r_arg_real,0,np.infty,args=(rk,rkp,sig,r0,),epsrel=new_epsrel,limit=new_max_n_subdiv)
     return integral
 def inner_r_integral_imag(rk,rkp,sig,r0, tol=1e-2):
     expterm=np.exp(-r0**2/(2.*sig**2))
-    print('imag part: np.exp(-r0**2/(2.*sig**2))=',expterm)
+    # print('imag part: np.exp(-r0**2/(2.*sig**2))=',expterm)
     assert(expterm<tol), "this numerical case is inconsistent with the assumption governing the analytic version to which I am comparing it"
     integral,_=quad(r_arg_imag,0,np.infty,args=(rk,rkp,sig,r0,),epsrel=new_epsrel,limit=new_max_n_subdiv)
     return integral
@@ -161,33 +161,16 @@ def W_binned_airy_beam_entry(rk,rkp,sig,r0,theta_like=theta_like_global,phi_like
     return 4*pi**2*r_like_hand*theta_like*phi_like
     # return 4*pi**2*r_like*theta_like*phi_like 
 
-def W_binned_airy_beam(rk_vector,sig,r0,save=True,timeout=600,verbose=False): # accumulate the kind of term we're interested in into a square grid
-    earlyexit=False # so far
-    t0=time.time()
+def W_binned_airy_beam(rk_vector,sig,r0,save=True,verbose=False): # accumulate the kind of term we're interested in into a square grid
     npts=len(rk_vector)
     row=np.zeros(npts)
-    # arr=np.zeros((npts,npts))
-    element_times=np.zeros(npts**2)
     for i in range(npts): # symmetric, circulant
-        t1=time.time()
         row[i]=W_binned_airy_beam_entry(rk_vector[i],rk_vector[0],sig,r0)
-        t2=time.time()
-        element_times[i*npts+j]=t2-t1
         if verbose:
-            print('[{:3},{:3}]'.format(i,j)) # other info I had been including when my code was so poorly optimized the eval took significantly longer: entries of W_binned_airy_beam in',t2-t1,'s')
-        if((t2-t0)>timeout):
-            earlyexit=True
-            break
+            print('toeplitz column element {:3}'.format(i))
     arr=toeplitz(row)
     if (save):
         np.save('W_binned_airy_beam_array_'+str(time.time())+'.txt',arr)
-    t3=time.time()
-    if verbose:
-        if earlyexit:
-            print('due to time constraints, upper triangular entries with row-major indices beyond',i-1,',',j-1,' (and their lower triangular symmetric pairs) were not populated')
-        print('evaluation took',t3-t0,'s')
-        nonzero_element_times=element_times[np.nonzero(element_times)]
-        print('eval time per element:',np.mean(nonzero_element_times),'+/-',np.std(nonzero_element_times)) # x2 since half the array doesn't get populated ... easier than using nan-aware quantities
     return arr
 
 npts=25
@@ -195,7 +178,7 @@ rkmax=104.
 rk_test=np.linspace(0,rkmax,npts)
 sig_test=25
 r0_test=124
-W_binned_airy_beam_array_test=W_binned_airy_beam(rk_test,sig_test,r0_test,timeout=20,verbose=True)
+W_binned_airy_beam_array_test=W_binned_airy_beam(rk_test,sig_test,r0_test,verbose=True)
 
 plt.figure()
 plt.imshow(W_binned_airy_beam_array_test,extent=[rk_test[0],rk_test[-1],rk_test[-1],rk_test[0]]) # L,R,B,T
