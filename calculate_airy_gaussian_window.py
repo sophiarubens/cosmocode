@@ -16,12 +16,50 @@ def r_arg_imag(r,rk,rkp,sig,r0):
     arg=np.exp(-1j*(rk-rkp)*r-(((r-r0)**2)/(2*sig**2)))*r**2
     return arg.imag
 new_max_n_subdiv=200
-def inner_r_integral_real(rk,rkp,sig,r0):
+def inner_r_integral_real(rk,rkp,sig,r0, tol=1e-5):
     integral,_=quad(r_arg_real,0,np.infty,args=(rk,rkp,sig,r0,),limit=new_max_n_subdiv)
     return integral
-def inner_r_integral_imag(rk,rkp,sig,r0):
+def inner_r_integral_imag(rk,rkp,sig,r0, tol=1e-5):
     integral,_=quad(r_arg_imag,0,np.infty,args=(rk,rkp,sig,r0,),limit=new_max_n_subdiv)
     return integral
+
+check_inner_r_integral=True
+if check_inner_r_integral:
+    npts=25
+    ubound=104
+    sigma=25
+    r00=43
+    rk_vec=np.linspace(0,ubound,npts)
+    scipy_quad_inner_r_integral=np.zeros((npts,npts))
+    for i,rk in enumerate(rk_vec):
+        for j,rkp in enumerate(rk_vec):
+            scipy_quad_inner_r_integral[i,j]=inner_r_integral_real(rk,rkp,sigma,r00)**2+inner_r_integral_imag(rk,rkp,sigma,r00)**2
+
+    rk,rkp=np.meshgrid(rk_vec,rk_vec)
+    deltak=rk-rkp
+    prefac=2*np.pi*sigma**2*np.exp(-deltak**2*sigma**2)
+    long_term=sigma**4-2*deltak**2*sigma**6+2*r00**2*sigma**2+deltak**4*sigma**8+r00**4+2*deltak**2+sigma**4+r00**2
+    analytical_inner_r_integral=prefac*long_term
+    fig,axs=plt.subplots(1,3,figsize=(15,5))
+    im=axs[0].imshow(scipy_quad_inner_r_integral,extent=[0.,ubound,ubound,0.]) # [L,R,B,T]
+    plt.colorbar(im, ax=axs[0])
+    axs[0].set_xlabel('$r_k$')
+    axs[0].set_ylabel("$r_{k'}$")
+    axs[0].set_title('scipy quad')
+    im=axs[1].imshow(analytical_inner_r_integral,extent=[0.,ubound,ubound,0.])
+    plt.colorbar(im, ax=axs[1])
+    axs[1].set_xlabel('$ri_k$')
+    axs[1].set_ylabel("$r_{k'}$")
+    axs[1].set_title('analytical')
+    im=axs[2].imshow(analytical_inner_r_integral-scipy_quad_inner_r_integral,extent=[0.,ubound,ubound,0.])
+    plt.colorbar(im, ax=axs[2])
+    axs[2].set_xlabel('$r_k$')
+    axs[2].set_ylabel("$r_{k'}$")
+    axs[2].set_title('analytical-scipy')
+    plt.suptitle('comparison of inner r integrals')
+    plt.tight_layout()
+    plt.savefig('r_analytical_scipy_quad_comparison.png',dpi=500)
+    plt.show()
 
 def theta_arg_real(theta,thetak,thetakp):
     arg=np.exp(-1j*(thetak-thetakp)*theta)*(j1(theta)/theta)**2*np.sin(theta)
@@ -87,7 +125,7 @@ if check_inner_phi_integral:
     axs[2].set_title('analytical-scipy')
     plt.suptitle('comparison of inner phi integrals')
     plt.tight_layout()
-    plt.savefig('analytical_scipy_quad_comparison.png',dpi=500)
+    plt.savefig('phi_analytical_scipy_quad_comparison.png',dpi=500)
     plt.show()
 
 def W_binned_airy_beam_entry(rk,rkp,sig,r0,theta_like=theta_like_global,phi_like=phi_like_global): # ONE ENTRY in the kind of W_binned square array that is useful to build
