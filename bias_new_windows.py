@@ -101,14 +101,6 @@ def printparswbiases(pars,parnames,biases):
 
 nk=25
 kvec=np.linspace(0.05,0.7,nk)
-# mup=0.11
-# sigp=0.2 # width of the Gaussian I'm using as a power spectrum
-# ampp=431
-# pars=[mup,sigp,ampp]
-# parnames=['mean','std dev','amp']
-# npars=len(pars)
-# dpar=1e-9*np.ones(npars)
-# Ptrue=Pgau(kvec,pars)
 sigk=0.05*np.cos(2*np.pi*(kvec-kvec[0])/(kvec[-1]-kvec[0]))+0.01 # uncertainty in the power spectrum at each k-mode ... just a toy case sinusoidally more sensitive in the middle but offset vertically so there is a positive uncertainty at each k
 
 CAMBpars=np.asarray([67.7,0.022,0.119,2.1e-9, 0.97])
@@ -120,7 +112,6 @@ CAMBdpar=1e-3*np.ones(nprm)
 CAMBdpar[3]*=scale
 ztest=7.4
 CAMBk,CAMBPtrue=get_mps(CAMBpars,ztest,npts=nk)
-# print('CAMBPtrue.shape=',CAMBPtrue.shape)
 CAMBnpars=len(CAMBpars)
 calcCAMBPpartials=False
 
@@ -129,40 +120,43 @@ rkmax=104.
 rk_test=np.linspace(0,rkmax,npts)
 sig_test=25
 r0_test=75
-W=W_binned_airy_beam(rk_test,sig_test,r0_test,verbose=False)
-print('W.shape=',W.shape)
-epssigws=np.logspace(-7,0,20) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+W=W_binned_airy_beam(rk_test,sig_test,r0_test)
+# print('W.shape=',W.shape)
+epsvals=np.logspace(-15,0,20) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
 
-for epssigw in epssigws:
-    print('\nepssigw=',epssigw)
-    Wthought=W_binned_airy_beam(rk_test,1.01*sig_test,r0_test,verbose=True)
-    print('Wthought.shape=',Wthought.shape)
+for eps in epsvals:
+    print('\neps=',eps)
+    Wthought=W_binned_airy_beam(rk_test,sig_test,(1.+eps)*r0_test)
+    # print('Wthought.shape=',Wthought.shape)
 
     # CAMB MATTER POWER SPECTRUM CASE
+    plt.figure()
+    plt.imshow(W-Wthought)
+    plt.colorbar()
+    plt.title('W-Wthought check')
+    plt.show()
     CAMBPcont=(W-Wthought)@CAMBPtrue.T
-    print('CAMBPcont.shape=',CAMBPcont.shape)
-    print('sigk.shape=',sigk.shape)
+    # print('CAMBPcont.shape=',CAMBPcont.shape)
+    # print('sigk.shape=',sigk.shape)
     if calcCAMBPpartials:
         CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar) # buildCAMBpartials(p,z,nmodes,dpar)
         np.save('cambppartials.npy',CAMBPpartials)
     else:
         CAMBPpartials=np.load('cambppartials.npy')
-    print('CAMBPpartials.shape=',CAMBPpartials.shape)
+    # print('CAMBPpartials.shape=',CAMBPpartials.shape)
     CAMBF=fisher(CAMBPpartials,sigk)
-    print('CAMBF.shape=',CAMBF.shape)
+    # print('CAMBF.shape=',CAMBF.shape)
     CAMBPcontDivsigk=(CAMBPcont.T/sigk).T
-    print('CAMBPcontDivsigk.shape=',CAMBPcontDivsigk.shape)
+    # print('CAMBPcontDivsigk.shape=',CAMBPcontDivsigk.shape)
     CAMBB=(CAMBPpartials.T@(CAMBPcontDivsigk))
-    print('CAMBB.shape=',CAMBB.shape)
+    # print('CAMBB.shape=',CAMBB.shape)
     CAMBb=bias(CAMBF,CAMBB)
-    print('CAMBb.shape=',CAMBb.shape)
+    # print('CAMBb.shape=',CAMBb.shape)
 
     CAMBpars2=CAMBpars.copy()
     CAMBpars2[3]*=scale
     CAMBb2=CAMBb.copy()
     CAMBb2[3]*=scale
     print('\nCAMB matter PS')
-    # print(CAMBpars2)
-    # print(CAMBparnames)
-    # print(CAMBb2,'\n')
     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
+    assert(1==0)
