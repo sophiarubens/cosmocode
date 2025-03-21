@@ -6,6 +6,7 @@ from scipy.integrate import quad,dblquad
 import camb
 from camb import model
 import time
+from calculate_airy_gaussian_window import *
 
 infty=np.infty
 pi=np.pi
@@ -87,130 +88,81 @@ def fisher(partials,unc): # output to cornerplot or bias
         V[:,i]=partials[:,i]/unc
     return V.T@V
 
-def cornerplot(fishermat,params,pnames,nsamp=10000,savename=None):
-    cov=np.linalg.inv(fishermat)
-    samples=np.random.multivariate_normal(params,cov,size=nsamp)
-    GTC=pygtc.plotGTC(chains=samples,
-                      paramNames=pnames,
-                      truths=tuple(params),
-                      plotName=savename)
-    return None
-
-def Wmat(kvec,sigma): # USE THIS AS A TEMPLATE FOR THE MORE-COMPLICATED NUMERICAL VERSION
-   k,kp=np.meshgrid(kvec,kvec)
-   return twopi*sigma**2*np.exp(-sigma**2*(k-kp)**2)
-
 def bias(F,B):
-    return np.linalg.inv(F)@B
+    return (np.linalg.inv(F)@B).reshape((F.shape[0],))
 
 def printparswbiases(pars,parnames,biases):
+    print('pars=',pars)
+    print('parnames=',parnames)
+    print('biases=',biases)
     for p,par in enumerate(pars):
         print('{:12} = {:-10.3e} with bias {:-12.5e}'.format(parnames[p], par, biases[p]))
     return None
 
-# NUMERICALLY INTEGRATING TO OBTAIN A SPHERICALLY HARMONICALLY BINNED WINDOW FUNCTION
-# THIS USES AN AIRY BEAM WITH GAUSSIAN CHROMATICITY ... WORK THROUGH THE BUGS WITH THIS, BUT GENERALIZE LATER
-def r_arg_real(r,rk,rkp,sig):
-    arg=np.exp(-1j*(rk-rkp)*r-((r**2)/(2*sig**2)))*r**2
-    return arg.real
-def r_arg_imag(r,rk,rkp,sig):
-    arg=np.exp(-1j*(rk-rkp)*r-((r**2)/(2*sig**2)))*r**2
-    return arg.imag
-new_max_n_subdiv=200
-def inner_r_integral_real(rk,rkp,sig):
-    integral,_=quad(r_arg_real,0,np.infty,args=(rk,rkp,sig,),limit=new_max_n_subdiv)
-    return integral
-def inner_r_integral_imag(rk,rkp,sig):
-    integral,_=quad(r_arg_imag,0,np.infty,args=(rk,rkp,sig,),limit=new_max_n_subdiv)
-    return integral
+nk=25
+kvec=np.linspace(0.05,0.7,nk)
+# mup=0.11
+# sigp=0.2 # width of the Gaussian I'm using as a power spectrum
+# ampp=431
+# pars=[mup,sigp,ampp]
+# parnames=['mean','std dev','amp']
+# npars=len(pars)
+# dpar=1e-9*np.ones(npars)
+# Ptrue=Pgau(kvec,pars)
+sigk=0.05*np.cos(2*np.pi*(kvec-kvec[0])/(kvec[-1]-kvec[0]))+0.01 # uncertainty in the power spectrum at each k-mode ... just a toy case sinusoidally more sensitive in the middle but offset vertically so there is a positive uncertainty at each k
 
-def theta_arg_real(theta,thetak,thetakp):
-    arg=np.exp(-1j*(thetak-thetakp)*theta)*(j1(theta)/theta)**2*np.sin(theta)
-    return arg.real
-def theta_arg_imag(theta,thetak,thetakp):
-    arg=np.exp(-1j*(thetak-thetakp)*theta)*(j1(theta)/theta)**2*np.sin(theta)
-    return arg.imag
-def inner_theta_integral_real(thetak,thetakp):
-    integral,_=quad(theta_arg_real,0,pi,args=(thetak,thetakp,))
-    return integral
-def inner_theta_integral_imag(thetak,thetakp):
-    integral,_=quad(theta_arg_imag,0,pi,args=(thetak,thetakp,))
-    return integral
-def theta_k_and_kp_arg(thetak,thetakp):
-    inner_theta_integral=inner_theta_integral_real(thetak,thetakp)**2+inner_theta_integral_imag(thetak,thetakp)**2
-    return inner_theta_integral*np.sin(thetak)*np.sin(thetakp)
-theta_like_global,_=dblquad(theta_k_and_kp_arg,0,pi,0,pi)
+CAMBpars=np.asarray([67.7,0.022,0.119,2.1e-9, 0.97])
+CAMBparnames=['H_0','Omega_b h^2','Omega_c h^2','A_S','n_s']
+CAMBparnames_LaTeX=['$H_0$','$\Omega_b h^2$','$\Omega_c h^2$','$A_S$','$n_s$']
+CAMBpars[3]/=scale
+nprm=len(CAMBpars) # number of parameters
+CAMBdpar=1e-3*np.ones(nprm)
+CAMBdpar[3]*=scale
+ztest=7.4
+CAMBk,CAMBPtrue=get_mps(CAMBpars,ztest,npts=nk)
+# print('CAMBPtrue.shape=',CAMBPtrue.shape)
+CAMBnpars=len(CAMBpars)
+calcCAMBPpartials=False
 
-def phi_arg_real(phi,phik,phikp):
-    arg=np.exp(-1j*(phik-phikp)*phi)
-    return arg.real
-def phi_arg_imag(phi,phik,phikp):
-    arg=np.exp(-1j*(phik-phikp)*phi)
-    return arg.imag
-def inner_phi_integral_real(phik,phikp):
-    integral,_=quad(phi_arg_real,0,twopi,args=(phik,phikp,))
-    return integral
-def inner_phi_integral_imag(phik,phikp):
-    integral,_=quad(phi_arg_imag,0,twopi,args=(phik,phikp,))
-    return integral
-def phi_k_and_kp_arg(phik,phikp):
-    return inner_phi_integral_real(phik,phikp)**2+inner_phi_integral_imag(phik,phikp)**2
-# def phi_k_and_kp_arg(phik,phikp): # inexplicable nans pop up everywhere when I try to use the version I calculated analytically
-#     return 2*(1-np.cos(twopi*(phik-phikp)))/(phik-phikp)**2
-phi_like_global,_=dblquad(phi_k_and_kp_arg,0,twopi,0,twopi)
-
-def W_binned_airy_beam_entry(rk,rkp,sig,theta_like=theta_like_global,phi_like=phi_like_global): # ONE ENTRY in the kind of W_binned square array that is useful to build
-    r_like=inner_r_integral_real(rk,rkp,sig)**2+inner_r_integral_imag(rk,rkp,sig)**2
-    print('r_like=',r_like)
-    # theta_like,_=dblquad(theta_k_and_kp_arg,0,pi,0,pi) # thetak and thetakp aren't args; they're variables of integration
-    # print('theta_like=',theta_like)
-    # phi_like,_=dblquad(phi_k_and_kp_arg,0,twopi,0,twopi) # phik and phikp are vars of integration
-    # print('phi_like=',phi_like)
-    return 4*pi**2*r_like*theta_like*phi_like 
-
-def W_binned_airy_beam(rk_vector,sig,save=True,timeout=600,verbose=False): # accumulate the kind of term we're interested in into a square grid
-    earlyexit=False # so far
-    t0=time.time()
-    npts=len(rk_vector)
-    arr=np.zeros((npts,npts))
-    element_times=np.zeros(npts**2)
-    for i in range(npts):
-        for j in range(i,npts):
-            t1=time.time()
-            arr[i,j]=W_binned_airy_beam_entry(rk_vector[i],rk_vector[j],sig)
-            arr[j,i]=arr[i,j] # probably a negligible difference to leave it this way vs. adding an if stmt to manually catch the off-diagonal terms
-            t2=time.time()
-            element_times[i*npts+j]=t2-t1
-            if verbose:
-                print('populated entries [',i,',',j,'] and [',j,',',i,'] of W_binned_airy_beam in',t2-t1,'s')
-            if((t2-t0)>timeout):
-                earlyexit=True
-                break
-        if ((t2-t0)>timeout):
-            earlyexit=True
-            break
-    if (save):
-        np.save('W_binned_airy_beam_array_'+str(time.time())+'.txt',arr)
-    t3=time.time()
-    if verbose:
-        if earlyexit:
-            print('due to time constraints, upper triangular entries with row-major indices beyond',i-1,',',j-1,' (and their lower triangular symmetric pairs) were not populated')
-        print('evaluation took',t3-t0,'s')
-        nonzero_element_times=element_times[np.nonzero(element_times)]
-        print('eval time per element:',np.mean(nonzero_element_times),'+/-',np.std(nonzero_element_times)) # x2 since half the array doesn't get populated ... easier than using nan-aware quantities
-    return arr
-
-npts=20
-rkmax=100.
+npts=25
+rkmax=104.
 rk_test=np.linspace(0,rkmax,npts)
-sig_test=rkmax/2
-W_binned_airy_beam_array_test=W_binned_airy_beam(rk_test,sig_test,timeout=20,verbose=True)
+sig_test=25
+r0_test=75
+W=W_binned_airy_beam(rk_test,sig_test,r0_test,verbose=False)
+print('W.shape=',W.shape)
+epssigws=np.logspace(-7,0,20) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
 
-plt.figure()
-plt.imshow(W_binned_airy_beam_array_test,extent=[rk_test[0],rk_test[-1],rk_test[-1],rk_test[0]]) # L,R,B,T
-plt.colorbar()
-plt.xlabel('scalar k; arbitrary units w/ dimensions of 1/L')
-plt.ylabel('scalar k-prime; arbitrary units w/ dimensions of 1/L')
-plt.title('Visualization check: spherical harmonic binning of an Airy beam')
-plt.tight_layout()
-plt.show()
+for epssigw in epssigws:
+    print('\nepssigw=',epssigw)
+    Wthought=W_binned_airy_beam(rk_test,1.01*sig_test,r0_test,verbose=True)
+    print('Wthought.shape=',Wthought.shape)
+
+    # CAMB MATTER POWER SPECTRUM CASE
+    CAMBPcont=(W-Wthought)@CAMBPtrue.T
+    print('CAMBPcont.shape=',CAMBPcont.shape)
+    print('sigk.shape=',sigk.shape)
+    if calcCAMBPpartials:
+        CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar) # buildCAMBpartials(p,z,nmodes,dpar)
+        np.save('cambppartials.npy',CAMBPpartials)
+    else:
+        CAMBPpartials=np.load('cambppartials.npy')
+    print('CAMBPpartials.shape=',CAMBPpartials.shape)
+    CAMBF=fisher(CAMBPpartials,sigk)
+    print('CAMBF.shape=',CAMBF.shape)
+    CAMBPcontDivsigk=(CAMBPcont.T/sigk).T
+    print('CAMBPcontDivsigk.shape=',CAMBPcontDivsigk.shape)
+    CAMBB=(CAMBPpartials.T@(CAMBPcontDivsigk))
+    print('CAMBB.shape=',CAMBB.shape)
+    CAMBb=bias(CAMBF,CAMBB)
+    print('CAMBb.shape=',CAMBb.shape)
+
+    CAMBpars2=CAMBpars.copy()
+    CAMBpars2[3]*=scale
+    CAMBb2=CAMBb.copy()
+    CAMBb2[3]*=scale
+    print('\nCAMB matter PS')
+    # print(CAMBpars2)
+    # print(CAMBparnames)
+    # print(CAMBb2,'\n')
+    printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)

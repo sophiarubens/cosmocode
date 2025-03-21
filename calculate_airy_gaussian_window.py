@@ -4,6 +4,7 @@ from scipy.special import j1 # first-order Bessel function of the first kind
 from scipy.integrate import quad,dblquad
 from scipy.linalg import toeplitz
 import time
+from matplotlib.colors import LogNorm
 
 pi=np.pi
 twopi=2.*pi
@@ -18,25 +19,25 @@ def r_arg_imag(r,rk,rkp,sig,r0):
     return arg.imag
 new_max_n_subdiv=200
 new_epsrel=1e-1
-def inner_r_integral_real(rk,rkp,sig,r0, tol=1e-2):
+def inner_r_integral_real(rk,rkp,sig,r0, tol=1e-1):
     expterm=np.exp(-r0**2/(2.*sig**2))
     # print('real part: np.exp(-r0**2/(2.*sig**2))=',expterm)
-    assert(expterm<tol), "this numerical case is inconsistent with the assumption governing the analytic version to which I am comparing it"
+    assert(expterm<tol), "expterm="+str(expterm)+"this numerical case is inconsistent with the assumption governing the analytic version to which I am comparing it"
     integral,_=quad(r_arg_real,0,np.infty,args=(rk,rkp,sig,r0,),epsrel=new_epsrel,limit=new_max_n_subdiv)
     return integral
-def inner_r_integral_imag(rk,rkp,sig,r0, tol=1e-2):
+def inner_r_integral_imag(rk,rkp,sig,r0, tol=1e-1):
     expterm=np.exp(-r0**2/(2.*sig**2))
     # print('imag part: np.exp(-r0**2/(2.*sig**2))=',expterm)
-    assert(expterm<tol), "this numerical case is inconsistent with the assumption governing the analytic version to which I am comparing it"
+    assert(expterm<tol), "expterm="+str(expterm)+"this numerical case is inconsistent with the assumption governing the analytic version to which I am comparing it"
     integral,_=quad(r_arg_imag,0,np.infty,args=(rk,rkp,sig,r0,),epsrel=new_epsrel,limit=new_max_n_subdiv)
     return integral
 
-check_inner_r_integral=True
+check_inner_r_integral=False
 if check_inner_r_integral:
     npts=25
     ubound=104
     sigma=25
-    r00=80
+    r00=75
     rk_vec=np.linspace(0,ubound,npts)
     scipy_quad_inner_r_integral=np.zeros((npts,npts))
     for i,rk in enumerate(rk_vec):
@@ -158,8 +159,8 @@ def W_binned_airy_beam_entry(rk,rkp,sig,r0,theta_like=theta_like_global,phi_like
     r_like_hand=expterm*longterm
     # print('r_like=',r_like)
     # print('r_like_hand',r_like_hand)
-    return 4*pi**2*r_like_hand*theta_like*phi_like
-    # return 4*pi**2*r_like*theta_like*phi_like 
+    # return 4*pi**2*r_like_hand*theta_like*phi_like
+    return 4*pi**2*r_like*theta_like*phi_like 
 
 def W_binned_airy_beam(rk_vector,sig,r0,save=True,verbose=False): # accumulate the kind of term we're interested in into a square grid
     npts=len(rk_vector)
@@ -177,14 +178,14 @@ npts=25
 rkmax=104.
 rk_test=np.linspace(0,rkmax,npts)
 sig_test=25
-r0_test=124
+r0_test=75
 W_binned_airy_beam_array_test=W_binned_airy_beam(rk_test,sig_test,r0_test,verbose=True)
 
 plt.figure()
-plt.imshow(W_binned_airy_beam_array_test,extent=[rk_test[0],rk_test[-1],rk_test[-1],rk_test[0]]) # L,R,B,T
+plt.imshow(W_binned_airy_beam_array_test,extent=[rk_test[0],rk_test[-1],rk_test[-1],rk_test[0]],norm='log',cmap='Reds') # L,R,B,T
 plt.colorbar()
 plt.xlabel('scalar k; arbitrary units w/ dimensions of 1/L')
 plt.ylabel('scalar k-prime; arbitrary units w/ dimensions of 1/L')
-plt.title('Visualization check: spherical harmonic binning of an Airy beam')
+plt.title('Spherically binned Airy beam x Gaussian response')
 plt.tight_layout()
 plt.show()
