@@ -16,13 +16,6 @@ pi=np.pi
 twopi=2.*pi
 nu_rest_21=1420.405751768 # MHz
 
-z_900=z_freq(nu_rest_21,900.)
-r0_900=comoving_distance(z_900)
-sigma_900=r0_900*np.tan(3.89*pi/180.)
-print('consider the case where you have maximal sensitivity to the 21-cm signal at 900 MHz (z='+str(z_900)+')')
-print('r0    = ',r0_900,'Mpc')
-print('sigma = ',sigma_900,'Mpc')
-
 scale=1e-9
 def get_mps(pars,zs,minkh=1e-4,maxkh=1,npts=200): # < CAMBpartial < buildCAMBpartials
     '''
@@ -124,50 +117,59 @@ CAMBdpar[3]*=scale
 ztest=7.4
 CAMBk,CAMBPtrue=get_mps(CAMBpars,ztest,npts=nk)
 
-plt.figure()
-plt.semilogy(CAMBk,np.reshape(CAMBPtrue,(nk,)))
-plt.xlabel('k (Mpc)')
-plt.ylabel('P (K^2 Mpc^{-3})')
-plt.title('z='+str(ztest)+' power spectrum')
-plt.show()
-assert(1==0)
+# plt.figure()
+# plt.semilogy(CAMBk,np.reshape(CAMBPtrue,(nk,)))
+# plt.xlabel('k (Mpc)')
+# plt.ylabel('P (K^2 Mpc^{-3})')
+# plt.title('z='+str(ztest)+' power spectrum')
+# plt.show()
+# assert(1==0)
 
-# CAMBnpars=len(CAMBpars)
-# calcCAMBPpartials=False
+CAMBnpars=len(CAMBpars)
+calcCAMBPpartials=True
 
-# npts=25
-# rkmax=104.
-# rk_test=np.linspace(0,rkmax,npts)
+npts=25
+z_900=z_freq(nu_rest_21,900.)
+r0_900=comoving_distance(z_900)
+sig_900=r0_900*np.tan(3.89*pi/180.)
+rkmax_900=3*sig_900
+rk_900=np.linspace(0,rkmax_900,npts)
+print('consider the case where you have maximal sensitivity to the 21-cm signal at 900 MHz (z='+str(z_900)+')')
+print('r0    = ',r0_900,'Mpc')
+print('sigma = ',sig_900,'Mpc')
+
+# rkmax_test=104.
+# rk_test=np.linspace(0,rkmax_test,npts)
 # sig_test=25
 # r0_test=75
-# W=W_binned_airy_beam(rk_test,sig_test,r0_test)
-# epsvals=np.logspace(-15,0,20) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+W=W_binned_airy_beam(rk_900,sig_900,r0_900)
+epsvals=np.logspace(-8,0,20) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
 
-# for eps in epsvals:
-#     print('\neps=',eps)
-#     Wthought=W_binned_airy_beam(rk_test,sig_test,(1.+eps)*r0_test)
+for eps in epsvals:
+    print('\neps=',eps)
+    Wthought=W_binned_airy_beam(rk_900,sig_900,(1.+eps)*r0_900)
 
-#     # CAMB MATTER POWER SPECTRUM CASE
-#     plt.figure()
-#     plt.imshow(W-Wthought)
-#     plt.colorbar()
-#     plt.title('W-Wthought check')
-#     plt.show()
-#     CAMBPcont=(W-Wthought)@CAMBPtrue.T
-#     if calcCAMBPpartials:
-#         CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar) # buildCAMBpartials(p,z,nmodes,dpar)
-#         np.save('cambppartials.npy',CAMBPpartials)
-#     else:
-#         CAMBPpartials=np.load('cambppartials.npy')
-#     CAMBF=fisher(CAMBPpartials,sigk)
-#     CAMBPcontDivsigk=(CAMBPcont.T/sigk).T
-#     CAMBB=(CAMBPpartials.T@(CAMBPcontDivsigk))
-#     CAMBb=bias(CAMBF,CAMBB)
+    # CAMB MATTER POWER SPECTRUM CASE
+    plt.figure()
+    plt.imshow(W-Wthought)
+    plt.colorbar()
+    plt.title('W-Wthought check')
+    plt.show()
+    CAMBPcont=(W-Wthought)@CAMBPtrue.T
+    if calcCAMBPpartials:
+        CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar) # buildCAMBpartials(p,z,nmodes,dpar)
+        np.save('cambppartials.npy',CAMBPpartials)
+    else:
+        CAMBPpartials=np.load('cambppartials.npy')
+    CAMBF=fisher(CAMBPpartials,sigk)
+    CAMBPcontDivsigk=(CAMBPcont.T/sigk).T
+    CAMBB=(CAMBPpartials.T@(CAMBPcontDivsigk))
+    CAMBb=bias(CAMBF,CAMBB)
 
-#     CAMBpars2=CAMBpars.copy()
-#     CAMBpars2[3]*=scale
-#     CAMBb2=CAMBb.copy()
-#     CAMBb2[3]*=scale
-#     print('\nCAMB matter PS')
-#     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
-#     assert(1==0)
+    CAMBpars2=CAMBpars.copy()
+    CAMBpars2[3]*=scale
+    CAMBb2=CAMBb.copy()
+    CAMBb2[3]*=scale
+    print('\nCAMB matter PS')
+    printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
+    # assert(1==0)
