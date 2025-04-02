@@ -104,8 +104,6 @@ def printparswbiases(pars,parnames,biases):
     return None
 
 nk=25
-# kvec=np.linspace(0.05,0.7,nk)
-# sigk=0.05*np.cos(2*np.pi*(kvec-kvec[0])/(kvec[-1]-kvec[0]))+0.01 # uncertainty in the power spectrum at each k-mode ... just a toy case sinusoidally more sensitive in the middle but offset vertically so there is a positive uncertainty at each k
 
 CAMBpars=np.asarray([67.7,0.022,0.119,2.1e-9, 0.97])
 CAMBparnames=['H_0','Omega_b h^2','Omega_c h^2','A_S','n_s']
@@ -126,7 +124,18 @@ r0_900=comoving_distance(z_900)
 sig_900=r0_900*np.tan(3.89*pi/180.)
 rkmax_900=3*sig_900
 rk_900=np.linspace(0,rkmax_900,npts)
-sigk_900=0.05*np.cos(2*np.pi*(rk_900-rk_900[0])/(rk_900[-1]-rk_900[0]))+0.01
+# choose an offs>ampl so sigk remains positive everywhere
+# sigk_cos_ampl=0.005 # hand biases always unreasonably large; scipy version still suddenly blows up at intermediate eps
+# sigk_cos_offs=0.01
+# sigk_cos_ampl=0.005 # ^ but less severe
+# sigk_cos_offs=0.008
+# sigk_cos_ampl=0.001 # ^ but even less severe
+# sigk_cos_offs=0.005
+sigk_cos_ampl=0.0001 # 
+sigk_cos_offs=0.001
+sigk_900=sigk_cos_ampl*np.cos(2*np.pi*(rk_900-rk_900[0])/(rk_900[-1]-rk_900[0]))+sigk_cos_offs
+print('sigk_cos_ampl=',sigk_cos_ampl)
+print('sigk_cos_offs=',sigk_cos_offs)
 print('consider the case where you have maximal sensitivity to the 21-cm signal at 900 MHz (z='+str(z_900)+')')
 print('r0    = ',r0_900,'Mpc')
 print('sigma = ',sig_900,'Mpc')
@@ -143,11 +152,13 @@ im=axs[1].imshow(Wrhand)
 plt.colorbar(im,ax=axs[1])
 axs[1].set_xlabel("k")
 axs[1].set_ylabel("k'")
-plt.suptitle('r ana vs r hand')
+axs[1].set_title('W with r_hand')
+plt.suptitle('comparison of r-integral strategies')
+plt.savefig('W_compare_r_scipy_hand.png')
 plt.show()
 
-# epsvals=np.logspace(-0.6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
-epsvals=np.linspace(0.05,0.35,9)
+epsvals=np.logspace(-6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+# epsvals=np.linspace(0.05,0.35,9)
 fig,axs=plt.subplots(3,3,figsize=(10,10),layout='tight')
 fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
 
@@ -203,7 +214,7 @@ for k,eps in enumerate(epsvals):
     CAMBb2rhand=CAMBbrhand.copy()
     CAMBb2rhand[3]*=scale
     print('\nCAMB matter PS **R-LIKE BY HAND**')
-    printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
+    printparswbiases(CAMBpars2,CAMBparnames,CAMBb2rhand)
     ##
 
     # assert(1==0)
