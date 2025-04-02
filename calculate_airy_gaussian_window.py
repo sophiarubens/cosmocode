@@ -66,17 +66,12 @@ def phi_k_and_kp_arg(phik,phikp):
 phi_like_global,_=dblquad(phi_k_and_kp_arg,0,twopi,0,twopi)
 
 def W_binned_airy_beam_entry(rk,rkp,sig,r0,theta_like=theta_like_global,phi_like=phi_like_global): # ONE ENTRY in the kind of W_binned square array that is useful to build
-    # r_like=inner_r_integral_real(rk,rkp,sig,r0)**2+inner_r_integral_imag(rk,rkp,sig,r0)**2
-    deltak=rk-rkp
-    r_like=twopi*sig**2*np.exp(-deltak**2*sig**2)
+    r_like=inner_r_integral_real(rk,rkp,sig,r0)**2+inner_r_integral_imag(rk,rkp,sig,r0)**2
     return 4*pi**2*r_like*theta_like*phi_like 
 
 def W_binned_airy_beam_entry_r_hand(rk,rkp,sig,r0,theta_like=theta_like_global,phi_like=phi_like_global):
     deltak=rk-rkp
-    # longterm=(sig**4-2*deltak**2*sig**6+2*r0*sig**2+deltak**4*sig**8+r0**4+2*deltak**2*sig**4*r0**2)
-    # expterm=twopi*sig**2*np.exp(-deltak**2*sig**2)
     r_like_hand=twopi*sig**2*np.exp(-deltak**2*sig**2)
-    # r_like_hand=expterm*longterm
     return 4*pi**2*r_like_hand*theta_like*phi_like
 
 def W_binned_airy_beam(rk_vector,sig,r0,save=False,verbose=False): # accumulate the kind of term we're interested in into a square grid
