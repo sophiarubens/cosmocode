@@ -117,14 +117,6 @@ CAMBdpar[3]*=scale
 ztest=7.4
 CAMBk,CAMBPtrue=get_mps(CAMBpars,ztest,npts=nk)
 
-# plt.figure()
-# plt.semilogy(CAMBk,np.reshape(CAMBPtrue,(nk,)))
-# plt.xlabel('k (Mpc)')
-# plt.ylabel('P (K^2 Mpc^{-3})')
-# plt.title('z='+str(ztest)+' power spectrum')
-# plt.show()
-# assert(1==0)
-
 CAMBnpars=len(CAMBpars)
 calcCAMBPpartials=False
 
@@ -143,6 +135,7 @@ Wrhand=W_binned_airy_beam_r_hand(rk_900,sig_900,r0_900)
 fig,axs=plt.subplots(1,2)
 im=axs[0].imshow(W)
 plt.colorbar(im,ax=axs[0])
+axs[0].set_title('W with r ')
 axs[0].set_xlabel("k")
 axs[0].set_ylabel("k'")
 im=axs[1].imshow(Wrhand)
@@ -152,7 +145,7 @@ axs[1].set_ylabel("k'")
 plt.suptitle('r ana vs r hand')
 plt.show()
 
-epsvals=np.logspace(-2,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+epsvals=np.logspace(-10,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
 fig,axs=plt.subplots(3,3,figsize=(10,10),layout='tight')
 fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
 
@@ -196,7 +189,7 @@ for k,eps in enumerate(epsvals):
     print('\nCAMB matter PS')
     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
     # assert(1==0)
-fig.suptitle('W-Wthought for various fractional errors in beam width')
+fig.suptitle('W-Wthought for various fractional errors in beam width R ANA')
 fig.savefig('W_minus_Wthought_beam_width_tests.png')
 fig.show()
 fih.suptitle('W-Wthought for various fractional errors in beam width R HAND')
