@@ -126,7 +126,7 @@ CAMBk,CAMBPtrue=get_mps(CAMBpars,ztest,npts=nk)
 # assert(1==0)
 
 CAMBnpars=len(CAMBpars)
-calcCAMBPpartials=True
+calcCAMBPpartials=False
 
 npts=25
 z_900=z_freq(nu_rest_21,900.)
@@ -138,23 +138,46 @@ print('consider the case where you have maximal sensitivity to the 21-cm signal 
 print('r0    = ',r0_900,'Mpc')
 print('sigma = ',sig_900,'Mpc')
 
-# rkmax_test=104.
-# rk_test=np.linspace(0,rkmax_test,npts)
-# sig_test=25
-# r0_test=75
 W=W_binned_airy_beam(rk_900,sig_900,r0_900)
-epsvals=np.logspace(-8,0,20) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+Wrhand=W_binned_airy_beam_r_hand(rk_900,sig_900,r0_900)
+fig,axs=plt.subplots(1,2)
+im=axs[0].imshow(W)
+plt.colorbar(im,ax=axs[0])
+axs[0].set_xlabel("k")
+axs[0].set_ylabel("k'")
+im=axs[1].imshow(Wrhand)
+plt.colorbar(im,ax=axs[1])
+axs[1].set_xlabel("k")
+axs[1].set_ylabel("k'")
+plt.suptitle('r ana vs r hand')
+plt.show()
 
-for eps in epsvals:
+epsvals=np.logspace(-2,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+fig,axs=plt.subplots(3,3,figsize=(10,10),layout='tight')
+fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
+
+# assert(1==0),"tracking down issues between r and r_hand"
+for k,eps in enumerate(epsvals):
+    i=k//3
+    j=k%3
     print('\neps=',eps)
-    Wthought=W_binned_airy_beam(rk_900,sig_900,(1.+eps)*r0_900)
+    Wthought=W_binned_airy_beam(rk_900,(1.+eps)*sig_900,r0_900)
+    Wthoughtrhand=W_binned_airy_beam_r_hand(rk_900,(1.+eps)*sig_900,r0_900)
 
     # CAMB MATTER POWER SPECTRUM CASE
-    plt.figure()
-    plt.imshow(W-Wthought)
-    plt.colorbar()
-    plt.title('W-Wthought check')
-    plt.show()
+    im=axs[i,j].imshow(W-Wthought)
+    plt.colorbar(im,ax=axs[i,j])
+    axs[i,j].set_xlabel("k")
+    axs[i,j].set_ylabel("k'")
+    axs[i,j].set_title("eps="+str(eps))
+
+    im=axh[i,j].imshow(Wrhand-Wthoughtrhand)
+    plt.colorbar(im,ax=axh[i,j])
+    axh[i,j].set_xlabel("k")
+    axh[i,j].set_ylabel("k'")
+    axh[i,j].set_title("eps="+str(eps))
+
+    # right now ONLY CALCULATING BIASES FOR SCIPY R-LIKE CALCULATION ... TRACK THIS DOWN LATER
     CAMBPcont=(W-Wthought)@CAMBPtrue.T
     if calcCAMBPpartials:
         CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar) # buildCAMBpartials(p,z,nmodes,dpar)
@@ -173,3 +196,9 @@ for eps in epsvals:
     print('\nCAMB matter PS')
     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
     # assert(1==0)
+fig.suptitle('W-Wthought for various fractional errors in beam width')
+fig.savefig('W_minus_Wthought_beam_width_tests.png')
+fig.show()
+fih.suptitle('W-Wthought for various fractional errors in beam width R HAND')
+fih.savefig('W_minus_Wthought_beam_width_tests_R_HAND.png')
+fih.show()
