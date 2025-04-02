@@ -104,8 +104,8 @@ def printparswbiases(pars,parnames,biases):
     return None
 
 nk=25
-kvec=np.linspace(0.05,0.7,nk)
-sigk=0.05*np.cos(2*np.pi*(kvec-kvec[0])/(kvec[-1]-kvec[0]))+0.01 # uncertainty in the power spectrum at each k-mode ... just a toy case sinusoidally more sensitive in the middle but offset vertically so there is a positive uncertainty at each k
+# kvec=np.linspace(0.05,0.7,nk)
+# sigk=0.05*np.cos(2*np.pi*(kvec-kvec[0])/(kvec[-1]-kvec[0]))+0.01 # uncertainty in the power spectrum at each k-mode ... just a toy case sinusoidally more sensitive in the middle but offset vertically so there is a positive uncertainty at each k
 
 CAMBpars=np.asarray([67.7,0.022,0.119,2.1e-9, 0.97])
 CAMBparnames=['H_0','Omega_b h^2','Omega_c h^2','A_S','n_s']
@@ -126,6 +126,7 @@ r0_900=comoving_distance(z_900)
 sig_900=r0_900*np.tan(3.89*pi/180.)
 rkmax_900=3*sig_900
 rk_900=np.linspace(0,rkmax_900,npts)
+sigk_900=0.05*np.cos(2*np.pi*(rk_900-rk_900[0])/(rk_900[-1]-rk_900[0]))+0.01
 print('consider the case where you have maximal sensitivity to the 21-cm signal at 900 MHz (z='+str(z_900)+')')
 print('r0    = ',r0_900,'Mpc')
 print('sigma = ',sig_900,'Mpc')
@@ -145,7 +146,8 @@ axs[1].set_ylabel("k'")
 plt.suptitle('r ana vs r hand')
 plt.show()
 
-epsvals=np.logspace(-10,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+# epsvals=np.logspace(-0.6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+epsvals=np.linspace(0.05,0.35,9)
 fig,axs=plt.subplots(3,3,figsize=(10,10),layout='tight')
 fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
 
@@ -177,8 +179,8 @@ for k,eps in enumerate(epsvals):
         np.save('cambppartials.npy',CAMBPpartials)
     else:
         CAMBPpartials=np.load('cambppartials.npy')
-    CAMBF=fisher(CAMBPpartials,sigk)
-    CAMBPcontDivsigk=(CAMBPcont.T/sigk).T
+    CAMBF=fisher(CAMBPpartials,sigk_900)
+    CAMBPcontDivsigk=(CAMBPcont.T/sigk_900).T
     CAMBB=(CAMBPpartials.T@(CAMBPcontDivsigk))
     CAMBb=bias(CAMBF,CAMBB)
 
@@ -186,8 +188,24 @@ for k,eps in enumerate(epsvals):
     CAMBpars2[3]*=scale
     CAMBb2=CAMBb.copy()
     CAMBb2[3]*=scale
-    print('\nCAMB matter PS')
+    print('\nCAMB matter PS **R-LIKE SCIPY**')
     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
+
+    ##
+    CAMBPcontrhand=(Wrhand-Wthoughtrhand)@CAMBPtrue.T
+    CAMBFrhand=fisher(CAMBPpartials,sigk_900)
+    CAMBPcontDivsigkrhand=(CAMBPcontrhand.T/sigk_900).T
+    CAMBBrhand=(CAMBPpartials.T@(CAMBPcontDivsigkrhand))
+    CAMBbrhand=bias(CAMBFrhand,CAMBBrhand)
+
+    CAMBpars2=CAMBpars.copy()
+    CAMBpars2[3]*=scale
+    CAMBb2rhand=CAMBbrhand.copy()
+    CAMBb2rhand[3]*=scale
+    print('\nCAMB matter PS **R-LIKE BY HAND**')
+    printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
+    ##
+
     # assert(1==0)
 fig.suptitle('W-Wthought for various fractional errors in beam width R ANA')
 fig.savefig('W_minus_Wthought_beam_width_tests.png')
