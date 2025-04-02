@@ -140,26 +140,25 @@ print('consider the case where you have maximal sensitivity to the 21-cm signal 
 print('r0    = ',r0_900,'Mpc')
 print('sigma = ',sig_900,'Mpc')
 
-W=W_binned_airy_beam(rk_900,sig_900,r0_900)
+# W=W_binned_airy_beam(rk_900,sig_900,r0_900)
 Wrhand=W_binned_airy_beam_r_hand(rk_900,sig_900,r0_900)
 fig,axs=plt.subplots(1,2)
-im=axs[0].imshow(W)
-plt.colorbar(im,ax=axs[0])
-axs[0].set_title('W with r ')
-axs[0].set_xlabel("k")
-axs[0].set_ylabel("k'")
-im=axs[1].imshow(Wrhand)
-plt.colorbar(im,ax=axs[1])
-axs[1].set_xlabel("k")
-axs[1].set_ylabel("k'")
-axs[1].set_title('W with r_hand')
-plt.suptitle('comparison of r-integral strategies')
-plt.savefig('W_compare_r_scipy_hand.png')
-plt.show()
+# im=axs[0].imshow(W)
+# plt.colorbar(im,ax=axs[0])
+# axs[0].set_title('W with r ')
+# axs[0].set_xlabel("k")
+# axs[0].set_ylabel("k'")
+# im=axs[1].imshow(Wrhand)
+# plt.colorbar(im,ax=axs[1])
+# axs[1].set_xlabel("k")
+# axs[1].set_ylabel("k'")
+# axs[1].set_title('W with r_hand')
+# plt.suptitle('comparison of r-integral strategies')
+# plt.savefig('W_compare_r_scipy_hand.png')
+# plt.show()
 
 epsvals=np.logspace(-6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
-# epsvals=np.linspace(0.05,0.35,9)
-fig,axs=plt.subplots(3,3,figsize=(10,10),layout='tight')
+# fig,axs=plt.subplots(3,3,figsize=(10,10),layout='tight')
 fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
 
 # assert(1==0),"tracking down issues between r and r_hand"
@@ -167,15 +166,15 @@ for k,eps in enumerate(epsvals):
     i=k//3
     j=k%3
     print('\neps=',eps)
-    Wthought=W_binned_airy_beam(rk_900,(1.+eps)*sig_900,r0_900)
+    # Wthought=W_binned_airy_beam(rk_900,(1.+eps)*sig_900,r0_900)
     Wthoughtrhand=W_binned_airy_beam_r_hand(rk_900,(1.+eps)*sig_900,r0_900)
 
     # CAMB MATTER POWER SPECTRUM CASE
-    im=axs[i,j].imshow(W-Wthought)
-    plt.colorbar(im,ax=axs[i,j])
-    axs[i,j].set_xlabel("k")
-    axs[i,j].set_ylabel("k'")
-    axs[i,j].set_title("eps="+str(eps))
+    # im=axs[i,j].imshow(W-Wthought)
+    # plt.colorbar(im,ax=axs[i,j])
+    # axs[i,j].set_xlabel("k")
+    # axs[i,j].set_ylabel("k'")
+    # axs[i,j].set_title("eps="+str(eps))
 
     im=axh[i,j].imshow(Wrhand-Wthoughtrhand)
     plt.colorbar(im,ax=axh[i,j])
@@ -184,23 +183,23 @@ for k,eps in enumerate(epsvals):
     axh[i,j].set_title("eps="+str(eps))
 
     # right now ONLY CALCULATING BIASES FOR SCIPY R-LIKE CALCULATION ... TRACK THIS DOWN LATER
-    CAMBPcont=(W-Wthought)@CAMBPtrue.T
+    # CAMBPcont=(W-Wthought)@CAMBPtrue.T
     if calcCAMBPpartials:
         CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar) # buildCAMBpartials(p,z,nmodes,dpar)
         np.save('cambppartials.npy',CAMBPpartials)
     else:
         CAMBPpartials=np.load('cambppartials.npy')
-    CAMBF=fisher(CAMBPpartials,sigk_900)
-    CAMBPcontDivsigk=(CAMBPcont.T/sigk_900).T
-    CAMBB=(CAMBPpartials.T@(CAMBPcontDivsigk))
-    CAMBb=bias(CAMBF,CAMBB)
+    # CAMBF=fisher(CAMBPpartials,sigk_900)
+    # CAMBPcontDivsigk=(CAMBPcont.T/sigk_900).T
+    # CAMBB=(CAMBPpartials.T@(CAMBPcontDivsigk))
+    # CAMBb=bias(CAMBF,CAMBB)
 
-    CAMBpars2=CAMBpars.copy()
-    CAMBpars2[3]*=scale
-    CAMBb2=CAMBb.copy()
-    CAMBb2[3]*=scale
-    print('\nCAMB matter PS **R-LIKE SCIPY**')
-    printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
+    # CAMBpars2=CAMBpars.copy()
+    # CAMBpars2[3]*=scale
+    # CAMBb2=CAMBb.copy()
+    # CAMBb2[3]*=scale
+    # print('\nCAMB matter PS **R-LIKE SCIPY**')
+    # printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
 
     ##
     CAMBPcontrhand=(Wrhand-Wthoughtrhand)@CAMBPtrue.T
@@ -218,9 +217,9 @@ for k,eps in enumerate(epsvals):
     ##
 
     # assert(1==0)
-fig.suptitle('W-Wthought for various fractional errors in beam width R ANA')
-fig.savefig('W_minus_Wthought_beam_width_tests.png')
-fig.show()
+# fig.suptitle('W-Wthought for various fractional errors in beam width R ANA')
+# fig.savefig('W_minus_Wthought_beam_width_tests.png')
+# fig.show()
 fih.suptitle('W-Wthought for various fractional errors in beam width R HAND')
 fih.savefig('W_minus_Wthought_beam_width_tests_R_HAND.png')
 fih.show()
