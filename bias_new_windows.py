@@ -96,14 +96,9 @@ def bias(F,B):
     return (np.linalg.inv(F)@B).reshape((F.shape[0],))
 
 def printparswbiases(pars,parnames,biases):
-    # print('pars=',pars)
-    # print('parnames=',parnames)
-    # print('biases=',biases)
     for p,par in enumerate(pars):
         print('{:12} = {:-10.3e} with bias {:-12.5e}'.format(parnames[p], par, biases[p]))
     return None
-
-nk=25
 
 CAMBpars=np.asarray([67.7,0.022,0.119,2.1e-9, 0.97])
 CAMBparnames=['H_0','Omega_b h^2','Omega_c h^2','A_S','n_s']
@@ -113,17 +108,17 @@ nprm=len(CAMBpars) # number of parameters
 CAMBdpar=1e-3*np.ones(nprm)
 CAMBdpar[3]*=scale
 ztest=7.4
+nk=25
 CAMBk,CAMBPtrue=get_mps(CAMBpars,ztest,npts=nk)
 
 CAMBnpars=len(CAMBpars)
 calcCAMBPpartials=False
 
-npts=25
-z_900=z_freq(nu_rest_21,900.)
+z_900=freq2z(nu_rest_21,900.)
 r0_900=comoving_distance(z_900)
 sig_900=r0_900*np.tan(3.89*pi/180.)
 rkmax_900=3*sig_900
-rk_900=np.linspace(0,rkmax_900,npts)
+rk_900=np.linspace(0,rkmax_900,nk)
 # choose an offs>ampl so sigk remains positive everywhere
 sigk_cos_ampl=1e-7
 sigk_cos_offs=5e-7
@@ -153,7 +148,7 @@ for k,eps in enumerate(epsvals):
     axh[i,j].set_title("eps="+str(eps))
 
     if calcCAMBPpartials:
-        CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar) # buildCAMBpartials(p,z,nmodes,dpar)
+        CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar)
         np.save('cambppartials.npy',CAMBPpartials)
     else:
         CAMBPpartials=np.load('cambppartials.npy')
