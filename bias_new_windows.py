@@ -126,9 +126,13 @@ deltaz=z_hi-z_lo
 N_CHORDcosmo=2048.
 channel_width=survey_width/N_CHORDcosmo # channel width in MHz
 surv_channels=np.arange(nu_lo,nu_hi-channel_width,channel_width)
+print("survey centred at",nu_ctr,"MHz / z=",z_ctr,"/ D_c=",r0_ctr,"Mpc")
+print("survey spans",nu_lo,"-",nu_hi,"MHz (width=",survey_width,"MHz) in",N_CHORDcosmo,"channels of width",channel_width,"MHz")
+print("or, in redshift space, z=",z_hi,"-",z_lo,"(deltaz=",deltaz,")")
+print("or, in comoving distance terms, D_c=",Dc_hi,"-",Dc_lo,"Mpc")
 
 sig_LoS=0.5*(Dc_hi-Dc_lo) # of course this flattens the nonlinearity of Dc(z) and ignores the asymmetry in sensitivity WRT the centre
-print("sig_LoS=",sig_LoS)
+print("sig_LoS=",sig_LoS,"Mpc")
 
 rk_surv=kpar(surv_channels,N_CHORDcosmo)
 deltakpar_initial=rk_surv[1]-rk_surv[0]
@@ -152,15 +156,11 @@ linearized_kbins=np.arange(rk_surv[0],rk_surv[0]+N_CHORDcosmo*deltakpar_initial,
 # assert(1==0), "examining differential k-bin width"
 
 # STILL USING A TOY MODEL FOR 1D k-bin variance
-# choose an offs>ampl so sigk remains positive everywhere
-sigk_cos_ampl=1e-7
-sigk_cos_offs=5e-7
-k_bin_stddev=sigk_cos_ampl*np.cos(2*np.pi*(rk_surv-rk_surv[0])/(rk_surv[-1]-rk_surv[0]))+sigk_cos_offs
+sigk_cos_ampl=1e-7 
+sigk_cos_offs=5e-7 # choose an offs>ampl so sigk remains positive everywhere
+k_bin_stddev=sigk_cos_ampl*np.cos(2*np.pi*(rk_surv-rk_surv[0])/(rk_surv[-1]-rk_surv[0]))+sigk_cos_offs # even worse now b/c I hope to use the nonlinear k-bins
 print('sigk_cos_ampl=',sigk_cos_ampl)
 print('sigk_cos_offs=',sigk_cos_offs)
-print('consider the case where you have maximal sensitivity to the 21-cm signal at 900 MHz (z='+str(z_ctr)+')')
-print('r0    = ',r0_ctr,'Mpc')
-print('sigma_LoS = ',sig_LoS,'Mpc')
 assert(1==0), "consider adding 21cmSense 1D variances"
 
 CAMBpars=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  AS_Planck18,  ns_Planck18])
