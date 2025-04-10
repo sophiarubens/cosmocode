@@ -161,7 +161,7 @@ sigk_cos_offs=5e-7 # choose an offs>ampl so sigk remains positive everywhere
 k_bin_stddev=sigk_cos_ampl*np.cos(2*np.pi*(rk_surv-rk_surv[0])/(rk_surv[-1]-rk_surv[0]))+sigk_cos_offs # even worse now b/c I hope to use the nonlinear k-bins
 print('sigk_cos_ampl=',sigk_cos_ampl)
 print('sigk_cos_offs=',sigk_cos_offs)
-assert(1==0), "consider adding 21cmSense 1D variances"
+# assert(1==0), "consider adding 21cmSense 1D variances"
 
 CAMBpars=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  AS_Planck18,  ns_Planck18])
 CAMBparnames=       ['H_0',       'Omega_b h^2',      'Omega_c h^2',      'A_S',        'n_s'       ]
@@ -172,7 +172,7 @@ calcCAMBPpartials=True
 nprm=len(CAMBpars) # number of parameters
 CAMBdpar=1e-3*np.ones(nprm)
 CAMBdpar[3]*=scale
-CAMBk,CAMBPtrue=get_mps(CAMBpars,z_ctr,npts=N_CHORDcosmo)
+CAMBk,CAMBPtrue=get_mps(CAMBpars,z_ctr,npts=int(N_CHORDcosmo))
 
 npts=2222
 theta_vals=np.linspace(0,twopi,npts)
@@ -181,6 +181,7 @@ basic_airy_beam_half_max=1./8. # derived on paper
 beta_fwhm=theta_vals[np.nanargmin(np.abs(basic_airy_beam-basic_airy_beam_half_max))]
 CHORD_ish_fwhm=pi/45. # 4 deg = 4pi/180 rad = pi/45 rad
 CHORD_ish_airy_alpha=beta_fwhm/CHORD_ish_fwhm
+# assert(1==0), "last stop before trying new Wbinned calcs"
 Wrscipy=  W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'scipy') # W_binned_airy_beam(rk_vector,sig,r0,alpha,r_like_strategy,save=False,verbose=False)
 Wrhand=   W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'hand')
 Wrwiggly= W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'wiggly')
