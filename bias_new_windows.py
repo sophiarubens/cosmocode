@@ -15,6 +15,9 @@ infty=np.infty
 pi=np.pi
 twopi=2.*pi
 nu_rest_21=1420.405751768 # MHz
+c=2.998e8
+pc=30856775814914000 # m
+Mpc=pc*1e6
 
 scale=1e-9
 def get_mps(pars,zs,minkh=1e-4,maxkh=1,npts=200): # < CAMBpartial < buildCAMBpartials
@@ -100,25 +103,41 @@ def printparswbiases(pars,parnames,biases):
         print('{:12} = {:-10.3e} with bias {:-12.5e}'.format(parnames[p], par, biases[p]))
     return None
 
-CAMBpars=np.asarray([67.7,0.022,0.119,2.1e-9, 0.97])
-CAMBparnames=['H_0','Omega_b h^2','Omega_c h^2','A_S','n_s']
-CAMBparnames_LaTeX=['$H_0$','$\Omega_b h^2$','$\Omega_c h^2$','$A_S$','$n_s$']
-CAMBpars[3]/=scale
-nprm=len(CAMBpars) # number of parameters
-CAMBdpar=1e-3*np.ones(nprm)
-CAMBdpar[3]*=scale
-ztest=7.4
-nk=25
-CAMBk,CAMBPtrue=get_mps(CAMBpars,ztest,npts=nk)
-
-CAMBnpars=len(CAMBpars)
-calcCAMBPpartials=False
-
 z_900=freq2z(nu_rest_21,900.)
 r0_900=comoving_distance(z_900)
-sig_900=r0_900*np.tan(3.89*pi/180.)
-rkmax_900=3*sig_900
-rk_900=np.linspace(0,rkmax_900,nk)
+r0_800=comoving_distance(freq2z(nu_rest_21,800.))
+r0_1000=comoving_distance(freq2z(nu_rest_21,1000.))
+print("r0_800,r0_900,r0_1000=",r0_800,r0_900,r0_1000,"Mpc")
+print("r0_800,r0_900,r0_1000=",r0_800*Mpc,r0_900*Mpc,r0_1000*Mpc,"m")
+sig_LoS_900=0.5*(r0_800-r0_1000) # placeholder value ... inspired by the CHIME 21 cm survey being about 200 MHz wide -> take the half-width of the comoving distance range corresp. to this interval
+print("sig_LoS_900=",sig_LoS_900)
+b_min_CHORD=6.3 # m
+b_max_CHORD=245
+
+# kpar(surv_channels,N)
+
+# kperpmin_minv,kperpmax_minv=kperplims(900.,b_min_CHORD,b_max_CHORD) # kperplims(nuctr,bmin,bmax,nurest=nu21):# here, use bmin as also the limiting deltab -> use to set deltak
+# print('m^{-1}: kperpmin,kperpmax=',kperpmin_minv,kperpmax_minv)
+# kperpmin=kperpmin_minv*Mpc # in Mpcinv
+# kperpmax=kperpmax_minv*Mpc
+# print('Mpc^{-1}: kperpmin,kperpmax=',kperpmin,kperpmax)
+# rk_900=np.arange(kperpmin,kperpmax,kperpmin)
+
+# deltakpar(nuctr,deltanu,nurest=nu21)
+deltanu_900=60./2048. # MHz ... based on the 1/15 deltanu/nu ratio inspired by HERA cosmological surveys
+# deltakpar_900=deltakpar(900.,deltanu_900)
+# print("deltakpar_900=",deltakpar_900)
+
+# assert(1==0), "checking k-limit calculation"
+# kparmin_m=twopi*800e6/c # m
+# kparmax_m=twopi*1000e6/c
+# kparmin= # Mpc
+
+### DELTA_NU = 0.195 MHZ !!!!!!!!!!!!!!! FROM TELECON SLIDES!!! Δν = 0.195 MHz >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> PICK UP HERE TMRW!! (although quoted as 30 kHz in an earlier slide... that is an older number) (even older: 8192 frequency bins (183 kHz resolution) (32k channels ... before that) ... varies by project; check the 22-11-09 slides!!!
+nk=len(rk_900)
+print('nk=',nk)
+
+# STILL USING A TOY MODEL FOR 1D k-bin variance
 # choose an offs>ampl so sigk remains positive everywhere
 sigk_cos_ampl=1e-7
 sigk_cos_offs=5e-7
@@ -127,44 +146,90 @@ print('sigk_cos_ampl=',sigk_cos_ampl)
 print('sigk_cos_offs=',sigk_cos_offs)
 print('consider the case where you have maximal sensitivity to the 21-cm signal at 900 MHz (z='+str(z_900)+')')
 print('r0    = ',r0_900,'Mpc')
-print('sigma = ',sig_900,'Mpc')
+print('sigma_LoS = ',sig_LoS_900,'Mpc')
 
-Wrhand=W_binned_airy_beam_r_hand(rk_900,sig_900,r0_900)
-fig,axs=plt.subplots(1,2)
+CAMBpars=np.asarray([67.7,0.022,0.119,2.1e-9, 0.97])
+CAMBparnames=['H_0','Omega_b h^2','Omega_c h^2','A_S','n_s']
+CAMBparnames_LaTeX=['$H_0$','$\Omega_b h^2$','$\Omega_c h^2$','$A_S$','$n_s$']
+CAMBpars[3]/=scale
+CAMBnpars=len(CAMBpars)
+calcCAMBPpartials=False
+nprm=len(CAMBpars) # number of parameters
+CAMBdpar=1e-3*np.ones(nprm)
+CAMBdpar[3]*=scale
+ztest=7.4
+CAMBk,CAMBPtrue=get_mps(CAMBpars,ztest,npts=nk)
 
-epsvals=np.logspace(-6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
-fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
+Wrscipy=      W_binned_airy_beam(rk_900,sig_LoS_900,r0_900)
+Wrhand=       W_binned_airy_beam_r_hand(rk_900,sig_LoS_900,r0_900)
+Wrhandwiggly= W_binned_airy_beam_r_hand_wiggly(rk_900,sig_LoS_900,r0_900)
 
-for k,eps in enumerate(epsvals):
-    i=k//3
-    j=k%3
-    print('\neps=',eps)
-    Wthoughtrhand=W_binned_airy_beam_r_hand(rk_900,(1.+eps)*sig_900,r0_900)
+fig,axs=plt.subplots(1,3,figsize=(20,5))
+axs[0].plot(rk_900,Wrscipy[0])
+axs[0].set_title("W[0] (scipy quad r-like term)")
+axs[1].plot(rk_900,Wrhand[0])
+axs[1].set_title("W[0] (hand-calculated r-like term)")
+axs[2].plot(rk_900,Wrhandwiggly[0])
+axs[2].set_title("W[0] (wiggly version of hand-calculated r-like term)")
+for ax in axs:
+    ax.set_xlabel("k (Mpc$^{-1})")
+    ax.set_ylabel("Windowing amplitude (dimensionless)")
+plt.tight_layout()
+plt.savefig("separate_window_calc_strategy_comparison.png")
+plt.show()
 
-    im=axh[i,j].imshow(Wrhand-Wthoughtrhand)
-    plt.colorbar(im,ax=axh[i,j])
-    axh[i,j].set_xlabel("k")
-    axh[i,j].set_ylabel("k'")
-    axh[i,j].set_title("eps="+str(eps))
+# plt.figure()
+# # plt.plot(rk_900,Wrscipy[0],      label="W[0] (scipy quad r-like term)")
+# plt.plot(rk_900,Wrhand[0],       label="W[0] (hand-calculated r-like term)")
+# plt.plot(rk_900,Wrhandwiggly[0], label="W[0] (wiggly version of hand-calculated r-like term)")
+# plt.xlabel("k (Mpc$^{-1})")
+# plt.ylabel("Windowing amplitude (dimensionless)")
+# plt.legend()
+# plt.savefig("superimposed_window_calc_strategy_comparison.png")
+# plt.show()
 
-    if calcCAMBPpartials:
-        CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar)
-        np.save('cambppartials.npy',CAMBPpartials)
-    else:
-        CAMBPpartials=np.load('cambppartials.npy')
+# plt.figure()
+# plt.plot(rk_900,Wrhand[0]-Wrhandwiggly[0],       label="W[0] (hand-calculated r-like term, nonwiggly-wiggly)")
+# plt.xlabel("k (Mpc$^{-1}$)")
+# plt.ylabel("Windowing amplitude (dimensionless)")
+# plt.legend()
+# plt.savefig("superimposed_window_calc_strategy_comparison.png")
+# plt.show()
 
-    CAMBPcontrhand=(Wrhand-Wthoughtrhand)@CAMBPtrue.T
-    CAMBFrhand=fisher(CAMBPpartials,sigk_900)
-    CAMBPcontDivsigkrhand=(CAMBPcontrhand.T/sigk_900).T
-    CAMBBrhand=(CAMBPpartials.T@(CAMBPcontDivsigkrhand))
-    CAMBbrhand=bias(CAMBFrhand,CAMBBrhand)
+# fig,axs=plt.subplots(1,2)
+# epsvals=np.logspace(-6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+# fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
 
-    CAMBpars2=CAMBpars.copy()
-    CAMBpars2[3]*=scale
-    CAMBb2rhand=CAMBbrhand.copy()
-    CAMBb2rhand[3]*=scale
-    print('\nCAMB matter PS **R-LIKE BY HAND**')
-    printparswbiases(CAMBpars2,CAMBparnames,CAMBb2rhand)
-fih.suptitle('W-Wthought for various fractional errors in beam width R HAND')
-fih.savefig('W_minus_Wthought_beam_width_tests_R_HAND.png')
-fih.show()
+# for k,eps in enumerate(epsvals):
+#     i=k//3
+#     j=k%3
+#     print('\neps=',eps)
+#     Wthoughtrhand=W_binned_airy_beam_r_hand(rk_900,(1.+eps)*sig_LoS_900,r0_900)
+
+#     im=axh[i,j].imshow(Wrhand-Wthoughtrhand)
+#     plt.colorbar(im,ax=axh[i,j])
+#     axh[i,j].set_xlabel("k")
+#     axh[i,j].set_ylabel("k'")
+#     axh[i,j].set_title("eps="+str(eps))
+
+#     if calcCAMBPpartials:
+#         CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar)
+#         np.save('cambppartials.npy',CAMBPpartials)
+#     else:
+#         CAMBPpartials=np.load('cambppartials.npy')
+
+#     CAMBPcontrhand=(Wrhand-Wthoughtrhand)@CAMBPtrue.T
+#     CAMBFrhand=fisher(CAMBPpartials,sigk_900)
+#     CAMBPcontDivsigkrhand=(CAMBPcontrhand.T/sigk_900).T
+#     CAMBBrhand=(CAMBPpartials.T@(CAMBPcontDivsigkrhand))
+#     CAMBbrhand=bias(CAMBFrhand,CAMBBrhand)
+
+#     CAMBpars2=CAMBpars.copy()
+#     CAMBpars2[3]*=scale
+#     CAMBb2rhand=CAMBbrhand.copy()
+#     CAMBb2rhand[3]*=scale
+#     print('\nCAMB matter PS **R-LIKE BY HAND**')
+#     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2rhand)
+# fih.suptitle('W-Wthought for various fractional errors in beam width R HAND')
+# fih.savefig('W_minus_Wthought_beam_width_tests_R_HAND.png')
+# fih.show()
