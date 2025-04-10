@@ -50,7 +50,7 @@ def kperplims(nuctr,bmin,bmax,nurest=nu21): # nuctr here is nu0 in Liu & Shaw 20
 #     return twopi*H0_Planck18*nurest_Hz*Ez*1e3/(c*(1+z)**2*deltanu) # 1e3 is to take care of the km baked into this value of H0 and cancel them with the m in the numerator of c in the units I'm using ... this gives deltakpar in Mpc^{-1}
 
 def kpar(surv_channels,N): # pass the vector of frequency channels in MHz to be compatible with freq2z and the MHz value of nu21 I'm currently using
-    surv_z=freq2z(surv_channels)
+    surv_z=freq2z(nu21,surv_channels)
     surv_Ez=1/comoving_dist_arg(surv_z)
     channel_deltanu=surv_channels[1]-surv_channels[0] # kind of hacky because I assume there is a characteristic channel width / that the channels are evenly spaced
     return twopi*nu21*H0_Planck18*surv_Ez*1e3/(c*(1+surv_z)**2*N*channel_deltanu) # value in Mpc^{-1}

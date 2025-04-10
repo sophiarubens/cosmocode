@@ -125,25 +125,43 @@ Dc_lo=comoving_distance(z_lo)
 deltaz=z_hi-z_lo
 N_CHORDcosmo=2048.
 channel_width=survey_width/N_CHORDcosmo # channel width in MHz
+surv_channels=np.arange(nu_lo,nu_hi-channel_width,channel_width)
 
 sig_LoS=0.5*(Dc_hi-Dc_lo) # of course this flattens the nonlinearity of Dc(z) and ignores the asymmetry in sensitivity WRT the centre
 print("sig_LoS=",sig_LoS)
-b_min_CHORD=6.3 # m
-b_max_CHORD=245
-assert(1==0), "removing broken definitions"
 
-rk_ctr='bleep bloop'
-nk='bleep bloop again'
+rk_surv=kpar(surv_channels,N_CHORDcosmo)
+deltakpar_initial=rk_surv[1]-rk_surv[0]
+deltakpar_final  =rk_surv[-1]-rk_surv[-2]
+deltadeltakpar=deltakpar_final-deltakpar_initial
+print("deltadeltakpar=deltakpar_final-deltakpar_initial=",deltadeltakpar)
+print("deltadeltakpar/deltakpar_initial=",deltadeltakpar/deltakpar_initial)
+print("deltadeltakpar/deltakpar_final  =",deltadeltakpar/deltakpar_final)
+linearized_kbins=np.arange(rk_surv[0],rk_surv[0]+N_CHORDcosmo*deltakpar_initial,deltakpar_initial)
+
+# plt.figure()
+# plt.plot(rk_surv,label="full nonlin version")
+# plt.plot(linearized_kbins,label="linear appx w/ init deltakpar")
+# plt.xlabel("bin number")
+# plt.ylabel("bin floor (Mpc$^{-1}$)")
+# plt.title("reality check for k-bin spacing")
+# plt.legend()
+# plt.tight_layout()
+# plt.savefig("check_k_bin_spacing.png")
+# plt.show()
+# assert(1==0), "examining differential k-bin width"
+
 # STILL USING A TOY MODEL FOR 1D k-bin variance
 # choose an offs>ampl so sigk remains positive everywhere
 sigk_cos_ampl=1e-7
 sigk_cos_offs=5e-7
-k_bin_stddev=sigk_cos_ampl*np.cos(2*np.pi*(rk_ctr-rk_ctr[0])/(rk_ctr[-1]-rk_ctr[0]))+sigk_cos_offs
+k_bin_stddev=sigk_cos_ampl*np.cos(2*np.pi*(rk_surv-rk_surv[0])/(rk_surv[-1]-rk_surv[0]))+sigk_cos_offs
 print('sigk_cos_ampl=',sigk_cos_ampl)
 print('sigk_cos_offs=',sigk_cos_offs)
 print('consider the case where you have maximal sensitivity to the 21-cm signal at 900 MHz (z='+str(z_ctr)+')')
 print('r0    = ',r0_ctr,'Mpc')
 print('sigma_LoS = ',sig_LoS,'Mpc')
+assert(1==0), "consider adding 21cmSense 1D variances"
 
 CAMBpars=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  AS_Planck18,  ns_Planck18])
 CAMBparnames=       ['H_0',       'Omega_b h^2',      'Omega_c h^2',      'A_S',        'n_s'       ]
@@ -154,19 +172,26 @@ calcCAMBPpartials=True
 nprm=len(CAMBpars) # number of parameters
 CAMBdpar=1e-3*np.ones(nprm)
 CAMBdpar[3]*=scale
-CAMBk,CAMBPtrue=get_mps(CAMBpars,z_ctr,npts=nk)
+CAMBk,CAMBPtrue=get_mps(CAMBpars,z_ctr,npts=N_CHORDcosmo)
 
-# W_binned_airy_beam(rk_vector,sig,r0,r_like_strategy,save=False,verbose=False,alpha=CHORD_ish_airy_alpha):
-Wrscipy=      W_binned_airy_beam(rk_ctr,sig_LoS,r0_ctr,'scipy')
-Wrhand=       W_binned_airy_beam(rk_ctr,sig_LoS,r0_ctr,'hand')
-Wrhandwiggly= W_binned_airy_beam(rk_ctr,sig_LoS,r0_ctr,'wiggly')
+npts=2222
+theta_vals=np.linspace(0,twopi,npts)
+basic_airy_beam=(j1(theta_vals)/theta_vals)**2
+basic_airy_beam_half_max=1./8. # derived on paper
+beta_fwhm=theta_vals[np.nanargmin(np.abs(basic_airy_beam-basic_airy_beam_half_max))]
+CHORD_ish_fwhm=pi/45. # 4 deg = 4pi/180 rad = pi/45 rad
+CHORD_ish_airy_alpha=beta_fwhm/CHORD_ish_fwhm
+Wrscipy=  W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'scipy') # W_binned_airy_beam(rk_vector,sig,r0,alpha,r_like_strategy,save=False,verbose=False)
+Wrhand=   W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'hand')
+Wrwiggly= W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'wiggly')
+assert(1==0), "checking that the new args= and alpha call structure works in the Wbinned calc"
 
 fig,axs=plt.subplots(1,3,figsize=(20,5))
-axs[0].plot(rk_ctr,Wrscipy[0])
+axs[0].plot(rk_surv,Wrscipy[0])
 axs[0].set_title("W[0] (scipy quad r-like term)")
-axs[1].plot(rk_ctr,Wrhand[0])
+axs[1].plot(rk_surv,Wrhand[0])
 axs[1].set_title("W[0] (hand-calculated r-like term)")
-axs[2].plot(rk_ctr,Wrhandwiggly[0])
+axs[2].plot(rk_surv,Wrwiggly[0])
 axs[2].set_title("W[0] (wiggly version of hand-calculated r-like term)")
 for ax in axs:
     ax.set_xlabel("k (Mpc$^{-1})")
@@ -179,46 +204,37 @@ plt.show()
 # epsvals=np.logspace(-6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
 # fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
 
-##
-npts=2222
-theta_vals=np.linspace(0,twopi,npts)
-basic_airy_beam=(j1(theta_vals)/theta_vals)**2
-basic_airy_beam_half_max=1./8. # derived on paper
-beta_fwhm=theta_vals[np.nanargmin(np.abs(basic_airy_beam-basic_airy_beam_half_max))]
-CHORD_ish_fwhm=pi/45. # 4 deg = 4pi/180 rad = pi/45 rad
-CHORD_ish_airy_alpha=beta_fwhm/CHORD_ish_fwhm
-##
-
 # for k,eps in enumerate(epsvals):
 #     i=k//3
 #     j=k%3
 #     print('\neps=',eps)
-#     Wthoughtrhand=W_binned_airy_beam_r_hand(rk_ctr,sig_LoS,r0_ctr,alpha=(1+eps)*CHORD_ish_airy_alpha)
+#     # Wthought=W_binned_airy_beam_r_hand(rk_surv,sig_LoS,r0_ctr,alpha=(1+eps)*CHORD_ish_airy_alpha)
+#     Wthought= W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'wiggly')
 
-#     im=axh[i,j].imshow(Wrhand-Wthoughtrhand)
+#     im=axh[i,j].imshow(W-Wthought)
 #     plt.colorbar(im,ax=axh[i,j])
 #     axh[i,j].set_xlabel("k")
 #     axh[i,j].set_ylabel("k'")
 #     axh[i,j].set_title("eps="+str(eps))
 
 #     if calcCAMBPpartials:
-#         CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,nk,CAMBdpar)
+#         CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,N_CHORDcosmo,CAMBdpar)
 #         np.save('cambppartials.npy',CAMBPpartials)
 #     else:
 #         CAMBPpartials=np.load('cambppartials.npy')
 
-#     CAMBPcontrhand=(Wrhand-Wthoughtrhand)@CAMBPtrue.T
-#     CAMBFrhand=fisher(CAMBPpartials,k_bin_stddev)
-#     CAMBPcontDivsigkrhand=(CAMBPcontrhand.T/k_bin_stddev).T
-#     CAMBBrhand=(CAMBPpartials.T@(CAMBPcontDivsigkrhand))
-#     CAMBbrhand=bias(CAMBFrhand,CAMBBrhand)
+#     CAMBPcont=(W-Wthought)@CAMBPtrue.T
+#     CAMBF=fisher(CAMBPpartials,k_bin_stddev)
+#     CAMBPcontDivsigk=(CAMBPcont.T/k_bin_stddev).T
+#     CAMBB=(CAMBPpartials.T@(CAMBPcontDivsigk))
+#     CAMBb=bias(CAMBF,CAMBB)
 
 #     CAMBpars2=CAMBpars.copy()
 #     CAMBpars2[3]*=scale
-#     CAMBb2rhand=CAMBbrhand.copy()
-#     CAMBb2rhand[3]*=scale
+#     CAMBb2=CAMBb.copy()
+#     CAMBb2[3]*=scale
 #     print('\nCAMB matter PS **R-LIKE BY HAND**')
-#     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2rhand)
+#     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
 # fih.suptitle('W-Wthought for various fractional errors in beam width R HAND')
 # fih.savefig('W_minus_Wthought_beam_width_tests_R_HAND.png')
 # fih.show()
