@@ -124,10 +124,11 @@ z_lo=freq2z(nu_rest_21,nu_hi)
 Dc_lo=comoving_distance(z_lo)
 deltaz=z_hi-z_lo
 N_CHORDcosmo=2048.
+N_CHORDcosmo_int=int(N_CHORDcosmo)
 channel_width=survey_width/N_CHORDcosmo # channel width in MHz
-surv_channels=np.arange(nu_lo,nu_hi-channel_width,channel_width)
+surv_channels=np.arange(nu_lo,nu_hi,channel_width)
 print("survey centred at",nu_ctr,"MHz / z=",z_ctr,"/ D_c=",r0_ctr,"Mpc")
-print("survey spans",nu_lo,"-",nu_hi,"MHz (width=",survey_width,"MHz) in",N_CHORDcosmo,"channels of width",channel_width,"MHz")
+print("survey spans",nu_lo,"-",nu_hi,"MHz (width=",survey_width,"MHz) in",N_CHORDcosmo_int,"channels of width",channel_width,"MHz")
 print("or, in redshift space, z=",z_hi,"-",z_lo,"(deltaz=",deltaz,")")
 print("or, in comoving distance terms, D_c=",Dc_hi,"-",Dc_lo,"Mpc")
 
@@ -168,7 +169,7 @@ CAMBparnames=       ['H_0',       'Omega_b h^2',      'Omega_c h^2',      'A_S',
 CAMBparnames_LaTeX= ['$H_0$',     '$\Omega_b h^2$',   '$\Omega_c h^2$',   '$A_S$',      '$n_s$'     ]
 CAMBpars[3]/=scale
 CAMBnpars=len(CAMBpars)
-calcCAMBPpartials=True
+calcCAMBPpartials=False
 nprm=len(CAMBpars) # number of parameters
 CAMBdpar=1e-3*np.ones(nprm)
 CAMBdpar[3]*=scale
@@ -181,11 +182,10 @@ basic_airy_beam_half_max=1./8. # derived on paper
 beta_fwhm=theta_vals[np.nanargmin(np.abs(basic_airy_beam-basic_airy_beam_half_max))]
 CHORD_ish_fwhm=pi/45. # 4 deg = 4pi/180 rad = pi/45 rad
 CHORD_ish_airy_alpha=beta_fwhm/CHORD_ish_fwhm
-# assert(1==0), "last stop before trying new Wbinned calcs"
+print("CHORD_ish_airy_alpha=",CHORD_ish_airy_alpha)
 Wrscipy=  W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'scipy') # W_binned_airy_beam(rk_vector,sig,r0,alpha,r_like_strategy,save=False,verbose=False)
 Wrhand=   W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'hand')
 Wrwiggly= W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'wiggly')
-assert(1==0), "checking that the new args= and alpha call structure works in the Wbinned calc"
 
 fig,axs=plt.subplots(1,3,figsize=(20,5))
 axs[0].plot(rk_surv,Wrscipy[0])
@@ -202,40 +202,43 @@ plt.savefig("separate_window_calc_strategy_comparison.png")
 plt.show()
 
 # fig,axs=plt.subplots(1,2)
-# epsvals=np.logspace(-6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
-# fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
+epsvals=np.logspace(-6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
 
-# for k,eps in enumerate(epsvals):
-#     i=k//3
-#     j=k%3
-#     print('\neps=',eps)
-#     # Wthought=W_binned_airy_beam_r_hand(rk_surv,sig_LoS,r0_ctr,alpha=(1+eps)*CHORD_ish_airy_alpha)
-#     Wthought= W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'wiggly')
+for k,eps in enumerate(epsvals):
+    i=k//3
+    j=k%3
+    print('\neps=',eps)
+    # Wthought=W_binned_airy_beam_r_hand(rk_surv,sig_LoS,r0_ctr,alpha=(1+eps)*CHORD_ish_airy_alpha)
+    Wthought= W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,(1+eps)*CHORD_ish_airy_alpha,'hand')
 
-#     im=axh[i,j].imshow(W-Wthought)
-#     plt.colorbar(im,ax=axh[i,j])
-#     axh[i,j].set_xlabel("k")
-#     axh[i,j].set_ylabel("k'")
-#     axh[i,j].set_title("eps="+str(eps))
+    im=axh[i,j].imshow(Wrhand-Wthought)
+    plt.colorbar(im,ax=axh[i,j])
+    axh[i,j].set_xlabel("k")
+    axh[i,j].set_ylabel("k'")
+    axh[i,j].set_title("eps="+str(eps))
 
-#     if calcCAMBPpartials:
-#         CAMBPpartials=buildCAMBpartials(CAMBpars,ztest,N_CHORDcosmo,CAMBdpar)
-#         np.save('cambppartials.npy',CAMBPpartials)
-#     else:
-#         CAMBPpartials=np.load('cambppartials.npy')
+    if calcCAMBPpartials:
+        CAMBPpartials=buildCAMBpartials(CAMBpars,z_ctr,N_CHORDcosmo_int,CAMBdpar)
+        np.save('cambppartials.npy',CAMBPpartials)
+    else:
+        CAMBPpartials=np.load('cambppartials.npy')
 
-#     CAMBPcont=(W-Wthought)@CAMBPtrue.T
-#     CAMBF=fisher(CAMBPpartials,k_bin_stddev)
-#     CAMBPcontDivsigk=(CAMBPcont.T/k_bin_stddev).T
-#     CAMBB=(CAMBPpartials.T@(CAMBPcontDivsigk))
-#     CAMBb=bias(CAMBF,CAMBB)
+    print("Wrhand.shape=",Wrhand.shape)
+    print("Wrthought.shape=",Wthought.shape)
+    print("CAMBPtrue.T.shape=",CAMBPtrue.T.shape)
+    CAMBPcont=(Wrhand-Wthought)@CAMBPtrue.T
+    CAMBF=fisher(CAMBPpartials,k_bin_stddev)
+    CAMBPcontDivsigk=(CAMBPcont.T/k_bin_stddev).T
+    CAMBB=(CAMBPpartials.T@(CAMBPcontDivsigk))
+    CAMBb=bias(CAMBF,CAMBB)
 
-#     CAMBpars2=CAMBpars.copy()
-#     CAMBpars2[3]*=scale
-#     CAMBb2=CAMBb.copy()
-#     CAMBb2[3]*=scale
-#     print('\nCAMB matter PS **R-LIKE BY HAND**')
-#     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
-# fih.suptitle('W-Wthought for various fractional errors in beam width R HAND')
-# fih.savefig('W_minus_Wthought_beam_width_tests_R_HAND.png')
-# fih.show()
+    CAMBpars2=CAMBpars.copy()
+    CAMBpars2[3]*=scale
+    CAMBb2=CAMBb.copy()
+    CAMBb2[3]*=scale
+    print('\nCAMB matter PS **R-LIKE BY HAND**')
+    printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
+fih.suptitle('W-Wthought for various fractional errors in beam width R HAND')
+fih.savefig('W_minus_Wthought_beam_width_tests_R_HAND.png')
+fih.show()
