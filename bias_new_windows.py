@@ -2,12 +2,11 @@ import sys
 sys.path.append('/Users/sophiarubens/Downloads/research/code/param_bias/')
 import numpy as np
 from matplotlib import pyplot as plt
-import pygtc
+# import pygtc
 from scipy.special import j1 # first-order Bessel function of the first kind
 from scipy.integrate import quad,dblquad
 import camb
 from camb import model
-import time
 from calculate_airy_gaussian_window import *
 from cosmo_distances import *
 
@@ -135,14 +134,18 @@ print("or, in comoving distance terms, D_c=",Dc_hi,"-",Dc_lo,"Mpc")
 sig_LoS=0.5*(Dc_hi-Dc_lo) # of course this flattens the nonlinearity of Dc(z) and ignores the asymmetry in sensitivity WRT the centre
 print("sig_LoS=",sig_LoS,"Mpc")
 
-rk_surv=kpar(surv_channels,N_CHORDcosmo)
-deltakpar_initial=rk_surv[1]-rk_surv[0]
-deltakpar_final  =rk_surv[-1]-rk_surv[-2]
-deltadeltakpar=deltakpar_final-deltakpar_initial
-print("deltadeltakpar=deltakpar_final-deltakpar_initial=",deltadeltakpar)
-print("deltadeltakpar/deltakpar_initial=",deltadeltakpar/deltakpar_initial)
-print("deltadeltakpar/deltakpar_final  =",deltadeltakpar/deltakpar_final)
-linearized_kbins=np.arange(rk_surv[0],rk_surv[0]+N_CHORDcosmo*deltakpar_initial,deltakpar_initial)
+# rk_surv=kpar(surv_channels,N_CHORDcosmo)
+rk_surv=kpar(nu_ctr,channel_width,N_CHORDcosmo_int) # kpar(nu_ctr,chan_width,N_chan,H0=H0_Planck18)
+print("rk_surv check: kparmin,kparmax=",rk_surv[0],rk_surv[-1])
+
+# deltakpar_initial=rk_surv[1]-rk_surv[0]
+# deltakpar_final  =rk_surv[-1]-rk_surv[-2]
+# deltadeltakpar=deltakpar_final-deltakpar_initial
+# print("deltadeltakpar=deltakpar_final-deltakpar_initial=",deltadeltakpar)
+# print("deltadeltakpar/deltakpar_initial=",deltadeltakpar/deltakpar_initial)
+# print("deltadeltakpar/deltakpar_final  =",deltadeltakpar/deltakpar_final)
+# linearized_kbins=np.arange(rk_surv[0],rk_surv[0]+N_CHORDcosmo*deltakpar_initial,deltakpar_initial)
+# assert(1==0), "checking new kpar calculation"
 
 # plt.figure()
 # plt.plot(rk_surv,label="full nonlin version")
@@ -157,12 +160,20 @@ linearized_kbins=np.arange(rk_surv[0],rk_surv[0]+N_CHORDcosmo*deltakpar_initial,
 # assert(1==0), "examining differential k-bin width"
 
 # STILL USING A TOY MODEL FOR 1D k-bin variance
-sigk_cos_ampl=1e-7 
-sigk_cos_offs=5e-7 # choose an offs>ampl so sigk remains positive everywhere
+sigk_cos_ampl=1e-3 
+sigk_cos_offs=5e-3 # choose an offs>ampl so sigk remains positive everywhere
 k_bin_stddev=sigk_cos_ampl*np.cos(2*np.pi*(rk_surv-rk_surv[0])/(rk_surv[-1]-rk_surv[0]))+sigk_cos_offs # even worse now b/c I hope to use the nonlinear k-bins
 print('sigk_cos_ampl=',sigk_cos_ampl)
 print('sigk_cos_offs=',sigk_cos_offs)
-# assert(1==0), "consider adding 21cmSense 1D variances"
+
+# ##### #####
+# k_bins_21cmse_knows_about=np.load("chord_21cmse_k1d.npy")
+# # print("k_bins_21cmse_knows_about==rk_surv",k_bins_21cmse_knows_about==rk_surv)
+# k_bin_stddev_21cmse=np.load("chord_21cmse_sigk.npy")
+# print("k_bin_stddev_21cmse.shape",k_bin_stddev_21cmse.shape)
+# print("k_bin_stddev.shape=",k_bin_stddev.shape)
+# assert(1==0), "can't use 21cmSense versions until I fix the redshift specification there"
+# ##### #####
 
 CAMBpars=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  AS_Planck18,  ns_Planck18])
 CAMBparnames=       ['H_0',       'Omega_b h^2',      'Omega_c h^2',      'A_S',        'n_s'       ]
@@ -174,60 +185,64 @@ nprm=len(CAMBpars) # number of parameters
 CAMBdpar=1e-3*np.ones(nprm)
 CAMBdpar[3]*=scale
 CAMBk,CAMBPtrue=get_mps(CAMBpars,z_ctr,npts=int(N_CHORDcosmo))
+CAMBsave=False
+if CAMBsave:
+    np.save("camb_k.npy",CAMBk)
+    np.save("camb_P.npy",CAMBPtrue)
 
-npts=2222
-theta_vals=np.linspace(0,twopi,npts)
-basic_airy_beam=(j1(theta_vals)/theta_vals)**2
-basic_airy_beam_half_max=1./8. # derived on paper
-beta_fwhm=theta_vals[np.nanargmin(np.abs(basic_airy_beam-basic_airy_beam_half_max))]
-CHORD_ish_fwhm=pi/45. # 4 deg = 4pi/180 rad = pi/45 rad
-CHORD_ish_airy_alpha=beta_fwhm/CHORD_ish_fwhm
-print("CHORD_ish_airy_alpha=",CHORD_ish_airy_alpha)
-Wrscipy=  W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'scipy') # W_binned_airy_beam(rk_vector,sig,r0,alpha,r_like_strategy,save=False,verbose=False)
-Wrhand=   W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'hand')
-Wrwiggly= W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_airy_alpha,'wiggly')
+if calcCAMBPpartials:
+    CAMBPpartials=buildCAMBpartials(CAMBpars,z_ctr,N_CHORDcosmo_int,CAMBdpar)
+    np.save('cambppartials.npy',CAMBPpartials)
+else:
+    CAMBPpartials=np.load('cambppartials.npy')
 
-fig,axs=plt.subplots(1,3,figsize=(20,5))
-axs[0].plot(rk_surv,Wrscipy[0])
-axs[0].set_title("W[0] (scipy quad r-like term)")
-axs[1].plot(rk_surv,Wrhand[0])
-axs[1].set_title("W[0] (hand-calculated r-like term)")
-axs[2].plot(rk_surv,Wrwiggly[0])
-axs[2].set_title("W[0] (wiggly version of hand-calculated r-like term)")
+CHORD_ish_fwhm_surv=pi/45. # 4 deg = 4pi/180 rad = pi/45 rad # approximate, but specific to this hypothetical 900 MHz survey 
+# CHORD_ish_airy_alpha=thetaHWHM_to_alpha(CHORD_ish_fwhm_surv)
+# print("CHORD_ish_airy_alpha=",CHORD_ish_airy_alpha)
+btype="arbitrary" 
+# Wrscipy=  W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'scipy',  btype)
+# Wrhand=   W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'hand',   btype)
+W_surv=   W_binned_airy_beam(rk_surv,   sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly', btype)
+rk_inspect=np.linspace(0,0.02,N_CHORDcosmo_int)
+W_inspect=W_binned_airy_beam(rk_inspect,sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly', btype)
+
+# print("START OF NORMALIZATION CHECK USING WRHAND")
+# print("np.sum(Wrhand)=",np.sum(Wrhand))
+# print("np.sum(Wrhand[0])=",np.sum(Wrhand[0]))
+# print("END OF NORMALIZATION CHECK USING WRHAND")
+
+fig,axs=plt.subplots(1,2,figsize=(15,5))
+axs[0].plot(rk_surv,    W_surv[0])
+axs[0].set_title("k-modes for such a survey")
+axs[1].plot(rk_inspect, W_inspect[0])
+axs[1].set_title("inset: lower k-modes to probe k-dependence of W")
 for ax in axs:
     ax.set_xlabel("k (Mpc$^{-1})")
-    ax.set_ylabel("Windowing amplitude (dimensionless)")
+    ax.set_ylabel("Normalized windowing amplitude (dimensionless)")
+plt.suptitle("W[0] with correct/wiggly r-like term for a 900 MHz CHORD-like survey")
 plt.tight_layout()
-plt.savefig("separate_window_calc_strategy_comparison.png")
+plt.savefig("binned_window_inspection.png")
 plt.show()
 
-# fig,axs=plt.subplots(1,2)
-epsvals=np.logspace(-6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of the beam width"
+epsvals=np.logspace(-6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of x response parameter"
 fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
 
+# W=Wrhand # <<<<<<<<<<<<
+W=W_surv # <<<<<<<<<<<<
 for k,eps in enumerate(epsvals):
     i=k//3
     j=k%3
     print('\neps=',eps)
-    # Wthought=W_binned_airy_beam_r_hand(rk_surv,sig_LoS,r0_ctr,alpha=(1+eps)*CHORD_ish_airy_alpha)
-    Wthought= W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,(1+eps)*CHORD_ish_airy_alpha,'hand')
+    # Wthought=W_binned_airy_beam(rk_surv,(1+eps)*sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'hand',  btype) # <<<<<<<<<<<<
+    Wthought=W_binned_airy_beam(rk_surv,(1+eps)*sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly',btype) # <<<<<<<<<<<<
 
-    im=axh[i,j].imshow(Wrhand-Wthought)
+    im=axh[i,j].imshow(W-Wthought)
     plt.colorbar(im,ax=axh[i,j])
     axh[i,j].set_xlabel("k")
     axh[i,j].set_ylabel("k'")
     axh[i,j].set_title("eps="+str(eps))
 
-    if calcCAMBPpartials:
-        CAMBPpartials=buildCAMBpartials(CAMBpars,z_ctr,N_CHORDcosmo_int,CAMBdpar)
-        np.save('cambppartials.npy',CAMBPpartials)
-    else:
-        CAMBPpartials=np.load('cambppartials.npy')
-
-    print("Wrhand.shape=",Wrhand.shape)
-    print("Wrthought.shape=",Wthought.shape)
-    print("CAMBPtrue.T.shape=",CAMBPtrue.T.shape)
-    CAMBPcont=(Wrhand-Wthought)@CAMBPtrue.T
+    CAMBPcont=(W-Wthought)@CAMBPtrue.T
     CAMBF=fisher(CAMBPpartials,k_bin_stddev)
     CAMBPcontDivsigk=(CAMBPcont.T/k_bin_stddev).T
     CAMBB=(CAMBPpartials.T@(CAMBPcontDivsigk))
@@ -239,6 +254,7 @@ for k,eps in enumerate(epsvals):
     CAMBb2[3]*=scale
     print('\nCAMB matter PS **R-LIKE BY HAND**')
     printparswbiases(CAMBpars2,CAMBparnames,CAMBb2)
+    assert(1==0),"debbugging unreasonable orders of magnitude"
 fih.suptitle('W-Wthought for various fractional errors in beam width R HAND')
 fih.savefig('W_minus_Wthought_beam_width_tests_R_HAND.png')
 fih.show()

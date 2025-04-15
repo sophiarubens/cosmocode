@@ -2,7 +2,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 from astropy import units as un
 import py21cmsense
-from py21cmsense import GaussianBeam, Observation, Observatory, PowerSpectrum, hera
+from py21cmsense import GaussianBeam, Observation, Observatory, PowerSpectrum, pspec_likelihood
+
+
 
 def diag_stripe_arr(row):
     dim=len(row)
@@ -24,29 +26,7 @@ chord_x,chord_y=np.genfromtxt(pstart+path_to_chord_ant_pos_211208).T
 nants=len(chord_x)
 print("nants check:",nants)
 CHORD_appx_unif_elev=546.5
-# chord_z_appx_old=CHORD_appx_unif_elev*np.ones(nants)
 chord_z_appx=CHORD_appx_unif_elev*np.ones(nants)
-
-# chord_z_row=np.linspace(CHORD_appx_unif_elev+1,CHORD_appx_unif_elev,24) # still pretty hacky ... my function makes a square, but I need a rectangle, so treat the row as the one with the larger dimension and truncate the rectangle after the fact
-# chord_z_appx=diag_stripe_arr(chord_z_row)[:,:-2] # the return is a rectangle, but I need a vector-like thing ... reshape and check the plot to see if the x- and y- dims are ordered as expected in the telecon file
-# plt.figure()
-# plt.imshow(chord_z_appx)
-# plt.colorbar()
-# plt.show()
-# # assert(1==0),"debugging z improvement"
-# chord_z_appx=chord_z_appx.flatten()
-# print("chord_x.shape=",chord_x.shape)
-# print("chord_y.shape=",chord_y.shape)
-# print("chord_z_appx.shape=",chord_z_appx.shape)
-
-# plt.figure()
-# p=plt.scatter(chord_x,chord_y,chord_z_appx)
-# p.set_sizes([0.5])
-# plt.xlabel("northing (m)")
-# plt.ylabel("easting (m)")
-# plt.title("Oversimplified CHORD")
-# plt.colorbar()
-# plt.show()
 
 chord_appx_antpos=np.vstack([chord_x,chord_y,chord_z_appx]).T*un.m
 print("chord_appx_antpos.shape=",chord_appx_antpos.shape)
@@ -58,18 +38,8 @@ plt.ylabel("easting (m)")
 plt.title("CHORD antenna positions as of 2021-12-08")
 plt.show()
 
-hera_sensitivity = PowerSpectrum(
-    observation=Observation(
-        observatory=Observatory(
-            antpos=hera(hex_num=7, separation=14 * un.m),
-            beam=GaussianBeam(frequency=135.0 * un.MHz, dish_size=14 * un.m),
-            latitude=38 * un.deg,
-        )
-    )
-)
-
-def delta_from_P(k,P):
-    return k**3*P/(2.*np.pi**2)
+k_21_900MHz=np.load(pstart+path_to_working_dir+"/camb_k.npy")
+P_21_900MHz=np.load(pstart+path_to_working_dir+"/camb_P.npy")
 
 chord_sensitivity = PowerSpectrum(
     observation=Observation( # higher-order correction: 21cmSense defaults to Planck15, but elsewhere I'm using Planck18 (would be good to eventually remove the discrepancy)
@@ -79,7 +49,15 @@ chord_sensitivity = PowerSpectrum(
             latitude=49.321 * un.deg,
         )
     )
+    # ),
+    # k_21=k_21_900MHz,
+    # delta_21=k_21_900MHz**3*P_21_900MHz/(2*np.pi**2),
 )
+
+# print("chord_sensitivity.k_21=",chord_sensitivity.k_21)
+# chord_sensitivity..k_21=k_21_900MHz
+# chord_sensitivity.del
+# assert(1==0),"debug— figuring out where the pspec is stored"
 
 chord_21cmse_k1d=chord_sensitivity.k1d
 chord_21cmse_sigk = chord_sensitivity.calculate_sensitivity_1d() 
@@ -91,9 +69,6 @@ plt.yscale("log")
 plt.xscale("log")
 plt.title("**NOT YET THE** CHORD 1D sensitivity")
 plt.show()
-
-print("chord_21cmse_k1d=",chord_21cmse_k1d)
-print("np.array(chord_21cmse_k1d)=",np.array(chord_21cmse_k1d))
 
 np.save("chord_21cmse_k1d.npy",np.array(chord_21cmse_k1d))
 np.save("chord_21cmse_sigk.npy",np.array(chord_21cmse_sigk))

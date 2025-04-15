@@ -49,8 +49,21 @@ def kperplims(nuctr,bmin,bmax,nurest=nu21): # nuctr here is nu0 in Liu & Shaw 20
 #     nurest_Hz=nurest*1e6 # no longer using MHz
 #     return twopi*H0_Planck18*nurest_Hz*Ez*1e3/(c*(1+z)**2*deltanu) # 1e3 is to take care of the km baked into this value of H0 and cancel them with the m in the numerator of c in the units I'm using ... this gives deltakpar in Mpc^{-1}
 
-def kpar(surv_channels,N): # pass the vector of frequency channels in MHz to be compatible with freq2z and the MHz value of nu21 I'm currently using
-    surv_z=freq2z(nu21,surv_channels)
-    surv_Ez=1/comoving_dist_arg(surv_z)
-    channel_deltanu=surv_channels[1]-surv_channels[0] # kind of hacky because I assume there is a characteristic channel width / that the channels are evenly spaced
-    return twopi*nu21*H0_Planck18*surv_Ez*1e3/(c*(1+surv_z)**2*N*channel_deltanu) # value in Mpc^{-1}
+# def kpar(surv_channels,N): # pass the vector of frequency channels in MHz to be compatible with freq2z and the MHz value of nu21 I'm currently using
+#     surv_z=freq2z(nu21,surv_channels)
+#     surv_Ez=1/comoving_dist_arg(surv_z)
+#     channel_deltanu=surv_channels[1]-surv_channels[0] # kind of hacky because I assume there is a characteristic channel width / that the channels are evenly spaced
+#     return twopi*nu21*H0_Planck18*surv_Ez*1e3/(c*(1+surv_z)**2*N*channel_deltanu) # value in Mpc^{-1}
+
+def kpar(nu_ctr,chan_width,N_chan,H0=H0_Planck18):
+    prefac=1e3*twopi*H0*nu21/c
+    # print("prefac=",prefac)
+    z_ctr=freq2z(nu21,nu_ctr)
+    Ez=1/comoving_dist_arg(z_ctr)
+    # print("Ez=",Ez)
+    # print("zterm_denom=",(1+z_ctr)**2*chan_width)
+    zterm=Ez/((1+z_ctr)**2*chan_width)
+    # print("zterm=",zterm)
+    kparmax=prefac*zterm # 1e3 to account for units of H0/c ... assumes nu21 and chan_width have the same units
+    kparmin=kparmax/N_chan
+    return np.linspace(kparmin,kparmax,N_chan) # evaluating at the z of the central freq of the survey (trusting slow variation...)
