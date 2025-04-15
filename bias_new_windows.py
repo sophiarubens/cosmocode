@@ -176,9 +176,9 @@ else:
 
 CHORD_ish_fwhm_surv=pi/45. # 4 deg = 4pi/180 rad = pi/45 rad # approximate, but specific to this hypothetical 900 MHz survey 
 btype="arbitrary" 
-W_surv=   W_binned_airy_beam(rk_surv,   sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly', btype)
+W_surv=   W_binned(rk_surv,   sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly', btype)
 rk_inspect=np.linspace(0,0.02,N_CHORDcosmo_int)
-W_inspect=W_binned_airy_beam(rk_inspect,sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly', btype)
+W_inspect=W_binned(rk_inspect,sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly', btype)
 
 # print("START OF NORMALIZATION CHECK USING WRHAND")
 # print("np.sum(Wrhand)=",np.sum(Wrhand))
@@ -211,7 +211,7 @@ for k,eps in enumerate(epsvals):
     i=k//3
     j=k%3
     print('\neps=',eps)
-    Wthought=W_binned_airy_beam(rk_surv,(1+eps)*sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly',btype) # <<<<<<<<<<<<
+    Wthought=W_binned(rk_surv,(1+eps)*sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly',btype) # <<<<<<<<<<<<
 
     im=axh[i,j].imshow(W-Wthought)
     plt.colorbar(im,ax=axh[i,j])
