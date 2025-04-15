@@ -134,34 +134,12 @@ print("or, in comoving distance terms, D_c=",Dc_hi,"-",Dc_lo,"Mpc")
 sig_LoS=0.5*(Dc_hi-Dc_lo) # of course this flattens the nonlinearity of Dc(z) and ignores the asymmetry in sensitivity WRT the centre
 print("sig_LoS=",sig_LoS,"Mpc")
 
-# rk_surv=kpar(surv_channels,N_CHORDcosmo)
 rk_surv=kpar(nu_ctr,channel_width,N_CHORDcosmo_int) # kpar(nu_ctr,chan_width,N_chan,H0=H0_Planck18)
 print("rk_surv check: kparmin,kparmax=",rk_surv[0],rk_surv[-1])
 
-# deltakpar_initial=rk_surv[1]-rk_surv[0]
-# deltakpar_final  =rk_surv[-1]-rk_surv[-2]
-# deltadeltakpar=deltakpar_final-deltakpar_initial
-# print("deltadeltakpar=deltakpar_final-deltakpar_initial=",deltadeltakpar)
-# print("deltadeltakpar/deltakpar_initial=",deltadeltakpar/deltakpar_initial)
-# print("deltadeltakpar/deltakpar_final  =",deltadeltakpar/deltakpar_final)
-# linearized_kbins=np.arange(rk_surv[0],rk_surv[0]+N_CHORDcosmo*deltakpar_initial,deltakpar_initial)
-# assert(1==0), "checking new kpar calculation"
-
-# plt.figure()
-# plt.plot(rk_surv,label="full nonlin version")
-# plt.plot(linearized_kbins,label="linear appx w/ init deltakpar")
-# plt.xlabel("bin number")
-# plt.ylabel("bin floor (Mpc$^{-1}$)")
-# plt.title("reality check for k-bin spacing")
-# plt.legend()
-# plt.tight_layout()
-# plt.savefig("check_k_bin_spacing.png")
-# plt.show()
-# assert(1==0), "examining differential k-bin width"
-
 # STILL USING A TOY MODEL FOR 1D k-bin variance
-sigk_cos_ampl=1e-3 
-sigk_cos_offs=5e-3 # choose an offs>ampl so sigk remains positive everywhere
+sigk_cos_ampl=0.1 
+sigk_cos_offs=0.5 # choose an offs>ampl so sigk remains positive everywhere
 k_bin_stddev=sigk_cos_ampl*np.cos(2*np.pi*(rk_surv-rk_surv[0])/(rk_surv[-1]-rk_surv[0]))+sigk_cos_offs # even worse now b/c I hope to use the nonlinear k-bins
 print('sigk_cos_ampl=',sigk_cos_ampl)
 print('sigk_cos_offs=',sigk_cos_offs)
@@ -197,11 +175,7 @@ else:
     CAMBPpartials=np.load('cambppartials.npy')
 
 CHORD_ish_fwhm_surv=pi/45. # 4 deg = 4pi/180 rad = pi/45 rad # approximate, but specific to this hypothetical 900 MHz survey 
-# CHORD_ish_airy_alpha=thetaHWHM_to_alpha(CHORD_ish_fwhm_surv)
-# print("CHORD_ish_airy_alpha=",CHORD_ish_airy_alpha)
 btype="arbitrary" 
-# Wrscipy=  W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'scipy',  btype)
-# Wrhand=   W_binned_airy_beam(rk_surv,sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'hand',   btype)
 W_surv=   W_binned_airy_beam(rk_surv,   sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly', btype)
 rk_inspect=np.linspace(0,0.02,N_CHORDcosmo_int)
 W_inspect=W_binned_airy_beam(rk_inspect,sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly', btype)
@@ -215,25 +189,28 @@ fig,axs=plt.subplots(1,2,figsize=(15,5))
 axs[0].plot(rk_surv,    W_surv[0])
 axs[0].set_title("k-modes for such a survey")
 axs[1].plot(rk_inspect, W_inspect[0])
-axs[1].set_title("inset: lower k-modes to probe k-dependence of W")
+axs[1].set_title("lower-k inset (beyond the survey) to check shape intuition")
 for ax in axs:
-    ax.set_xlabel("k (Mpc$^{-1})")
+    ax.set_xlabel("k (Mpc$^{-1}$)")
     ax.set_ylabel("Normalized windowing amplitude (dimensionless)")
-plt.suptitle("W[0] with correct/wiggly r-like term for a 900 MHz CHORD-like survey")
+plt.suptitle("Wbinned[k,k'=0] with instrument response parameters for a 900 MHz CHORD-like survey")
 plt.tight_layout()
 plt.savefig("binned_window_inspection.png")
 plt.show()
+# print("0.5*(FWHM_(FTed)/(2sqrt(2ln2)))**2=",0.5*(0.004959)/(2*np.sqrt(2*np.log(2))))
+# print("(FWHM_(FTed)/(2sqrt(2ln2)))**2=",0.004959/(2*np.sqrt(2*np.log(2))))
+print("2*(FWHM_(FTed)/(2sqrt(2ln2)))**2=",2*(0.004959)/(2*np.sqrt(2*np.log(2))))
+print("1/sig_LoS=",1/sig_LoS)
+print("2*np.sqrt(2*np.log(2))/sig_LoS=",2*np.sqrt(2*np.log(2))/sig_LoS)
 
 epsvals=np.logspace(-6,-0.4,9) # multiplicative prefactor: "what fractional error do you have in your knowledge of x response parameter"
 fih,axh=plt.subplots(3,3,figsize=(10,10),layout='tight')
 
-# W=Wrhand # <<<<<<<<<<<<
 W=W_surv # <<<<<<<<<<<<
 for k,eps in enumerate(epsvals):
     i=k//3
     j=k%3
     print('\neps=',eps)
-    # Wthought=W_binned_airy_beam(rk_surv,(1+eps)*sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'hand',  btype) # <<<<<<<<<<<<
     Wthought=W_binned_airy_beam(rk_surv,(1+eps)*sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly',btype) # <<<<<<<<<<<<
 
     im=axh[i,j].imshow(W-Wthought)
