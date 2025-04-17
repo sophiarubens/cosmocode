@@ -22,35 +22,35 @@ def thetaHWHM_to_alpha(thetaHWHM):
 # AIRY BEAM
 lbound=-pi/2
 ubound= pi/2
-def perp_airy_arg_real(theta,deltakperp_val,alpha):
-    arg=np.exp(-1j*(deltakperp_val)*theta)*(j1(alpha*theta)/(alpha*theta))**2*np.sin(theta)
+def perp_airy_arg_real(thetaperp,deltakperpval,alpha):
+    arg=np.exp(-1j*deltakperpval*thetaperp)*(j1(alpha*thetaperp)/(alpha*thetaperp))**2*thetaperp
     return arg.real
-def perp_airy_arg_imag(theta,deltakperp_val,alpha):
-    arg=np.exp(-1j*(deltakperp_val)*theta)*(j1(alpha*theta)/(alpha*theta))**2*np.sin(theta)
+def perp_airy_arg_imag(thetaperp,deltakperpval,alpha):
+    arg=np.exp(-1j*deltakperpval*thetaperp)*(j1(alpha*thetaperp)/(alpha*thetaperp))**2*thetaperp
     return arg.imag
-def inner_perp_airy_integral_real(deltakperp_val,alpha):
-    integral,_=quad(perp_airy_arg_real,lbound,ubound,args=(deltakperp_val,alpha,))
+def inner_perp_airy_integral_real(deltakperpval,alpha):
+    integral,_=quad(perp_airy_arg_real,lbound,ubound,args=(deltakperpval,alpha,))
     return integral
-def inner_perp_airy_integral_imag(deltakperp_val,alpha):
-    integral,_=quad(perp_airy_arg_imag,lbound,ubound,args=(deltakperp_val,alpha,))
+def inner_perp_airy_integral_imag(deltakperpval,alpha):
+    integral,_=quad(perp_airy_arg_imag,lbound,ubound,args=(deltakperpval,alpha,))
     return integral
-def perp_airy(deltakperp_val,alpha):
-    return inner_perp_airy_integral_real(deltakperp_val,alpha)**2+inner_perp_airy_integral_imag(deltakperp_val,alpha)**2
+def perp_airy(deltakperpval,alpha):
+    return inner_perp_airy_integral_real(deltakperpval,alpha)**2+inner_perp_airy_integral_imag(deltakperpval,alpha)**2
 # GAUSSIAN BEAM
-def perp_gau_arg_real(theta,deltakperp_val,thetaHWHM):
-    arg=np.exp(-1j*(deltakperp_val)*theta-ln2*(theta/thetaHWHM)**2)
+def perp_gau_arg_real(thetaperp,deltakperpval,thetaHWHM):
+    arg=np.exp(-1j*deltakperpval*thetaperp-ln2*(thetaperp/thetaHWHM)**2)*thetaperp
     return arg.real
-def perp_gau_arg_imag(theta,deltakperp_val,thetaHWHM):
-    arg=np.exp(-1j*(deltakperp_val)*theta-ln2*(theta/thetaHWHM)**2)
+def perp_gau_arg_imag(thetaperp,deltakperpval,thetaHWHM):
+    arg=np.exp(-1j*deltakperpval*thetaperp-ln2*(thetaperp/thetaHWHM)**2)*thetaperp
     return arg.imag
-def inner_perp_gau_integral_real(deltakperp_val,thetaHWHM):
-    integral,_=quad(perp_gau_arg_real,lbound,ubound,args=(deltakperp_val,thetaHWHM,))
+def inner_perp_gau_integral_real(deltakperpval,thetaHWHM):
+    integral,_=quad(perp_gau_arg_real,lbound,ubound,args=(deltakperpval,thetaHWHM,))
     return integral
-def inner_perp_gau_integral_imag(deltakperp_val,thetaHWHM):
-    integral,_=quad(perp_gau_arg_imag,lbound,ubound,args=(deltakperp_val,thetaHWHM,))
+def inner_perp_gau_integral_imag(deltakperpval,thetaHWHM):
+    integral,_=quad(perp_gau_arg_imag,lbound,ubound,args=(deltakperpval,thetaHWHM,))
     return integral
-def perp_gau(deltakperp_val,thetaHWHM):
-    return inner_perp_gau_integral_real(deltakperp_val,thetaHWHM)**2+inner_perp_gau_integral_imag(deltakperp_val,thetaHWHM)**2
+def perp_gau(deltakperpval,thetaHWHM):
+    return inner_perp_gau_integral_real(deltakperpval,thetaHWHM)**2+inner_perp_gau_integral_imag(deltakperpval,thetaHWHM)**2
 
 
 def calc_par_vec(deltakparvec,sigLoS,r0):
@@ -71,26 +71,17 @@ def calc_perp_vec(deltakperpvec,beamtype,thetaHWHM):
         assert(1==0), "currently supported beam types are Airy and Gaussian"
     for i in range(nkperp):
         vec[i]=perp_fcn(deltakperpvec[i],width_param)
-
-    # for i in range(nkperp):
-    #     if beamtype=="airy":
-    #         alpha=thetaHWHM_to_alpha(thetaHWHM)
-    #         vec[i]=perp_airy(deltakperpvec[i],alpha)
-    #     elif beamtype=="gaussian":
-    #         vec[i]=perp_gau(deltakperpvec[i],thetaHWHM)
-    #     else:
-    #         assert(1==0), "currently supported beam types are Airy and Gaussian"
     return vec
 
-def W_cyl_binned(deltakparvec,deltakthetavec,sigLoS,r0,beamtype,thetaHWHM,save=False):
+def W_cyl_binned(deltakparvec,deltakperpvec,sigLoS,r0,beamtype,thetaHWHM,save=False):
     par_vec=calc_par_vec(deltakparvec,sigLoS,r0)
-    perp_vec=calc_perp_vec(deltakthetavec,beamtype,thetaHWHM)
+    perp_vec=calc_perp_vec(deltakperpvec,beamtype,thetaHWHM)
     _,axs=plt.subplots(1,2,figsize=(15,5))
     axs[0].plot(deltakparvec,par_vec)
     axs[0].set_xlabel("k$_{||}$")
     axs[0].set_ylabel("amplitude")
     axs[0].set_title("r-like")
-    axs[1].plot(deltakthetavec,perp_vec)
+    axs[1].plot(deltakperpvec,perp_vec)
     axs[1].set_xlabel("k$_\perp$")
     axs[1].set_ylabel("amplitude")
     axs[1].set_title("perp_like")
@@ -100,12 +91,12 @@ def W_cyl_binned(deltakparvec,deltakthetavec,sigLoS,r0,beamtype,thetaHWHM,save=F
     im=axs[0].imshow(unnorm_r_arr,extent=[deltakparvec[0],deltakparvec[-1],deltakparvec[-1],deltakparvec[0]]) # ,norm="log")
     fig.colorbar(im,ax=axs[0])
     axs[0].set_title("r-like meshgridded array")
-    im=axs[1].imshow(perp_arr,extent=[deltakthetavec[0],deltakthetavec[-1],deltakthetavec[-1],deltakthetavec[0]]) # ,norm="log")
+    im=axs[1].imshow(perp_arr,extent=[deltakperpvec[0],deltakperpvec[-1],deltakperpvec[-1],deltakperpvec[0]]) # ,norm="log")
     fig.colorbar(im,ax=axs[1])
     axs[1].set_title("theta-like meshgridded array")
     meshed=unnorm_r_arr*perp_arr # interested in elementwise (not matrix) multiplication
     normed=meshed/np.sum(meshed)
-    im=axs[2].imshow(normed,extent=[deltakthetavec[0],deltakthetavec[-1],deltakparvec[-1],deltakparvec[0]],aspect=deltakthetavec[-1]/deltakparvec[-1]) # ,norm="log")
+    im=axs[2].imshow(normed,extent=[deltakperpvec[0],deltakperpvec[-1],deltakparvec[-1],deltakparvec[0]],aspect=deltakperpvec[-1]/deltakparvec[-1]) # ,norm="log")
     fig.colorbar(im,ax=axs[2])
     axs[2].set_title("normed product of r-like and theta-like arrs")
     plt.savefig("in_wrapper_cyl_binned_window_check.png")
