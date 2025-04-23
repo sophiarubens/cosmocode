@@ -2,7 +2,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from astropy import units as un
 import py21cmsense
-from py21cmsense import GaussianBeam, Observation, Observatory, PowerSpectrum, pspec_likelihood
+from py21cmsense import GaussianBeam, Observation, Observatory, PowerSpectrum
 
 
 
@@ -41,11 +41,14 @@ plt.show()
 k_21_900MHz=np.load(pstart+path_to_working_dir+"/camb_k.npy")
 P_21_900MHz=np.load(pstart+path_to_working_dir+"/camb_P.npy")
 
+beam_test=GaussianBeam(frequency=900. * un.MHz, dish_size=6 * un.m)
+print("beam.frequency=",beam_test.frequency)
+
 chord_sensitivity = PowerSpectrum(
     observation=Observation( # higher-order correction: 21cmSense defaults to Planck15, but elsewhere I'm using Planck18 (would be good to eventually remove the discrepancy)
         observatory=Observatory(
             antpos=chord_appx_antpos,
-            beam=GaussianBeam(frequency=900. * un.MHz, dish_size=6 * un.m),
+            beam=beam_test,
             latitude=49.321 * un.deg,
         )
     )

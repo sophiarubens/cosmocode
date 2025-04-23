@@ -28,7 +28,7 @@ scale=1e-9
 
 nu_ctr=900 # centre frequency of survey in MHz
 z_ctr=freq2z(nu_rest_21,nu_ctr)
-r0_ctr=comoving_distance(z_ctr)
+Dc_ctr=comoving_distance(z_ctr)
 survey_width=60. # survey bandwidth in MHz ... based on the 1/15 deltanu/nu ratio inspired by HERA cosmological surveys
 nu_lo=nu_ctr-survey_width/2.
 z_hi=freq2z(nu_rest_21,nu_lo)
@@ -37,30 +37,42 @@ nu_hi=nu_ctr+survey_width/2.
 z_lo=freq2z(nu_rest_21,nu_hi)
 Dc_lo=comoving_distance(z_lo)
 deltaz=z_hi-z_lo
-N_CHORDcosmo=2048.
+channel_width=0.183 # 183 kHz from CHORD Wiki -> SWGs -> Galaxies -> Spectral resolution
+N_CHORDcosmo=survey_width/channel_width
 N_CHORDcosmo_int=int(N_CHORDcosmo)
-channel_width=survey_width/N_CHORDcosmo # channel width in MHz
 surv_channels=np.arange(nu_lo,nu_hi,channel_width)
-print("survey centred at",nu_ctr,"MHz / z=",z_ctr,"/ D_c=",r0_ctr,"Mpc")
+print("survey centred at",nu_ctr,"MHz / z=",z_ctr,"/ D_c=",Dc_ctr,"Mpc")
 print("survey spans",nu_lo,"-",nu_hi,"MHz (width=",survey_width,"MHz) in",N_CHORDcosmo_int,"channels of width",channel_width,"MHz")
 print("or, in redshift space, z=",z_hi,"-",z_lo,"(deltaz=",deltaz,")")
 print("or, in comoving distance terms, D_c=",Dc_hi,"-",Dc_lo,"Mpc")
 
-sig_LoS=0.5*(Dc_hi-Dc_lo) # of course this flattens the nonlinearity of Dc(z) and ignores the asymmetry in sensitivity WRT the centre
+sig_LoS=0.25*(Dc_ctr-Dc_lo)/10 # dialing in the bound set by condition following from linearization...
 print("sig_LoS=",sig_LoS,"Mpc")
 
 kpar_surv=kpar(nu_ctr,channel_width,N_CHORDcosmo_int) # kpar(nu_ctr,chan_width,N_chan,H0=H0_Planck18)
 print("kpar_surv check: kparmin,kparmax=",kpar_surv[0],kpar_surv[-1])
 
-N_CHORDbaselines=1000 # ballpark figure from my combinatorics side quest... the actual upper bound (b/c not sure if the grid gaps will remove redundance or just unique baselines) from my formula is 1010
+N_CHORDbaselines=1010 # upper bound (b/c not sure if the grid gaps will remove redundance or just unique baselines) from my formula is 1010
 b_NS_CHORD=8.5 # m
 N_NS_CHORD=24
 b_EW_CHORD=6.3 # m
 N_EW_CHORD=22
 bminCHORD=6.3
-bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2)
+bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2) # too optimistic ... this is a low-redundancy baseline and the numerics will be better if I don't insist upon being so literal
+# bmaxCHORD=b_NS_CHORD*N_NS_CHORD
+# bmaxCHORD=b_EW_CHORD*N_EW_CHORD
 kperp_surv=kperp(nu_ctr,N_CHORDbaselines,bminCHORD,bmaxCHORD) # kperp(nu_ctr,N_modes,bmin,bmax)
 print("kperp_surv check: kperpmin,kperpmax=",kperp_surv[0],kperp_surv[-1])
+
+CHORD_ish_fwhm_surv=(1./12.)*pi/180. # CHORD pathfinder spec page:
+# D3A6 beam measurements in Ian's MSc thesis, taken by inspection from the plot and eyeball-averaged over the x- and y-pols 4 deg = 4pi/180 rad = pi/45 rad # approximate, but specific to this hypothetical 900 MHz survey 
+btype="gaussian" 
+W_surv=False
+W_surv=   W_cyl_binned(kpar_surv,kperp_surv,sig_LoS,Dc_ctr,btype,CHORD_ish_fwhm_surv, savename="survey") # W_cyl_binned(kparvec,kthetavec,sigLoS,beamtype,thetaHWHM,save=False)
+# n_inspect=2048
+# kperp_inspect=np.linspace(0,0.1,1010) # I don't seem to be looking at a different regime than the interesting one with my survey calculation ... so might as well recycle it
+# W_inspect=W_cyl_binned(kpar_surv,kperp_inspect,sig_LoS,Dc_ctr,btype,CHORD_ish_fwhm_surv, savename="inspect")
+assert(1==0), "checking W_cyl_binned procedure using _inspect k-modes"
 
 # STILL USING A TOY MODEL FOR 1D k-bin variance
 sigk_cos_ampl=0.1 
@@ -69,14 +81,17 @@ k_bin_stddev=sigk_cos_ampl*np.cos(2*np.pi*(kpar_surv-kpar_surv[0])/(kpar_surv[-1
 print('sigk_cos_ampl=',sigk_cos_ampl)
 print('sigk_cos_offs=',sigk_cos_offs)
 
-# ##### #####
+# ##### ##### 1D 21cmSense example with the default z=9.5 matter PS baked in
 # k_bins_21cmse_knows_about=np.load("chord_21cmse_k1d.npy")
 # # print("k_bins_21cmse_knows_about==kpar_surv",k_bins_21cmse_knows_about==kpar_surv)
 # k_bin_stddev_21cmse=np.load("chord_21cmse_sigk.npy")
 # print("k_bin_stddev_21cmse.shape",k_bin_stddev_21cmse.shape)
 # print("k_bin_stddev.shape=",k_bin_stddev.shape)
-# assert(1==0), "can't use 21cmSense versions until I fix the redshift specification there"
 # ##### #####
+
+##
+
+##
 
 CAMBpars=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  AS_Planck18,  ns_Planck18])
 CAMBparnames=       ['H_0',       'Omega_b h^2',      'Omega_c h^2',      'A_S',        'n_s'       ]
@@ -98,16 +113,6 @@ if calcCAMBPpartials:
     np.save('cambppartials.npy',CAMBPpartials)
 else:
     CAMBPpartials=np.load('cambppartials.npy')
-
-CHORD_ish_fwhm_surv=pi/45. # 4 deg = 4pi/180 rad = pi/45 rad # approximate, but specific to this hypothetical 900 MHz survey 
-btype="gaussian" 
-W_surv=False
-# W_surv=   W_cyl_binned(kpar_surv,kperp_surv,sig_LoS,r0_ctr,btype,CHORD_ish_fwhm_surv) # W_cyl_binned(kparvec,kthetavec,sigLoS,beamtype,thetaHWHM,save=False)
-n_inspect=2048
-kpar_inspect=np.linspace(0,2e-3,n_inspect)
-kperp_inspect=np.linspace(1e-3,1e0,n_inspect)
-W_inspect=W_cyl_binned(kpar_inspect,kperp_inspect,r0_ctr,sig_LoS,btype,CHORD_ish_fwhm_surv)
-assert(1==0), "checking W_cyl_binned procedure using _inspect k-modes"
 
 fig,axs=plt.subplots(1,2,figsize=(15,5))
 im=axs[0].imshow(W_surv,extent=[kperp_surv[0],kperp_surv[-1],kpar_surv[-1],kpar_surv[0]],aspect=kperp_surv[-1]/kpar_surv[-1])
@@ -136,7 +141,7 @@ for k,eps in enumerate(epsvals):
     i=k//3
     j=k%3
     print('\neps=',eps)
-    Wthought=W_binned(kpar_surv,(1+eps)*sig_LoS,r0_ctr,CHORD_ish_fwhm_surv,'wiggly',btype) # <<<<<<<<<<<<
+    Wthought=W_binned(kpar_surv,(1+eps)*sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,'wiggly',btype) # <<<<<<<<<<<<
 
     im=axh[i,j].imshow(W-Wthought)
     plt.colorbar(im,ax=axh[i,j])
