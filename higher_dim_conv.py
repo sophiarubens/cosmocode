@@ -1,11 +1,9 @@
 import numpy as np
-from numpy.fft import fft2,ifft2,rfft2,irfft2
+from numpy.fft import rfft2,irfft2
 from matplotlib import pyplot as plt
 import time
 
-def higher_dim_conv(f,g): # NEED TO ZERO-PAD THE ARRAYS ... in all directions, I think?!
-    print("f.shape=",f.shape)
-    print("g.shape=",g.shape)
+def higher_dim_conv(f,g):
     if (f.shape!=g.shape):
         if(f.shape!=(g.T).shape):
             assert(1==0), "incompatible array shapes"
@@ -18,49 +16,32 @@ def higher_dim_conv(f,g): # NEED TO ZERO-PAD THE ARRAYS ... in all directions, I
     fp[:a,:b]=f # populate the zero-padded versions
     gp[:a,:b]=g
 
-    print("fp.shape=",fp.shape)
-    print("gp.shape=",gp.shape)
-
-    # Fp=fft2(fp)
-    # Gp=fft2(gp)
     Fp=rfft2(fp)
     Gp=rfft2(gp)
-    print("Fp.shape=",Fp.shape)
-    print("Gp.shape=",Gp.shape)
-    Fourier_space_product_p=Fp*Gp
-    print("(Fp*Gp).shape=",Fourier_space_product_p.shape)
-    # result_p=ifft2(Fourier_space_product_p)
+    Fourier_space_product_p=Fp*Gp # _p for padded
     result_p=irfft2(Fourier_space_product_p)
-    print("result_p.shape=",result_p.shape)
-    # result=result_p[:a,:b].real
     result=result_p[:a,:b]
-    print("result.shape=",result.shape)
     return result
 
-# A, B = 1010, 327
-A,B=100,50
+A, B = 1010, 327
 Avec=np.arange(A)
 Bvec=np.arange(B)
-Plike=np.outer(np.exp(-(Avec/(0.2*A))**2),np.exp(-(Bvec/(0.2*B))**2)) # fills the role of W[deltakpar,deltakperp]
-# print("Plike.shape",Plike.shape)
+P=np.outer(np.exp(-(Avec/(0.2*A))**2),np.exp(-(Bvec/(0.2*B))**2))
 Barr,Aarr=np.meshgrid(Bvec,Avec)
-# f2=np.exp(-(Barr/(0.1*B))**2)
-f2=np.eye(A,M=B)
-# print("f2.shape=",f2.shape)
+W=np.eye(A,M=B)
 t0=time.time()
-windowed=higher_dim_conv(f2,Plike)
+windowed=higher_dim_conv(W,P)
 t1=time.time()
 print("convolution-based windowing took {:6.4} s".format(t1-t0))
-print("windowed.shape=",windowed.shape)
 
 case="no_zero_padding"
 case="wraparound_safe"
 savename="check_shortcut_"+case+".png"
 fig,axs=plt.subplots(2,2)
-im=axs[0,0].imshow(f2,       extent=[0,B,A,0]) #,aspect=B/A)
+im=axs[0,0].imshow(W,       extent=[0,B,A,0]) #,aspect=B/A)
 plt.colorbar(im,ax=axs[0,0])
 axs[0,0].set_title("W[$\Delta$ k$_{||}$,$\Delta$ k$_\perp$]")
-im=axs[0,1].imshow(Plike,    extent=[0,B,A,0]) #,aspect=B/A)
+im=axs[0,1].imshow(P,    extent=[0,B,A,0]) #,aspect=B/A)
 plt.colorbar(im,ax=axs[0,1])
 axs[0,1].set_title("P[k'$_{||}$,k'$_\perp$]")
 im=axs[1,0].imshow(windowed, extent=[0,B,A,0]) #,aspect=B/A)
