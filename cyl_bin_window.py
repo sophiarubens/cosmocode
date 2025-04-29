@@ -1,12 +1,13 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from scipy.special import j1 # first-order Bessel function of the first kind
-from scipy.integrate import quad
+from scipy.special import j0,j1 # 0th- and 1st-order Bessel functions of the first kind
+from scipy.integrate import quad,dblquad
 import time
 
 pi=np.pi
 twopi=2.*pi
 ln2=np.log(2)
+inf=np.infty
 
 def thetaHWHM_to_alpha(thetaHWHM):
     npts=2222
@@ -16,69 +17,41 @@ def thetaHWHM_to_alpha(thetaHWHM):
     thetaHWHM_ref_airy=perp_vals[np.nanargmin(np.abs(basic_airy_beam-basic_airy_beam_half_max))]
     return thetaHWHM_ref_airy/thetaHWHM
 
-# AIRY BEAM
-lbound=-pi/2 # lower and upper bounds for thetaperp integral (thetaperp is the radial coordinate in the [flat-sky] plane perpendicular to the line of sight)
-ubound= pi/2
-def perp_airy_arg_real(thetaperp,deltakperpval,alpha):
-    arg=np.exp(-1j*deltakperpval*thetaperp)*(j1(alpha*thetaperp)/(alpha*thetaperp))**2*thetaperp
-    return arg.real
-def perp_airy_arg_imag(thetaperp,deltakperpval,alpha):
-    arg=np.exp(-1j*deltakperpval*thetaperp)*(j1(alpha*thetaperp)/(alpha*thetaperp))**2*thetaperp
-    return arg.imag
-def inner_perp_airy_integral_real(deltakperpval,alpha):
-    integral,_=quad(perp_airy_arg_real,lbound,ubound,args=(deltakperpval,alpha,))
-    return integral
-def inner_perp_airy_integral_imag(deltakperpval,alpha):
-    integral,_=quad(perp_airy_arg_imag,lbound,ubound,args=(deltakperpval,alpha,))
-    return integral
-def perp_airy(deltakperpval,alpha):
-    return inner_perp_airy_integral_real(deltakperpval,alpha)**2+inner_perp_airy_integral_imag(deltakperpval,alpha)**2
-# GAUSSIAN BEAM
-def perp_gau_arg_real(thetaperp,deltakperpval,thetaHWHM):
-    arg=np.exp(-1j*deltakperpval*thetaperp-ln2*(thetaperp/thetaHWHM)**2)*thetaperp
-    return arg.real
-def perp_gau_arg_imag(thetaperp,deltakperpval,thetaHWHM):
-    arg=np.exp(-1j*deltakperpval*thetaperp-ln2*(thetaperp/thetaHWHM)**2)*thetaperp
-    return arg.imag
-def inner_perp_gau_integral_real(deltakperpval,thetaHWHM):
-    integral,_=quad(perp_gau_arg_real,lbound,ubound,args=(deltakperpval,thetaHWHM,))
-    return integral
-def inner_perp_gau_integral_imag(deltakperpval,thetaHWHM):
-    integral,_=quad(perp_gau_arg_imag,lbound,ubound,args=(deltakperpval,thetaHWHM,))
-    return integral
-def perp_gau(deltakperpval,thetaHWHM):
-    return inner_perp_gau_integral_real(deltakperpval,thetaHWHM)**2+inner_perp_gau_integral_imag(deltakperpval,thetaHWHM)**2
+def airy_arg(rperp,kperp,alpha):
+    airyarg=alpha*rperp
+    return (j1(airyarg)/airyarg)**2*j0(rperp*kperp)*rperp
 
+def airy_entry(kperp,alpha):
+    integral,_=quad(airy_arg,0,np.infty,args=(kperp,alpha,)) # args are the variables in the integrand apart from the variable of integration (first n things passed to the innermost layer of the wrap structure)
+    return integral**2
+
+def airy(kperp_vec,alpha):
+    nk=len(kperp_vec)
+    Wperp_vec=np.zeros(nk)
+    for i,kperp_val in enumerate(kperp_vec):
+        Wperp_vec[i]=airy_entry(kperp_val,alpha)
+    return Wperp_vec
 
 def calc_par_vec(deltakparvec,sigLoS,r0):
     prefac=(sigLoS**4-2*deltakparvec**2*sigLoS**6+2*r0*sigLoS**2+deltakparvec**4*sigLoS**8+r0**4+2*deltakparvec**2*sigLoS**4*r0**2)
     expterm=twopi*sigLoS**2*np.exp(-deltakparvec**2*sigLoS**2)
     return prefac*expterm
 
-# def calc_perp_vec(deltakperpvec,beamtype,thetaHWHM):
-#     nkperp=len(deltakperpvec)
-#     vec=np.zeros(nkperp) # holder for the return b/c quad can't handle vectorized calcs
-#     if beamtype=="airy":
-#         perp_fcn=perp_airy
-#         width_param=thetaHWHM_to_alpha(thetaHWHM)
-#     elif beamtype=="gaussian":
-#         perp_fcn=perp_gau
-#         width_param=thetaHWHM
-#     else:
-#         assert(1==0), "currently supported beam types are Airy and Gaussian"
-#     for i in range(nkperp):
-#         vec[i]=perp_fcn(deltakperpvec[i],width_param)
-#     return vec
-
 def calc_perp_vec(deltakperpvec,Dc,thetaHWHM,beamtype="Gaussian"):
-    if beamtype=="Gaussian":
+    beamtype=beamtype.lower()
+    if beamtype=="gaussian":
         alpha=ln2/(thetaHWHM*Dc)**2
-        print("alpha=ln2/(thetaHWHM*Dc)**2=",alpha)
-        return np.exp(-deltakperpvec**2/(2*alpha))
-    elif beamtype=="Airy":
-        pass
+        print("Gaussian alpha=ln2/(thetaHWHM*Dc)**2=",alpha)
+        vec=np.exp(-deltakperpvec**2/(2*alpha))
+    elif beamtype=="airy":
+        nk=len(deltakperpvec)
+        vec=np.zeros(nk)
+        alpha=thetaHWHM_to_alpha(thetaHWHM)
+        print("Airy alpha=thetaHWHM_to_alpha(thetaHWHM)=",alpha)
+        vec=airy(deltakperpvec,alpha)
     else: 
         assert(1==0), "currently supported beam types are Airy and Gaussian"
+    return vec
 
 def W_cyl_binned(deltakparvec,deltakperpvec,sigLoS,r0,thetaHWHM,save=False,savename="test",btype="Gaussian"):
     par_vec=calc_par_vec(deltakparvec,sigLoS,r0)
@@ -121,7 +94,3 @@ def W_cyl_binned(deltakparvec,deltakperpvec,sigLoS,r0,thetaHWHM,save=False,saven
     if (save):
         np.save('W_cyl_binned_2D_proxy'+str(time.time())+'.txt',normed)
     return normed
-
-def oned2cyl(P):
-    vec=P/np.sqrt(P)
-    return vec@vec

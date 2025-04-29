@@ -66,12 +66,29 @@ print("kperp_surv check: kperpmin,kperpmax=",kperp_surv[0],kperp_surv[-1])
 
 CHORD_ish_fwhm_surv=(1./12.)*pi/180. # CHORD pathfinder spec page:
 # D3A6 beam measurements in Ian's MSc thesis, taken by inspection from the plot and eyeball-averaged over the x- and y-pols 4 deg = 4pi/180 rad = pi/45 rad # approximate, but specific to this hypothetical 900 MHz survey 
-btype="gaussian" 
+btype="Gaussian" # Airy implementation not completely working yet 
 W_surv=False
-W_surv=   W_cyl_binned(kpar_surv,kperp_surv,sig_LoS,Dc_ctr,btype,CHORD_ish_fwhm_surv, savename="survey") # W_cyl_binned(kparvec,kthetavec,sigLoS,beamtype,thetaHWHM,save=False)
-# n_inspect=2048
-# kperp_inspect=np.linspace(0,0.1,1010) # I don't seem to be looking at a different regime than the interesting one with my survey calculation ... so might as well recycle it
-# W_inspect=W_cyl_binned(kpar_surv,kperp_inspect,sig_LoS,Dc_ctr,btype,CHORD_ish_fwhm_surv, savename="inspect")
+W_surv=    W_cyl_binned(kpar_surv,kperp_surv,   sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,savename="survey", btype=btype) # W_cyl_binned(deltakparvec,deltakperpvec,sigLoS,r0,thetaHWHM,save=False,savename="test",btype="Gaussian")
+# W4_surv=unflattenWcyl(W_surv)
+# print("W4_surv.shape=",W4_surv.shape)
+
+# fig,axs=plt.subplots(1,2,figsize=(15,5))
+# axs[0].imshow(W4_surv[:,:,0,0])
+# axs[1].imshow(W4_surv[:,:,162,505]) # slice roughly halfway through
+# for i in range(2):
+#     axs[i].set_xlabel("k$_\perp$")
+#     axs[i].set_ylabel("k$_{||}$")
+# axs[0].set_title("slice [:,:,0,0]")
+# axs[1].set_title("slice [:,:,162,505]")
+# plt.tight_layout()
+# plt.savefig("check_4D_ification_of_Wbinned.png")
+# plt.show()
+# assert(1==0), "checking 4D-ification of Wbinned"
+
+n_inspect=2048
+kpar_inspect=np.copy(kpar_surv)
+kperp_inspect=np.linspace(1e-7,10,1010) # I don't seem to be looking at a different regime than the interesting one with my survey calculation ... so might as well recycle it
+W_inspect= W_cyl_binned(kpar_inspect,kperp_inspect,sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,savename="inspect",btype=btype)
 assert(1==0), "checking W_cyl_binned procedure using _inspect k-modes"
 
 # STILL USING A TOY MODEL FOR 1D k-bin variance
@@ -141,7 +158,7 @@ for k,eps in enumerate(epsvals):
     i=k//3
     j=k%3
     print('\neps=',eps)
-    Wthought=W_binned(kpar_surv,(1+eps)*sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,'wiggly',btype) # <<<<<<<<<<<<
+    Wthought=W_cyl_binned(kpar_surv,kperp_surv,   sig_LoS,Dc_ctr,(1+eps)*CHORD_ish_fwhm_surv,savename="survey", btype=btype) # <<<<<<<<<<<<
 
     im=axh[i,j].imshow(W-Wthought)
     plt.colorbar(im,ax=axh[i,j])
