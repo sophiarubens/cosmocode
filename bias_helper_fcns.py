@@ -49,15 +49,12 @@ def higher_dim_conv(ff,gg):
     result=result_p[:a,:b]
     return result
 
-def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,savename,beamtype,pars,eps,z,n_sph_pts):
+# def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,beamtype,pars,eps,z,n_sph_pts,savestatus=False,savename=None): # V2
+def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,pars,eps,z,n_sph_pts,beamtype="Gaussian",savestatus=False,savename=None): # V3
     W=        W_cyl_binned(kpar,kperp,sigLoS,r0,        thetaHWHM,save=savestatus,savename=savename,btype=beamtype)
     Wthought= W_cyl_binned(kpar,kperp,sigLoS,r0,(1+eps)*thetaHWHM,save=savestatus,savename=savename,btype=beamtype) # modify if I want to study a different mischaracterization!
     deltaW=W-Wthought
     kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,nsphpts=n_sph_pts)
-    # print("tracking down shape errors in calc_Pcont_cyl:")
-    # print("deltaW.shape=",deltaW.shape)
-    # print("P.shape=",P.shape)
-    # print("end of calc_Pcont_cyl print checks")
     Pcont=higher_dim_conv(deltaW,P)
     return Pcont
 
@@ -158,13 +155,10 @@ def cyl_partial(p,zs,n,dpar,kpar,kperp,nmodes_sph=200):
     pcopy=p.copy()
     pcopy[n]=pcopy[n]+dpar[n]
     _,_,Pcyl_plus=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
-    # print("Pcyl_plus.shape=",Pcyl_plus.shape)
     pcopy=p.copy()
     pcopy[n]=pcopy[n]-dpar[n]
     _,_,Pcyl_minu=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
-    # print("Pcyl_minu.shape=",Pcyl_minu.shape)
     deriv=(Pcyl_plus-Pcyl_minu)/(2*dpar[n])
-    # print("deriv.shape=",deriv.shape)
     return deriv
 
 def buildCAMBpartials(p,z,NMODES,dpar): # output to fisher
@@ -200,34 +194,25 @@ def fisher(partials,unc): # output to cornerplot or bias
         V[:,i]=partials[:,i]/unc
     return V.T@V
 
-def fisher_and_B_cyl(partials,unc, kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,savename,beamtype,pars,eps,z,n_sph_pts): # B is no longer something I basically get for free and can build trivially using mat mult, so might as well use the building blocks that I already need to construct inside this function layer
+def fisher_and_B_cyl(partials,unc, kpar,kperp,sigLoS,r0,thetaHWHM,pars,eps,z,n_sph_pts,beamtype="Gaussian",savestatus=False,savename=None): # B is no longer something I basically get for free and can build trivially using mat mult, so might as well use the building blocks that I already need to construct inside this function layer
     '''
     partials = nprm x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
     unc      = nnpar x nkperp array describing the standard deviations at each cylindrically binned k-mode
     '''
-    ## calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,savename,beamtype,pars,eps,z,n_sph_pts)
     V=0.0*partials # still want the same shape, even though it is different than for the spherical case
     nprm=partials.shape[0]
-    # print("start of fisher_and_B_cyl shape checks")
-    # print("before shape compatibility modifications:")
-    # print("partials.shape=",partials.shape)
-    # print("unc.shape=",unc.shape)
     uncsh0,uncsh1=unc.shape
     partsh0,partsh1,partsh2=partials.shape
     if (uncsh0==partsh2 and uncsh1==partsh1):
         uncT=unc.T
-    # print("after shape compatibility modifications:")
-    # print("partials.shape=",partials.shape)
-    # print("unc.shape=",unc.shape)
 
     for i in range(nprm):
         V[i,:,:]=partials[i,:,:]/uncT # elementwise division for a nkpar x nkperp slice
     V_completely_transposed=np.transpose(V,axes=(2,1,0)) # from the docs: "For an n-D array, if axes are given, their order indicates how the axes are permuted"
     F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
-    Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,savename,beamtype,pars,eps,z,n_sph_pts)
+    Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,pars,eps,z,n_sph_pts,savestatus=savestatus,savename=savename,beamtype=beamtype)
     Pcont_div_sigma=Pcont/unc
     B=np.einsum("ij,ijk->k",Pcont_div_sigma,V_completely_transposed)
-    # print("end of fisher_and_B_cyl shape checks")
     return F,B
 
 def bias(F,B):

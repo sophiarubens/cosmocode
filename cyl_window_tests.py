@@ -75,17 +75,17 @@ kpar_surv_grid,kperp_surv_grid=np.meshgrid(kpar_surv,kperp_surv)
 print("kperp_surv check: kperpmin,kperpmax=",kperp_surv[0],kperp_surv[-1])
 
 ############################## misc. other initializations for the pipeline functions ########################################################################################################################
-btype="Gaussian" # Airy implementation not completely working yet 
-savestat=True
-saven="validation"
+# btype="Gaussian" # Airy implementation not completely working yet 
+# savestat=False
+# saven="validation"
 eps_test=0.01 # ITERATE OVER DIFFERENT VALUES ONCE EVERYTHING AT LEAST RUNS
 n_sph_pts_test=450
 
 ############################## actual pipeline tests ########################################################################################################################
 Pcont_cyl=calc_Pcont_cyl(kpar_surv,kperp_surv,
                          sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
-                         savestat,saven,btype,
-                         pars_Planck18,eps_test,z_ctr,n_sph_pts_test) # calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,savename,beamtype,pars,eps,z,n_sph_pts)
+                        #  btype,
+                         pars_Planck18,eps_test,z_ctr,n_sph_pts_test) 
 # sigma_kpar_kperp=np.load("cyl_sense_thermal_surv.npy") # NEED TO DEBUG THE INFS
 sigma_kpar_kperp=np.exp(-(kperp_surv_grid/2)**2)
 # plt.figure()
@@ -103,7 +103,12 @@ else:
 F_cyl,B_cyl=fisher_and_B_cyl(P_cyl_partials,sigma_kpar_kperp,
                              kpar_surv,kperp_surv,
                              sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
-                             savestat,saven,btype,
-                             pars_Planck18,eps_test,z_ctr,n_sph_pts_test) # fisher_and_B_cyl(partials,unc, kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,savename,beamtype,pars,eps,z,n_sph_pts)
+                            #  btype,
+                             pars_Planck18,eps_test,z_ctr,n_sph_pts_test)
+            # fisher_and_B_cyl(partials,unc, 
+            #                  kpar,kperp,
+            #                  sigLoS,r0,thetaHWHM,
+            #                  pars,eps,z,n_sph_pts,
+            #                  beamtype="Gaussian",savestatus=False,savename=None)
 b_cyl=bias(F_cyl,B_cyl)
 printparswbiases(pars_Planck18,parnames,b_cyl)
