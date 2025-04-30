@@ -27,7 +27,7 @@ pars_Planck18=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  
 parnames=                ['H_0',       'Omega_b h^2',      'Omega_c h^2',      'A_S',        'n_s'       ]
 parnames_LaTeX=          ['$H_0$',     '$\Omega_b h^2$',   '$\Omega_c h^2$',   '$A_S$',      '$n_s$'     ]
 pars_Planck18[3]/=scale
-npars=len(pars_Planck18)
+nprm=len(pars_Planck18)
 dpar=1e-3*np.ones(nprm)
 dpar[3]*=scale
 
@@ -70,6 +70,8 @@ bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2) # too o
 # bmaxCHORD=b_NS_CHORD*N_NS_CHORD # if I want to truncate to avoid looking at such "rare" long baselines
 # bmaxCHORD=b_EW_CHORD*N_EW_CHORD
 kperp_surv=kperp(nu_ctr,N_CHORDbaselines,bminCHORD,bmaxCHORD) # kperp(nu_ctr,N_modes,bmin,bmax)
+
+kpar_surv_grid,kperp_surv_grid=np.meshgrid(kpar_surv,kperp_surv)
 print("kperp_surv check: kperpmin,kperpmax=",kperp_surv[0],kperp_surv[-1])
 
 ############################## misc. other initializations for the pipeline functions ########################################################################################################################
@@ -84,11 +86,17 @@ Pcont_cyl=calc_Pcont_cyl(kpar_surv,kperp_surv,
                          sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
                          savestat,saven,btype,
                          pars_Planck18,eps_test,z_ctr,n_sph_pts_test) # calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,savename,beamtype,pars,eps,z,n_sph_pts)
-sigma_kpar_kperp=
+# sigma_kpar_kperp=np.load("cyl_sense_thermal_surv.npy") # NEED TO DEBUG THE INFS
+sigma_kpar_kperp=np.exp(-(kperp_surv_grid/2)**2)
+# plt.figure()
+# plt.imshow(sigma_kpar_kperp)
+# plt.colorbar()
+# plt.show()
+
 P_cyl=unbin_to_Pcyl(kpar_surv,kperp_surv,z_ctr,nsphpts=n_sph_pts_test) # unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,nsphpts=500)
-calc_P_cyl_partials=True
+calc_P_cyl_partials=False
 if calc_P_cyl_partials:
-    P_cyl_partials=build_P_cyl_partials(pars_Planck18,z_ctr,n_sph_pts_test,kpar_surv,kperp_surv,dpar) # build_cyl_partials(p,z,nmodes_sph,kpar,kperp,dpar)
+    P_cyl_partials=build_cyl_partials(pars_Planck18,z_ctr,n_sph_pts_test,kpar_surv,kperp_surv,dpar) # build_cyl_partials(p,z,nmodes_sph,kpar,kperp,dpar)
     np.save("P_cyl_partials.npy",P_cyl_partials)
 else:
     P_cyl_partials=np.load("P_cyl_partials.npy")
@@ -98,3 +106,4 @@ F_cyl,B_cyl=fisher_and_B_cyl(P_cyl_partials,sigma_kpar_kperp,
                              savestat,saven,btype,
                              pars_Planck18,eps_test,z_ctr,n_sph_pts_test) # fisher_and_B_cyl(partials,unc, kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,savename,beamtype,pars,eps,z,n_sph_pts)
 b_cyl=bias(F_cyl,B_cyl)
+printparswbiases(pars_Planck18,parnames,b_cyl)

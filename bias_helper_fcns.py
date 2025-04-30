@@ -3,6 +3,7 @@ import numpy as np
 # import pygtc
 import camb
 from camb import model
+from numpy.fft import rfft2,irfft2
 from cyl_bin_window import *
 
 Omegam_Planck18=0.3158
@@ -26,7 +27,9 @@ h_Planck18=H0_Planck18/100.
 Omegamh2_Planck18=Omegam_Planck18*h_Planck18**2
 pars_Planck18=[H0_Planck18,Omegabh2_Planck18,Omegamh2_Planck18,AS_Planck18,ns_Planck18] # suitable for get_mps
 
-def higher_dim_conv(f,g):
+def higher_dim_conv(ff,gg):
+    f=np.asarray(ff)
+    g=np.asarray(gg)
     if (f.shape!=g.shape):
         if(f.shape!=(g.T).shape):
             assert(1==0), "incompatible array shapes"
@@ -50,7 +53,11 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,savename,beamtype,p
     W=        W_cyl_binned(kpar,kperp,sigLoS,r0,        thetaHWHM,save=savestatus,savename=savename,btype=beamtype)
     Wthought= W_cyl_binned(kpar,kperp,sigLoS,r0,(1+eps)*thetaHWHM,save=savestatus,savename=savename,btype=beamtype) # modify if I want to study a different mischaracterization!
     deltaW=W-Wthought
-    P=unbin_to_pcyl(kpar,kperp,z,pars=pars,nsphpts=n_sph_pts)
+    kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,nsphpts=n_sph_pts)
+    # print("tracking down shape errors in calc_Pcont_cyl:")
+    # print("deltaW.shape=",deltaW.shape)
+    # print("P.shape=",P.shape)
+    # print("end of calc_Pcont_cyl print checks")
     Pcont=higher_dim_conv(deltaW,P)
     return Pcont
 
@@ -148,21 +155,16 @@ def cyl_partial(p,zs,n,dpar,kpar,kperp,nmodes_sph=200):
     '''
     nkpar=len(kpar)
     nkperp=len(kperp)
-    # kpargrid,kperpgrid,Pcyl=unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,nsphpts=nmodes_sph)
-    # kh,pk=get_mps(p,zs,npts=nmodes)
-    # npts=pk.shape[1]
     pcopy=p.copy()
     pcopy[n]=pcopy[n]+dpar[n]
-    # khp,pkp=get_mps(pcopy,zs,npts=nmodes)
-    _,_,Pcyl_plus=unbin_to_Pcyl(kpar,kperp,z,pars=pcopy,nsphpts=nmodes_sph)
-    # fplus=np.array(pkp[:npts])
+    _,_,Pcyl_plus=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
+    # print("Pcyl_plus.shape=",Pcyl_plus.shape)
     pcopy=p.copy()
     pcopy[n]=pcopy[n]-dpar[n]
-    # khm,pkm=get_mps(pcopy,zs,npts=nmodes)
-    _,_,Pcyl_minu=unbin_to_Pcyl(kpar,kperp,z,pars=pcopy,nsphpts=nmodes_sph)
-    # fminu=np.array(pkm[:npts])
-    # fminu_cyl=
-    deriv=(Pcyl_plus-Pcyl_minu)/(2*dpar[n]).reshape((nkpar,nkperp,))
+    _,_,Pcyl_minu=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
+    # print("Pcyl_minu.shape=",Pcyl_minu.shape)
+    deriv=(Pcyl_plus-Pcyl_minu)/(2*dpar[n])
+    # print("deriv.shape=",deriv.shape)
     return deriv
 
 def buildCAMBpartials(p,z,NMODES,dpar): # output to fisher
@@ -184,7 +186,7 @@ def build_cyl_partials(p,z,nmodes_sph,kpar,kperp,dpar):
     nprm=len(p)
     V=np.zeros((nprm,nkpar,nkperp))
     for n in range(nprm):
-        V[n,:,:]=cyl_partial(p,z,n,dpar,kpar,kperp,nmodes=nmodes_sph)
+        V[n,:,:]=cyl_partial(p,z,n,dpar,kpar,kperp,nmodes_sph=nmodes_sph)
     return V
 
 def fisher(partials,unc): # output to cornerplot or bias
@@ -206,13 +208,26 @@ def fisher_and_B_cyl(partials,unc, kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,sav
     ## calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,savename,beamtype,pars,eps,z,n_sph_pts)
     V=0.0*partials # still want the same shape, even though it is different than for the spherical case
     nprm=partials.shape[0]
+    # print("start of fisher_and_B_cyl shape checks")
+    # print("before shape compatibility modifications:")
+    # print("partials.shape=",partials.shape)
+    # print("unc.shape=",unc.shape)
+    uncsh0,uncsh1=unc.shape
+    partsh0,partsh1,partsh2=partials.shape
+    if (uncsh0==partsh2 and uncsh1==partsh1):
+        uncT=unc.T
+    # print("after shape compatibility modifications:")
+    # print("partials.shape=",partials.shape)
+    # print("unc.shape=",unc.shape)
+
     for i in range(nprm):
-        V[i,:,:]=partials[i,:,:]/unc # elementwise division for a nkpar x nkperp slice
+        V[i,:,:]=partials[i,:,:]/uncT # elementwise division for a nkpar x nkperp slice
     V_completely_transposed=np.transpose(V,axes=(2,1,0)) # from the docs: "For an n-D array, if axes are given, their order indicates how the axes are permuted"
     F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
     Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,savestatus,savename,beamtype,pars,eps,z,n_sph_pts)
-    Pcont_div_sigma=Pcont/sigma
+    Pcont_div_sigma=Pcont/unc
     B=np.einsum("ij,ijk->k",Pcont_div_sigma,V_completely_transposed)
+    # print("end of fisher_and_B_cyl shape checks")
     return F,B
 
 def bias(F,B):
