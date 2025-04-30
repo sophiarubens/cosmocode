@@ -32,7 +32,7 @@ dpar=1e-3*np.ones(nprm)
 dpar[3]*=scale
 
 ############################## details of a hypothetical survey cooked up for testing purposes ########################################################################################################################
-nu_ctr=900 # centre frequency of survey in MHz
+nu_ctr=900. # centre frequency of survey in MHz
 z_ctr=freq2z(nu_rest_21,nu_ctr)
 Dc_ctr=comoving_distance(z_ctr)
 survey_width=60. # survey bandwidth in MHz ... based on the 1/15 deltanu/nu ratio inspired by HERA cosmological surveys
@@ -43,22 +43,15 @@ nu_hi=nu_ctr+survey_width/2.
 z_lo=freq2z(nu_rest_21,nu_hi)
 Dc_lo=comoving_distance(z_lo)
 deltaz=z_hi-z_lo
-channel_width=0.183 # 183 kHz from CHORD Wiki -> SWGs -> Galaxies -> Spectral resolution
+channel_width=0.183 # 183 kHz from CHORD Wiki -> SWGs -> Galaxies -> CHORD Pathfinder specs -> Spectral resolution
 N_CHORDcosmo=survey_width/channel_width
 N_CHORDcosmo_int=int(N_CHORDcosmo)
 surv_channels=np.arange(nu_lo,nu_hi,channel_width)
-print("survey centred at",nu_ctr,"MHz / z=",z_ctr,"/ D_c=",Dc_ctr,"Mpc")
-print("survey spans",nu_lo,"-",nu_hi,"MHz (width=",survey_width,"MHz) in",N_CHORDcosmo_int,"channels of width",channel_width,"MHz")
-print("or, in redshift space, z=",z_hi,"-",z_lo,"(deltaz=",deltaz,")")
-print("or, in comoving distance terms, D_c=",Dc_hi,"-",Dc_lo,"Mpc")
 sig_LoS=0.25*(Dc_ctr-Dc_lo)/10 # dialing in the bound set by condition following from linearization...
-print("sig_LoS=",sig_LoS,"Mpc")
-CHORD_ish_fwhm_surv=(1./12.)*pi/180. # CHORD pathfinder spec page:
-# D3A6 beam measurements in Ian's MSc thesis, taken by inspection from the plot and eyeball-averaged over the x- and y-pols 4 deg = 4pi/180 rad = pi/45 rad # approximate, but specific to this hypothetical 900 MHz survey 
+CHORD_ish_fwhm_surv=(1./12.)*pi/180. # CHORD pathfinder spec page
 
 ############################## cylindrically binned k-mode initialization ########################################################################################################################
 kpar_surv=kpar(nu_ctr,channel_width,N_CHORDcosmo_int) # kpar(nu_ctr,chan_width,N_chan,H0=H0_Planck18)
-print("kpar_surv check: kparmin,kparmax=",kpar_surv[0],kpar_surv[-1])
 
 N_CHORDbaselines=1010 # upper bound (b/c not sure if the grid gaps will remove redundance or just unique baselines) from my formula is 1010
 b_NS_CHORD=8.5 # m
@@ -72,19 +65,26 @@ bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2) # too o
 kperp_surv=kperp(nu_ctr,N_CHORDbaselines,bminCHORD,bmaxCHORD) # kperp(nu_ctr,N_modes,bmin,bmax)
 
 kpar_surv_grid,kperp_surv_grid=np.meshgrid(kpar_surv,kperp_surv)
-print("kperp_surv check: kperpmin,kperpmax=",kperp_surv[0],kperp_surv[-1])
 
 ############################## misc. other initializations for the pipeline functions ########################################################################################################################
-# btype="Gaussian" # Airy implementation not completely working yet 
-# savestat=False
-# saven="validation"
 eps_test=0.01 # ITERATE OVER DIFFERENT VALUES ONCE EVERYTHING AT LEAST RUNS
 n_sph_pts_test=450
+
+############################## one-stop shop for verbose test output ########################################################################################################################
+verbose_test_prints=True
+if verbose_test_prints:
+    for i in range(3):
+        print("........................................................................................")
+    print("survey centred at.......................................................................\n    nu ={:>7.4}     MHz \n    z  = {:>9.4} \n    Dc = {:>9.4f}  Mpc\n".format(nu_ctr,z_ctr,Dc_ctr))
+    print("survey spans............................................................................\n    nu =  {:>5.4}    -  {:>5.4}    MHz (deltanu = {:>6.4}    MHz) \n    z =  {:>9.4} - {:>9.4}     (deltaz  = {:>9.4}    ) \n    Dc = {:>9.4f} - {:>9.4f} Mpc (deltaDc = {:>9.4f} Mpc)\n".format(nu_lo,nu_hi,survey_width,z_hi,z_lo,deltaz,Dc_hi,Dc_lo,Dc_hi-Dc_lo))
+    print("characteristic instrument response widths...............................................\n    sigLoS = {:>7.4}    Mpc\n    beamFWHM = {:>=8.4} rad\n".format(sig_LoS,CHORD_ish_fwhm_surv))
+    print("cylindrically binned wavenumbers of the survey..........................................\n    kparallel {:>8.4} - {:>8.4} Mpc^(-1) ({:>4} channels of width {:>7.4}  Mpc^(-1)) \n    kperp     {:>8.4} - {:>8.4} Mpc^(-1) ({:>4} channels of width {:>8.4} Mpc^(-1))\n".format(kpar_surv[0],kpar_surv[-1],len(kpar_surv),kpar_surv[-1]-kpar_surv[-2],   kperp_surv[0],kperp_surv[-1],len(kperp_surv),kperp_surv[-1]-kperp_surv[-2]))
+    for i in range(3):
+        print("........................................................................................")
 
 ############################## actual pipeline tests ########################################################################################################################
 Pcont_cyl=calc_Pcont_cyl(kpar_surv,kperp_surv,
                          sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
-                        #  btype,
                          pars_Planck18,eps_test,z_ctr,n_sph_pts_test) 
 # sigma_kpar_kperp=np.load("cyl_sense_thermal_surv.npy") # NEED TO DEBUG THE INFS
 sigma_kpar_kperp=np.exp(-(kperp_surv_grid/2)**2)
@@ -103,12 +103,6 @@ else:
 F_cyl,B_cyl=fisher_and_B_cyl(P_cyl_partials,sigma_kpar_kperp,
                              kpar_surv,kperp_surv,
                              sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
-                            #  btype,
                              pars_Planck18,eps_test,z_ctr,n_sph_pts_test)
-            # fisher_and_B_cyl(partials,unc, 
-            #                  kpar,kperp,
-            #                  sigLoS,r0,thetaHWHM,
-            #                  pars,eps,z,n_sph_pts,
-            #                  beamtype="Gaussian",savestatus=False,savename=None)
 b_cyl=bias(F_cyl,B_cyl)
 printparswbiases(pars_Planck18,parnames,b_cyl)

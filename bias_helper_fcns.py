@@ -219,6 +219,8 @@ def bias(F,B):
     return (np.linalg.inv(F)@B).reshape((F.shape[0],))
 
 def printparswbiases(pars,parnames,biases):
+    for i in range(5):
+        print(".")
     for p,par in enumerate(pars):
         print('{:12} = {:-10.3e} with bias {:-12.5e}'.format(parnames[p], par, biases[p]))
     return None
