@@ -7,6 +7,7 @@ import numpy as np
 from astropy import units as u
 from astropy.cosmology.units import littleh
 from py21cmsense import GaussianBeam, Observatory, Observation, PowerSpectrum
+from cosmo_distances import *
 #import py21cmsense as p21
 #print(p21.__version__)
 
@@ -16,12 +17,12 @@ class chord_sense(object):
     
     def __init__(
         self,
-        spacing=[6,6],
-        n_side=[6,11],
+        spacing=[6.3,8.5],
+        n_side=[22,24],
         orientation=None,
         center=[0,0],
         
-        freq_cen = 700*u.MHz,
+        freq_cen = 900*u.MHz,
         dish_size = 6*u.m,
         Trcv = 30*u.K,
         latitude = (49.3*np.pi/180.0)*u.radian,
@@ -33,8 +34,6 @@ class chord_sense(object):
         coherent = False, # Whether to add different baselines coherently if they are not instantaneously redundant.
         bl_max = 120.0*u.m, # max baseline to include in uv-plane in meters
         bl_min =6.0*u.m,
-        #tsky_ref_freq = 150.0 * u.MHz, 
-        #tsky_amplitude = 260 *u.K,
         tsky_ref_freq = 400.0 * u.MHz, 
         tsky_amplitude = 25 *u.K,
         
@@ -59,7 +58,7 @@ class chord_sense(object):
         self.bl_min = bl_min
         self.tsky_ref_freq = tsky_ref_freq
         self.tsky_amplitude = tsky_amplitude
-        self. horizon_buffer =  horizon_buffer
+        self.horizon_buffer =  horizon_buffer
         self.foreground_model = foreground_model
         
         
@@ -170,7 +169,7 @@ class chord_sense(object):
         return (np.asarray(XY)*u.m)
     
     
-    def sense_1d(self):
+    def sense_2d(self):
         ant_pos = self.rectangle_generator()
         
         observatory = Observatory(antpos=ant_pos,
@@ -187,8 +186,8 @@ class chord_sense(object):
                           n_channels = self.n_channels, # The number of channels
                           bandwidth = self.bandwidth,  # Bandwidth of obs
                           coherent = self.coherent, # Whether to add different baselines coherently if they are not instantaneously redundant.
-                          bl_max = self.bl_max, # max baseline to include in uv-plane in meters
-                          bl_min = self.bl_min,
+                        #   bl_max = self.bl_max, # max baseline to include in uv-plane in meters
+                        #   bl_min = self.bl_min,
                           tsky_ref_freq = self.tsky_ref_freq,
                           tsky_amplitude = self.tsky_amplitude
                           )
@@ -198,9 +197,17 @@ class chord_sense(object):
             horizon_buffer = self. horizon_buffer,
             foreground_model = self.foreground_model)
         
-        power_thermal = sensitivity.calculate_sensitivity_1d(thermal=True, sample=False)#only thermal
+        # power_thermal = sensitivity.calculate_sensitivity_1d(thermal=True, sample=False)#only thermal
+        kpar_my_calc=kpar(900.,0.183,327) # 21cmSense treats these 1010 bins as a set of edges, so it only deals with 1009 ... hacky patch to get it to operate on the 1010 I want (i.e. use all 1010 as floors): append another bin with the characteristic spacing after the fact
+        kpar_to_append=2*kpar_my_calc[-1]-kpar_my_calc[-2] # final kpar plus the characteristic delta_kpar = kpar_my_calc[-1]+((kpar_my_calc[-1]-kpar_my_calc[-2])=2*kpar_my_calc[-1]-kpar_my_calc[-2]
+        kpar_surv =np.append(kpar_my_calc,kpar_to_append)*littleh/u.Mpc
+        kperp_my_calc=kperp(900.,1010,6.3,np.sqrt((24.*8.5)**2+(22.*6.3)**2))
+        kperp_to_append=2*kperp_my_calc[-1]-kperp_my_calc[-2] # same reasoning as above
+        kperp_surv=np.append(kperp_my_calc,kperp_to_append)*littleh/u.Mpc
+        cyl_sense_thermal = sensitivity.calculate_sensitivity_2d_grid(kpar_edges=kpar_surv, kperp_edges=kperp_surv, thermal=True, sample=False)
         
-        return sensitivity.k1d, power_thermal
+        # return sensitivity.k1d,power_thermal
+        return cyl_sense_thermal
     
     def Nkmode(self):
         k_bins,pth = self.sense_1d()
@@ -210,30 +217,20 @@ class chord_sense(object):
         Nk = Vs * np.float_power(k_bins,2.0) * (k_bins[1]-k_bins[0]) / 2 / np.float_power(np.pi, 2.0)
         return np.array(Nk)
         
-        
-    
-'''    
+   
 if __name__ == "__main__":
     
     import matplotlib.pyplot as plt
     sen =chord_sense()
     ant_pos = sen.rectangle_generator()
-    plt.figure(figsize=(6,4),dpi=80)
-    plt.plot(ant_pos[:,0],ant_pos[:,1],marker='o',color='red',linestyle='none')
-    plt.xlabel('X [m]',fontsize=18)
-    plt.ylabel('Y [m]',fontsize=18)
-    plt.tight_layout()
-    plt.show()  
-    plt.clf()
+    # plt.figure(figsize=(6,4),dpi=80)
+    # plt.plot(ant_pos[:,0],ant_pos[:,1],marker='o',color='red',linestyle='none')
+    # plt.xlabel('X [m]',fontsize=18)
+    # plt.ylabel('Y [m]',fontsize=18)
+    # plt.tight_layout()
+    # plt.show()  
+    # plt.clf()
     
-    k,pk = sen.sense_1d()
-    plt.plot(k,pk)
-    plt.xscale('log')
-    plt.yscale('log')
-    plt.show()    
-'''    
-    
-    
-    
-    
-    
+    cyl_sense_thermal = sen.sense_2d()
+    print("cyl_sense_thermal.shape=",cyl_sense_thermal.shape)
+    np.save("cyl_sense_thermal_surv.npy",cyl_sense_thermal.value)
