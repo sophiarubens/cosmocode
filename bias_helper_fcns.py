@@ -43,10 +43,6 @@ def higher_dim_conv(ff,gg):
     fp[:a,:b]=f # populate the zero-padded versions
     gp[:a,:b]=g
 
-    # Fp=rfft2(fp)
-    # Gp=rfft2(gp)
-    # Fourier_space_product_p=Fp*Gp # _p for padded
-    # result_p=irfft2(Fourier_space_product_p)
     result_p=convolve(fp,gp)
     result=result_p[:a,:b]
     return result
@@ -78,7 +74,6 @@ def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,nsphpts=500):
         for j,kperp_val in enumerate(kperp):
             k_of_interest=np.sqrt(kpar_val**2+kperp_val**2)
             idx_closest_k=np.argmin(np.abs(k-k_of_interest)) # k-scalar in the CAMB MPS closest to the k-magnitude indicated by the kpar-kperp combination for that point in cylindrically binned Fourier space
-            # Pcyl[i,j]=Psph[idx_closest_k] # nearest neighbour version
             ## start of linear interpolation version
             if (idx_closest_k==0): # start of array
                 idx_2nd_closest_k=1 # use hi
@@ -89,10 +84,8 @@ def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,nsphpts=500):
                 k_neighb_hi=k[idx_closest_k+1]
                 if (np.abs(k_neighb_lo-k_of_interest)<np.abs(k_neighb_hi-k_of_interest)): # use k_neighb_lo
                     idx_2nd_closest_k=idx_closest_k-1
-                    # k_2nd_closest=k_neighb_lo
                 else:
                     idx_2nd_closest_k=idx_closest_k+1
-                    # k_2nd_closest=k_neighb_hi
             k_closest=k[idx_closest_k]
             k_2nd_closest=k[idx_2nd_closest_k]
             interp_slope=(Psph[idx_2nd_closest_k]-Psph[idx_closest_k])/(k_2nd_closest-k_closest)
@@ -151,8 +144,7 @@ def cyl_partial(p,zs,n,dpar,kpar,kperp,nmodes_sph=200,ftol=1e-6,eps=1e-16,maxite
     iter=0
     nkpar=len(kpar)
     nkperp=len(kperp)
-    kpargrid,kperpgrid=np.meshgrid(kpar,kperp)
-    kmean=np.mean(np.sqrt(kpargrid**2+kperpgrid**2)) # I PROBABLY DON'T EVEN WANT TO USE THIS BC I'M NOT DIFFERENTIATING WRT THE DOMAIN
+    # kpargrid,kperpgrid=np.meshgrid(kpar,kperp)
     dparn=dpar[n]
     pcopy=p.copy()
     pndispersed=pcopy[n]+np.linspace(-2,2,5)*dparn
@@ -161,7 +153,6 @@ def cyl_partial(p,zs,n,dpar,kpar,kperp,nmodes_sph=200,ftol=1e-6,eps=1e-16,maxite
     _,_,Pcyl_base=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
     P0=np.mean(np.abs(Pcyl_base))+eps
     tol=ftol*P0 # generalizes tol=ftol*f0 from 512
-    # print("generated Pcyl_base")
 
     pcopy[n]=pcopy[n]+2*dparn
     _,_,Pcyl_2plus=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
@@ -169,7 +160,6 @@ def cyl_partial(p,zs,n,dpar,kpar,kperp,nmodes_sph=200,ftol=1e-6,eps=1e-16,maxite
     pcopy[n]=pcopy[n]-2*dparn
     _,_,Pcyl_2minu=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
     deriv1=(Pcyl_2plus-Pcyl_2minu)/(4*dpar[n])
-    # print("generated Pcyl_2plus and Pcyl_2minu")
 
     pcopy[n]=pcopy[n]+dparn
     _,_,Pcyl_plus=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
@@ -177,18 +167,15 @@ def cyl_partial(p,zs,n,dpar,kpar,kperp,nmodes_sph=200,ftol=1e-6,eps=1e-16,maxite
     pcopy[n]=pcopy[n]-dparn
     _,_,Pcyl_minu=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
     deriv2=(Pcyl_plus-Pcyl_minu)/(2*dpar[n])
-    # print("generated Pcyl_plus and Pcyl_minu")
 
     if (np.all(Pcyl_plus-Pcyl_minu)<tol): # maybe this is too strict a condition... consider changing to np.any or something
         print("current step size okay -> returning a derivative estimate")
         return (4*deriv2-deriv1)/3 # higher-order estimate
     else:
-        # print("need to refine step size")
         pnmean=np.mean(np.abs(pndispersed)) # the np.abs part should be redundant because, by this point, all the k-mode values and their corresponding dpns and Ps should be nonnegative, but anyway... numerical stability or something idk
         Psecond=np.abs(2*Pcyl_base-Pcyl_minu-Pcyl_plus)/dx**2
         dparn=np.sqrt(eps*pnmean*P0/Psecond)
         iter+=1
-        # print("new dparn has np.mean(dparn)=",np.mean(dparn))
         if iter==maxiter:
             print("failed to converge in {:d} iterations".format(maxiter))
             return (4*deriv2-deriv1)/3
@@ -201,30 +188,6 @@ def build_cyl_partials(p,z,nmodes_sph,kpar,kperp,dpar):
     for n in range(nprm):
         V[n,:,:]=cyl_partial(p,z,n,dpar,kpar,kperp,nmodes_sph=nmodes_sph)
     return V
-
-# def fisher_and_B_cyl(partials,unc, kpar,kperp,sigLoS,r0,thetaHWHM,pars,eps,z,n_sph_pts,beamtype="Gaussian",savestatus=False,savename=None): # B is no longer something I basically get for free and can build trivially using mat mult, so might as well use the building blocks that I already need to construct inside this function layer
-#     '''
-#     partials = nprm x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
-#     unc      = nnpar x nkperp array describing the standard deviations at each cylindrically binned k-mode
-#     '''
-#     V=0.0*partials # still want the same shape, even though it is different than for the spherical case
-#     nprm=partials.shape[0]
-#     uncsh0,uncsh1=unc.shape
-#     partsh0,partsh1,partsh2=partials.shape
-#     if (uncsh0==partsh2 and uncsh1==partsh1):
-#         uncT=unc.T
-
-#     for i in range(nprm):
-#         V[i,:,:]=partials[i,:,:]/uncT # elementwise division for a nkpar x nkperp slice
-#     V_completely_transposed=np.transpose(V,axes=(2,1,0)) # from the docs: "For an n-D array, if axes are given, their order indicates how the axes are permuted"
-#     F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
-#     Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,pars,eps,z,n_sph_pts,savestatus=savestatus,savename=savename,beamtype=beamtype)
-#     Pcont_div_sigma=Pcont/unc
-#     B=np.einsum("ij,ijk->k",Pcont_div_sigma,V_completely_transposed)
-#     return F,B
-
-# def bias(F,B):
-#     return (np.linalg.inv(F)@B).reshape((F.shape[0],))
 
 def bias(partials,unc, kpar,kperp,sigLoS,r0,thetaHWHM,pars,eps,z,n_sph_pts,beamtype="Gaussian",savestatus=False,savename=None):
     '''
