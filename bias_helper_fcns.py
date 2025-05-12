@@ -134,7 +134,7 @@ def get_mps(pars,zs,minkh=1e-4,maxkh=1,npts=500): # < CAMBpartial < buildCAMBpar
     kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=npts)
     return kh,pk
 
-def cyl_partial(p,zs,n,dpar,kpar,kperp,nmodes_sph=200):
+def cyl_partial(p,zs,n,dpar,kpar,kperp,nmodes_sph=200,ftol=1e-6,eps=1e-16,maxiter=5): # get_mps(pars,zs,minkh=1e-4,maxkh=1,npts=500)
     '''
     args
     p           = vector of cosmological parameters (npar x 1)
@@ -145,18 +145,53 @@ def cyl_partial(p,zs,n,dpar,kpar,kperp,nmodes_sph=200):
     nmodes_sph  = number of k-modes at which to sample the CAMB (spherically binned) MPS
 
     returns
-    reverse-engineered (hackily emulated) cylindrically binned matter power spectrum partial WRT one cosmo parameter (nkpar x nkperp)
+    cylindrically binned matter power spectrum partial WRT one cosmo parameter (nkpar x nkperp)
     '''
+    done=False
+    iter=0
     nkpar=len(kpar)
     nkperp=len(kperp)
+    kpargrid,kperpgrid=np.meshgrid(kpar,kperp)
+    kmean=np.mean(np.sqrt(kpargrid**2+kperpgrid**2)) # I PROBABLY DON'T EVEN WANT TO USE THIS BC I'M NOT DIFFERENTIATING WRT THE DOMAIN
+    dparn=dpar[n]
     pcopy=p.copy()
-    pcopy[n]=pcopy[n]+dpar[n]
+    pndispersed=pcopy[n]+np.linspace(-2,2,5)*dparn
+
+    pcopy=p.copy()
+    _,_,Pcyl_base=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
+    P0=np.mean(np.abs(Pcyl_base))+eps
+    tol=ftol*P0 # generalizes tol=ftol*f0 from 512
+    # print("generated Pcyl_base")
+
+    pcopy[n]=pcopy[n]+2*dparn
+    _,_,Pcyl_2plus=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
+    pcopy=p.copy()
+    pcopy[n]=pcopy[n]-2*dparn
+    _,_,Pcyl_2minu=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
+    deriv1=(Pcyl_2plus-Pcyl_2minu)/(4*dpar[n])
+    # print("generated Pcyl_2plus and Pcyl_2minu")
+
+    pcopy[n]=pcopy[n]+dparn
     _,_,Pcyl_plus=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
     pcopy=p.copy()
-    pcopy[n]=pcopy[n]-dpar[n]
+    pcopy[n]=pcopy[n]-dparn
     _,_,Pcyl_minu=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
-    deriv=(Pcyl_plus-Pcyl_minu)/(2*dpar[n])
-    return deriv
+    deriv2=(Pcyl_plus-Pcyl_minu)/(2*dpar[n])
+    # print("generated Pcyl_plus and Pcyl_minu")
+
+    if (np.all(Pcyl_plus-Pcyl_minu)<tol): # maybe this is too strict a condition... consider changing to np.any or something
+        print("current step size okay -> returning a derivative estimate")
+        return (4*deriv2-deriv1)/3 # higher-order estimate
+    else:
+        # print("need to refine step size")
+        pnmean=np.mean(np.abs(pndispersed)) # the np.abs part should be redundant because, by this point, all the k-mode values and their corresponding dpns and Ps should be nonnegative, but anyway... numerical stability or something idk
+        Psecond=np.abs(2*Pcyl_base-Pcyl_minu-Pcyl_plus)/dx**2
+        dparn=np.sqrt(eps*pnmean*P0/Psecond)
+        iter+=1
+        # print("new dparn has np.mean(dparn)=",np.mean(dparn))
+        if iter==maxiter:
+            print("failed to converge in {:d} iterations".format(maxiter))
+            return (4*deriv2-deriv1)/3
 
 def build_cyl_partials(p,z,nmodes_sph,kpar,kperp,dpar):
     nkpar=len(kpar)

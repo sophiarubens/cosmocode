@@ -87,22 +87,21 @@ Pcont_cyl=calc_Pcont_cyl(kpar_surv,kperp_surv,
                          sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
                          pars_Planck18,eps_test,z_ctr,n_sph_pts_test) 
 # sigma_kpar_kperp=np.load("cyl_sense_thermal_surv.npy") # NEED TO DEBUG THE INFS
-sigma_kpar_kperp=np.exp(-(kperp_surv_grid/2)**2)
+# sigma_kpar_kperp=np.exp(-(kperp_surv_grid/2)**2) # field shaped roughly like the output of 21cmSense's 2D sense calc, but have not yet thought about normalization
+sigma_kpar_kperp=0.1*np.ones(kperp_surv_grid.shape) # Adrian's recommendation: flat 10% uncertainty everywhere as a placeholder
 # plt.figure()
 # plt.imshow(sigma_kpar_kperp)
 # plt.colorbar()
 # plt.show()
 
-P_cyl=unbin_to_Pcyl(kpar_surv,kperp_surv,z_ctr,nsphpts=n_sph_pts_test) # unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,nsphpts=500)
 calc_P_cyl_partials=False
 if calc_P_cyl_partials:
     P_cyl_partials=build_cyl_partials(pars_Planck18,z_ctr,n_sph_pts_test,kpar_surv,kperp_surv,dpar) # build_cyl_partials(p,z,nmodes_sph,kpar,kperp,dpar)
     np.save("P_cyl_partials.npy",P_cyl_partials)
 else:
     P_cyl_partials=np.load("P_cyl_partials.npy")
-F_cyl,B_cyl=fisher_and_B_cyl(P_cyl_partials,sigma_kpar_kperp,
-                             kpar_surv,kperp_surv,
-                             sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
-                             pars_Planck18,eps_test,z_ctr,n_sph_pts_test)
-b_cyl=bias(F_cyl,B_cyl)
+b_cyl=bias( P_cyl_partials,sigma_kpar_kperp,
+            kpar_surv,kperp_surv,
+            sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
+            pars_Planck18,eps_test,z_ctr,n_sph_pts_test)
 printparswbiases(pars_Planck18,parnames,b_cyl)
