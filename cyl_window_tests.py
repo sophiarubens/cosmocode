@@ -16,6 +16,7 @@ H0_Planck18=67.32
 infty=np.infty
 pi=np.pi
 twopi=2.*pi
+ln2=np.log(2)
 nu_rest_21=1420.405751768 # MHz
 c=2.998e8 # m s^{-1}
 pc=30856775814914000 # m
@@ -67,7 +68,8 @@ kperp_surv=kperp(nu_ctr,N_CHORDbaselines,bminCHORD,bmaxCHORD) # kperp(nu_ctr,N_m
 kpar_surv_grid,kperp_surv_grid=np.meshgrid(kpar_surv,kperp_surv)
 
 ############################## misc. other initializations for the pipeline functions ########################################################################################################################
-eps_test=0.01 # ITERATE OVER DIFFERENT VALUES ONCE EVERYTHING AT LEAST RUNS
+epsLoS_test=0.01 # ITERATE OVER DIFFERENT VALUES ONCE EVERYTHING AT LEAST RUNS
+epsbeam_test=0.02
 n_sph_pts_test=450
 
 ############################## one-stop shop for verbose test output ########################################################################################################################
@@ -85,7 +87,7 @@ if verbose_test_prints:
 ############################## actual pipeline tests ########################################################################################################################
 Pcont_cyl=calc_Pcont_cyl(kpar_surv,kperp_surv,
                          sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
-                         pars_Planck18,eps_test,z_ctr,n_sph_pts_test) 
+                         pars_Planck18,epsLoS_test,epsbeam_test,z_ctr,n_sph_pts_test) 
 # sigma_kpar_kperp=np.load("cyl_sense_thermal_surv.npy") # NEED TO DEBUG THE INFS
 # sigma_kpar_kperp=np.exp(-(kperp_surv_grid/2)**2) # field shaped roughly like the output of 21cmSense's 2D sense calc, but have not yet thought about normalization
 sigma_kpar_kperp=0.1*np.ones(kperp_surv_grid.shape) # Adrian's recommendation: flat 10% uncertainty everywhere as a placeholder
@@ -103,5 +105,16 @@ else:
 b_cyl=bias( P_cyl_partials,sigma_kpar_kperp,
             kpar_surv,kperp_surv,
             sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
-            pars_Planck18,eps_test,z_ctr,n_sph_pts_test)
+            pars_Planck18,
+            epsLoS_test,epsbeam_test,
+            z_ctr,n_sph_pts_test)
+
+# bias(partials,unc, 
+#       kpar,kperp,
+#       sigLoS,r0,sigbeam,
+#       pars,
+#       epsLoS,epsbeam,
+#       z,n_sph_pts,
+#       beamtype="Gaussian",savestatus=False,savename=None)
+
 printparswbiases(pars_Planck18,parnames,b_cyl)

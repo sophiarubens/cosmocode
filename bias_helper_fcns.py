@@ -5,7 +5,7 @@ import camb
 from camb import model
 # from numpy.fft import rfft2,irfft2
 from scipy.signal import convolve
-from cyl_bin_window import *
+# from cyl_bin_window import *
 
 Omegam_Planck18=0.3158
 Omegabh2_Planck18=0.022383
@@ -19,6 +19,7 @@ H0_Planck18=67.32
 infty=np.infty
 pi=np.pi
 twopi=2.*pi
+ln2=np.log(2)
 nu_rest_21=1420.405751768 # MHz
 c=2.998e8 # m s^{-1}
 pc=30856775814914000 # m
@@ -47,12 +48,50 @@ def higher_dim_conv(ff,gg):
     result=result_p[:a,:b]
     return result
 
-def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,pars,eps,z,n_sph_pts,beamtype="Gaussian",savestatus=False,savename=None): # V3
-    W=        W_cyl_binned(kpar,kperp,sigLoS,r0,        thetaHWHM,save=savestatus,savename=savename,btype=beamtype)
-    Wthought= W_cyl_binned(kpar,kperp,sigLoS,r0,(1+eps)*thetaHWHM,save=savestatus,savename=savename,btype=beamtype) # modify if I want to study a different mischaracterization!
-    deltaW=W-Wthought
+def calc_par_vec(deltakparvec,sigLoS,r0):
+    expterm=twopi*sigLoS**2*np.exp(-deltakparvec**2*sigLoS**2)
+    return expterm
+
+def calc_perp_vec(deltakperpvec,Dc,sigbeam,beamtype="Gaussian"):
+    beamtype=beamtype.lower()
+    if beamtype=="gaussian":
+        alpha=ln2/(sigbeam*Dc)**2
+        # print("Gaussian alpha=ln2/(sigbeam*Dc)**2=",alpha)
+        vec=np.exp(-deltakperpvec**2/(2*alpha))
+    # elif beamtype=="airy":
+    #     nk=len(deltakperpvec)
+    #     vec=np.zeros(nk)
+    #     alpha=sigbeam_to_alpha(sigbeam)
+    #     print("Airy alpha=sigbeam_to_alpha(sigbeam)=",alpha)
+    #     vec=airy(deltakperpvec,alpha)
+    else: 
+        assert(1==0), "only a Gaussian beam is currently supported"
+        # assert(1==0), "currently supported beam types are Airy and Gaussian"
+    return vec
+
+def W_cyl_binned(deltakparvec,deltakperpvec,sigLoS,r0,sigbeam,save=False,savename="test",btype="Gaussian",plot=False): 
+    par_vec=calc_par_vec(deltakparvec,sigLoS,r0)
+    perp_vec=calc_perp_vec(deltakperpvec,r0,sigbeam,beamtype=btype)
+    par_arr,perp_arr=np.meshgrid(par_vec,perp_vec)
+    meshed=par_arr*perp_arr # interested in elementwise (not matrix) multiplication
+    if (save):
+        np.save('W_cyl_binned_2D_proxy'+str(time.time())+'.txt',normed)
+    return meshed # NO LONGER NORMALIZING BC HANDLING AT THE WCONT LEVEL
+
+def calc_Wcont(kpar,kperp,sigLoS,r0,sigbeam,epsLoS,epsbeam,savestat="False",saven=None,beamtype="Gaussian"):
+    kpargrid,kperpgrid=np.meshgrid(kpar,kperp)
+    Wbase=W_cyl_binned(kpar,kperp,sigLoS,r0,sigbeam,save=savestat,savename=saven,btype=beamtype)
+    Wcont_shape=Wbase*np.sqrt((kpargrid**2*sigLoS*epsLoS)**2+(kperpgrid**2*sigbeam*epsbeam)**2)
+    rawsum=np.sum(Wcont_shape)
+    if (rawsum!=0): 
+        return Wcont_shape/rawsum
+    else:
+        return meshed
+
+def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,sigbeam,pars,epsLoS,epsbeam,z,n_sph_pts,beamtype="Gaussian",savestatus=False,savename=None): # V4
+    Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,sigbeam,epsLoS,epsbeam,savestat=savestatus,saven=savename,beamtype=beamtype)
     kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,nsphpts=n_sph_pts)
-    Pcont=higher_dim_conv(deltaW,P)
+    Pcont=higher_dim_conv(Wcont,P)
     return Pcont
 
 def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,nsphpts=500):
@@ -74,7 +113,6 @@ def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,nsphpts=500):
         for j,kperp_val in enumerate(kperp):
             k_of_interest=np.sqrt(kpar_val**2+kperp_val**2)
             idx_closest_k=np.argmin(np.abs(k-k_of_interest)) # k-scalar in the CAMB MPS closest to the k-magnitude indicated by the kpar-kperp combination for that point in cylindrically binned Fourier space
-            ## start of linear interpolation version
             if (idx_closest_k==0): # start of array
                 idx_2nd_closest_k=1 # use hi
             elif (idx_closest_k==nsphpts-1): # end of array
@@ -90,11 +128,10 @@ def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,nsphpts=500):
             k_2nd_closest=k[idx_2nd_closest_k]
             interp_slope=(Psph[idx_2nd_closest_k]-Psph[idx_closest_k])/(k_2nd_closest-k_closest)
             Pcyl[i,j]=interp_slope*(k_of_interest-k_closest)
-            ## end of linear interpolation version
     return kpargrid,kperpgrid,Pcyl
 
 scale=1e-9
-def get_mps(pars,zs,minkh=1e-4,maxkh=1,npts=500): # < CAMBpartial < buildCAMBpartials
+def get_mps(pars,zs,minkh=1e-4,maxkh=1,npts=500):
     '''
     get matter power spectrum
 
@@ -144,7 +181,6 @@ def cyl_partial(p,zs,n,dpar,kpar,kperp,nmodes_sph=200,ftol=1e-6,eps=1e-16,maxite
     iter=0
     nkpar=len(kpar)
     nkperp=len(kperp)
-    # kpargrid,kperpgrid=np.meshgrid(kpar,kperp)
     dparn=dpar[n]
     pcopy=p.copy()
     pndispersed=pcopy[n]+np.linspace(-2,2,5)*dparn
@@ -168,7 +204,7 @@ def cyl_partial(p,zs,n,dpar,kpar,kperp,nmodes_sph=200,ftol=1e-6,eps=1e-16,maxite
     _,_,Pcyl_minu=unbin_to_Pcyl(kpar,kperp,zs,pars=pcopy,nsphpts=nmodes_sph)
     deriv2=(Pcyl_plus-Pcyl_minu)/(2*dpar[n])
 
-    if (np.all(Pcyl_plus-Pcyl_minu)<tol): # maybe this is too strict a condition... consider changing to np.any or something
+    if (np.all(Pcyl_plus-Pcyl_minu)<tol): # consider relaxing this to np.any if it ever seems like too strict a condition?!
         print("current step size okay -> returning a derivative estimate")
         return (4*deriv2-deriv1)/3 # higher-order estimate
     else:
@@ -189,12 +225,12 @@ def build_cyl_partials(p,z,nmodes_sph,kpar,kperp,dpar):
         V[n,:,:]=cyl_partial(p,z,n,dpar,kpar,kperp,nmodes_sph=nmodes_sph)
     return V
 
-def bias(partials,unc, kpar,kperp,sigLoS,r0,thetaHWHM,pars,eps,z,n_sph_pts,beamtype="Gaussian",savestatus=False,savename=None):
+def bias(partials,unc, kpar,kperp,sigLoS,r0,sigbeam,pars,epsLoS,epsbeam,z,n_sph_pts,beamtype="Gaussian",savestatus=False,savename=None): # new 13/05/25
     '''
     partials = nprm x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
     unc      = nnpar x nkperp array describing the standard deviations at each cylindrically binned k-mode
     '''
-    V=0.0*partials # still want the same shape, even though it is different than for the spherical case
+    V=0.0*partials # still want the same shape as the vector of partials, even though this is different than for the spherical case
     nprm=partials.shape[0]
     uncsh0,uncsh1=unc.shape
     partsh0,partsh1,partsh2=partials.shape
@@ -205,7 +241,7 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,thetaHWHM,pars,eps,z,n_sph_pts,beamt
         V[i,:,:]=partials[i,:,:]/uncT # elementwise division for a nkpar x nkperp slice
     V_completely_transposed=np.transpose(V,axes=(2,1,0)) # from the docs: "For an n-D array, if axes are given, their order indicates how the axes are permuted"
     F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
-    Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,thetaHWHM,pars,eps,z,n_sph_pts,savestatus=savestatus,savename=savename,beamtype=beamtype)
+    Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,sigbeam,pars,epsLoS,epsbeam,z,n_sph_pts,savestatus=savestatus,savename=savename,beamtype=beamtype)
     Pcont_div_sigma=Pcont/unc
     B=np.einsum("ij,ijk->k",Pcont_div_sigma,V_completely_transposed)
     bias=(np.linalg.inv(F)@B).reshape((F.shape[0],))
