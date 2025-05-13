@@ -65,28 +65,28 @@ bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2) # too o
 # bmaxCHORD=b_EW_CHORD*N_EW_CHORD
 kperp_surv=kperp(nu_ctr,N_CHORDbaselines,bminCHORD,bmaxCHORD) # kperp(nu_ctr,N_modes,bmin,bmax)
 
-# sigma_kpar_kperp=np.load("cyl_sense_thermal_surv.npy") # NEED TO DEBUG THE INFS
-# sigma_kpar_kperp=np.exp(-(kperp_surv_grid/2)**2) # field shaped roughly like the output of 21cmSense's 2D sense calc, but have not yet thought about normalization
-
 n_sph_pts_test=450
 kpar_surv_grid,kperp_surv_grid,Pcyl=unbin_to_Pcyl(kpar_surv,kperp_surv,z_ctr,nsphpts=n_sph_pts_test)
 
-sigma_kpar_kperp=0.1*Pcyl # Adrian's recommendation: flat 10% uncertainty everywhere as a placeholder
+fractional_2d_sense=0.1 # Adrian's recommendation: flat 10% uncertainty everywhere as a placeholder
+sigma_kpar_kperp=fractional_2d_sense*Pcyl
 
 ############################## misc. other initializations for the pipeline functions ########################################################################################################################
-epsLoS_test=0.1*sig_LoS # ITERATE OVER DIFFERENT VALUES ONCE EVERYTHING AT LEAST RUNS
-epsbeam_test=0.1*beam_fwhm
+epsLoS_test= 0.1 # I'm using this as a fractional uncertainty in W calcs...so initialize it like one
+epsbeam_test=0.1
+# epsLoS_test=0. # the limit works on paper... but does it work in my code? YES! (leave commented as a reminder to check again after any potential future paradigm shifts in my code)
+# epsbeam_test=0.
 
-############################## one-stop shop for verbose test output ########################################################################################################################
+############################## one-stop shop for printed verification of survey characteristics ########################################################################################################################
 verbose_test_prints=True
 if verbose_test_prints:
     for i in range(3):
         print("........................................................................................")
     print("survey centred at.......................................................................\n    nu ={:>7.4}     MHz \n    z  = {:>9.4} \n    Dc = {:>9.4f}  Mpc\n".format(nu_ctr,z_ctr,Dc_ctr))
     print("survey spans............................................................................\n    nu =  {:>5.4}    -  {:>5.4}    MHz (deltanu = {:>6.4}    MHz) \n    z =  {:>9.4} - {:>9.4}     (deltaz  = {:>9.4}    ) \n    Dc = {:>9.4f} - {:>9.4f} Mpc (deltaDc = {:>9.4f} Mpc)\n".format(nu_lo,nu_hi,survey_width,z_hi,z_lo,deltaz,Dc_hi,Dc_lo,Dc_hi-Dc_lo))
-    print("characteristic instrument response widths...............................................\n    sigLoS = {:>7.4}    +/- {:>7.4} Mpc\n    beamFWHM = {:>=8.4} +/- {:>7.4} rad\n".format(sig_LoS,epsLoS_test,beam_fwhm,epsbeam_test))
+    print("characteristic instrument response widths...............................................\n    sigLoS = {:>7.4}     Mpc (frac. uncert. {:>7.4})\n    beamFWHM = {:>=8.4}  rad (frac. uncert. {:>7.4})\n".format(sig_LoS,epsLoS_test,beam_fwhm,epsbeam_test))
     print("cylindrically binned wavenumbers of the survey..........................................\n    kparallel {:>8.4} - {:>8.4} Mpc^(-1) ({:>4} channels of width {:>7.4}  Mpc^(-1)) \n    kperp     {:>8.4} - {:>8.4} Mpc^(-1) ({:>4} channels of width {:>8.4} Mpc^(-1))\n".format(kpar_surv[0],kpar_surv[-1],len(kpar_surv),kpar_surv[-1]-kpar_surv[-2],   kperp_surv[0],kperp_surv[-1],len(kperp_surv),kperp_surv[-1]-kperp_surv[-2]))
-    print("summary statistics of the cylindrically binned k-bin sensitivity........................\n    np.mean(sigma_kpar_kperp) = {:>8.4} [dimensionless] \n    np.std(sigma_kpar_kperp)  = {:>8.4} [dimensionless]\n".format(np.mean(sigma_kpar_kperp),np.std(sigma_kpar_kperp)))
+    print("cylindrically binned k-bin sensitivity..................................................\n    fraction of Pcyl amplitude = {:>7.4}".format(fractional_2d_sense))
     for i in range(3):
         print("........................................................................................")
 

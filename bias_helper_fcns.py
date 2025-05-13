@@ -89,13 +89,10 @@ def calc_perp_vec(deltakperpvec,Dc,sigbeam,beamtype="Gaussian"):
 #         return meshed
 
 def W_cyl_binned(deltakparvec,deltakperpvec,sigLoS,r0,sigbeam,save=False,savename="test",btype="Gaussian",plot=False): 
-    # print("in W_cyl_binned:\nlen(kpar),len(kperp)=",len(deltakparvec),len(deltakperpvec))
     par_vec=calc_par_vec(deltakparvec,sigLoS,r0)
     perp_vec=calc_perp_vec(deltakperpvec,r0,sigbeam,beamtype=btype)
     par_arr,perp_arr=np.meshgrid(par_vec,perp_vec,indexing="ij")
-    # print("in W_cyl_binned: par_arr.shape,perp_arr.shape=",par_arr.shape,perp_arr.shape)
     meshed=par_arr*perp_arr # interested in elementwise (not matrix) multiplication
-    # print("in W_cyl_binned:\nmeshed.shape=",meshed.shape)
     rawsum=np.sum(meshed)
     if (rawsum!=0):
         normed=meshed/rawsum
@@ -103,7 +100,6 @@ def W_cyl_binned(deltakparvec,deltakperpvec,sigLoS,r0,sigbeam,save=False,savenam
         normed=meshed
     if (save):
         np.save('W_cyl_binned_2D_proxy'+str(time.time())+'.txt',normed)
-    # print("in W_cyl_binned:\nnormed.shape=",normed.shape)
     return normed # RETURN TO HANDLING NORMALIZATION AT THIS LEVEL
 
 def calc_Wcont(kpar,kperp,sigLoS,r0,sigbeam,epsLoS,epsbeam,savestat="False",saven=None,beamtype="Gaussian"):
@@ -114,7 +110,6 @@ def calc_Wcont(kpar,kperp,sigLoS,r0,sigbeam,epsLoS,epsbeam,savestat="False",save
 def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,sigbeam,pars,epsLoS,epsbeam,z,n_sph_pts,beamtype="Gaussian",savestatus=False,savename=None): # V4
     Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,sigbeam,epsLoS,epsbeam,savestat=savestatus,saven=savename,beamtype=beamtype)
     kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,nsphpts=n_sph_pts)
-    print("in calc_Pcont_cyl:\n Wcont.shape,Ptrue.shape=",Wcont.shape,P.shape)
     Pcont=higher_dim_conv(Wcont,P)
     return Pcont
 
@@ -258,27 +253,17 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,sigbeam,pars,epsLoS,epsbeam,z,n_sph_
     nprm=partials.shape[0]
     uncsh0,uncsh1=unc.shape
     partsh0,partsh1,partsh2=partials.shape
-    print("partials.shape,unc.shape=",partials.shape,unc.shape)
     if (uncsh0==partsh2 and uncsh1==partsh1):
-        print("transposing unc")
         unc=unc.T
 
     for i in range(nprm):
         V[i,:,:]=partials[i,:,:]/unc # elementwise division for a nkpar x nkperp slice
-    print("V.shape=",V.shape)
     V_completely_transposed=np.transpose(V,axes=(2,1,0)) # from the docs: "For an n-D array, if axes are given, their order indicates how the axes are permuted"
-    print("V_completely_transposed.shape=",V_completely_transposed.shape)
     F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
-    print("F.shape=",F.shape)
     Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,sigbeam,pars,epsLoS,epsbeam,z,n_sph_pts,savestatus=savestatus,savename=savename,beamtype=beamtype)
-    print("Pcont.shape,unc.shape=",Pcont.shape,unc.shape)
     Pcont_div_sigma=Pcont/unc
-    print("Pcont_div_sigma.shape=",Pcont_div_sigma.shape)
-    # B=np.einsum("ij,ijk->k",Pcont_div_sigma,V_completely_transposed)
     B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)
-    print("B.shape=",B.shape)
     bias=(np.linalg.inv(F)@B).reshape((F.shape[0],))
-    print("bias.shape=",bias.shape)
     return bias
 
 def printparswbiases(pars,parnames,biases):
