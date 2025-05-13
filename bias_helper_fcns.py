@@ -69,28 +69,52 @@ def calc_perp_vec(deltakperpvec,Dc,sigbeam,beamtype="Gaussian"):
         # assert(1==0), "currently supported beam types are Airy and Gaussian"
     return vec
 
+# def W_cyl_binned(deltakparvec,deltakperpvec,sigLoS,r0,sigbeam,save=False,savename="test",btype="Gaussian",plot=False): 
+#     par_vec=calc_par_vec(deltakparvec,sigLoS,r0)
+#     perp_vec=calc_perp_vec(deltakperpvec,r0,sigbeam,beamtype=btype)
+#     par_arr,perp_arr=np.meshgrid(par_vec,perp_vec)
+#     meshed=par_arr*perp_arr # interested in elementwise (not matrix) multiplication
+#     if (save):
+#         np.save('W_cyl_binned_2D_proxy'+str(time.time())+'.txt',normed)
+#     return meshed # NO LONGER NORMALIZING BC HANDLING AT THE WCONT LEVEL
+
+# def calc_Wcont(kpar,kperp,sigLoS,r0,sigbeam,epsLoS,epsbeam,savestat="False",saven=None,beamtype="Gaussian"):
+#     kpargrid,kperpgrid=np.meshgrid(kpar,kperp)
+#     Wbase=W_cyl_binned(kpar,kperp,sigLoS,r0,sigbeam,save=savestat,savename=saven,btype=beamtype)
+#     Wcont_shape=Wbase*np.sqrt((kpargrid**2*sigLoS*epsLoS)**2+(kperpgrid**2*sigbeam*epsbeam)**2)
+#     rawsum=np.sum(Wcont_shape)
+#     if (rawsum!=0): 
+#         return Wcont_shape/rawsum
+#     else:
+#         return meshed
+
 def W_cyl_binned(deltakparvec,deltakperpvec,sigLoS,r0,sigbeam,save=False,savename="test",btype="Gaussian",plot=False): 
+    # print("in W_cyl_binned:\nlen(kpar),len(kperp)=",len(deltakparvec),len(deltakperpvec))
     par_vec=calc_par_vec(deltakparvec,sigLoS,r0)
     perp_vec=calc_perp_vec(deltakperpvec,r0,sigbeam,beamtype=btype)
-    par_arr,perp_arr=np.meshgrid(par_vec,perp_vec)
+    par_arr,perp_arr=np.meshgrid(par_vec,perp_vec,indexing="ij")
+    # print("in W_cyl_binned: par_arr.shape,perp_arr.shape=",par_arr.shape,perp_arr.shape)
     meshed=par_arr*perp_arr # interested in elementwise (not matrix) multiplication
+    # print("in W_cyl_binned:\nmeshed.shape=",meshed.shape)
+    rawsum=np.sum(meshed)
+    if (rawsum!=0):
+        normed=meshed/rawsum
+    else:
+        normed=meshed
     if (save):
         np.save('W_cyl_binned_2D_proxy'+str(time.time())+'.txt',normed)
-    return meshed # NO LONGER NORMALIZING BC HANDLING AT THE WCONT LEVEL
+    # print("in W_cyl_binned:\nnormed.shape=",normed.shape)
+    return normed # RETURN TO HANDLING NORMALIZATION AT THIS LEVEL
 
 def calc_Wcont(kpar,kperp,sigLoS,r0,sigbeam,epsLoS,epsbeam,savestat="False",saven=None,beamtype="Gaussian"):
-    kpargrid,kperpgrid=np.meshgrid(kpar,kperp)
-    Wbase=W_cyl_binned(kpar,kperp,sigLoS,r0,sigbeam,save=savestat,savename=saven,btype=beamtype)
-    Wcont_shape=Wbase*np.sqrt((kpargrid**2*sigLoS*epsLoS)**2+(kperpgrid**2*sigbeam*epsbeam)**2)
-    rawsum=np.sum(Wcont_shape)
-    if (rawsum!=0): 
-        return Wcont_shape/rawsum
-    else:
-        return meshed
+    Wtrue=   W_cyl_binned(kpar,kperp,sigLoS,           r0,sigbeam,            save=savestat,savename=saven,btype=beamtype)
+    Wthought=W_cyl_binned(kpar,kperp,sigLoS*(1-epsLoS),r0,sigbeam*(1-epsbeam),save=savestat,savename=saven,btype=beamtype) # FOR NOW: BAKED IN THAT THE "THOUGHT" WIDTH RESPONSE PARAMS ARE UNDERESTIMATES FOR POSITIVE EPS
+    return Wtrue-Wthought
 
 def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,sigbeam,pars,epsLoS,epsbeam,z,n_sph_pts,beamtype="Gaussian",savestatus=False,savename=None): # V4
     Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,sigbeam,epsLoS,epsbeam,savestat=savestatus,saven=savename,beamtype=beamtype)
     kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,nsphpts=n_sph_pts)
+    print("in calc_Pcont_cyl:\n Wcont.shape,Ptrue.shape=",Wcont.shape,P.shape)
     Pcont=higher_dim_conv(Wcont,P)
     return Pcont
 
@@ -107,7 +131,7 @@ def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,nsphpts=500):
     kmax=np.sqrt(kpar[-1]**2+kperp[-1]**2)
     k,Psph=get_mps(pars,z,minkh=kmin/h,maxkh=kmax/h,npts=nsphpts) # get_mps(pars,zs,minkh=1e-4,maxkh=1,npts=200)
     Psph=Psph.reshape((Psph.shape[1],))
-    kpargrid,kperpgrid=np.meshgrid(kpar,kperp)
+    kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
     Pcyl=np.zeros((len(kpar),len(kperp)))
     for i,kpar_val in enumerate(kpar):
         for j,kperp_val in enumerate(kperp):
@@ -234,17 +258,27 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,sigbeam,pars,epsLoS,epsbeam,z,n_sph_
     nprm=partials.shape[0]
     uncsh0,uncsh1=unc.shape
     partsh0,partsh1,partsh2=partials.shape
+    print("partials.shape,unc.shape=",partials.shape,unc.shape)
     if (uncsh0==partsh2 and uncsh1==partsh1):
-        uncT=unc.T
+        print("transposing unc")
+        unc=unc.T
 
     for i in range(nprm):
-        V[i,:,:]=partials[i,:,:]/uncT # elementwise division for a nkpar x nkperp slice
+        V[i,:,:]=partials[i,:,:]/unc # elementwise division for a nkpar x nkperp slice
+    print("V.shape=",V.shape)
     V_completely_transposed=np.transpose(V,axes=(2,1,0)) # from the docs: "For an n-D array, if axes are given, their order indicates how the axes are permuted"
+    print("V_completely_transposed.shape=",V_completely_transposed.shape)
     F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
+    print("F.shape=",F.shape)
     Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,sigbeam,pars,epsLoS,epsbeam,z,n_sph_pts,savestatus=savestatus,savename=savename,beamtype=beamtype)
+    print("Pcont.shape,unc.shape=",Pcont.shape,unc.shape)
     Pcont_div_sigma=Pcont/unc
-    B=np.einsum("ij,ijk->k",Pcont_div_sigma,V_completely_transposed)
+    print("Pcont_div_sigma.shape=",Pcont_div_sigma.shape)
+    # B=np.einsum("ij,ijk->k",Pcont_div_sigma,V_completely_transposed)
+    B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)
+    print("B.shape=",B.shape)
     bias=(np.linalg.inv(F)@B).reshape((F.shape[0],))
+    print("bias.shape=",bias.shape)
     return bias
 
 def printparswbiases(pars,parnames,biases):

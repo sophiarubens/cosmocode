@@ -49,9 +49,9 @@ N_CHORDcosmo=survey_width/channel_width
 N_CHORDcosmo_int=int(N_CHORDcosmo)
 surv_channels=np.arange(nu_lo,nu_hi,channel_width)
 sig_LoS=0.25*(Dc_ctr-Dc_lo)/10 # dialing in the bound set by condition following from linearization...
-CHORD_ish_fwhm_surv=(1./12.)*pi/180. # CHORD pathfinder spec page
+beam_fwhm=(1./12.)*pi/180. # CHORD pathfinder spec page
 
-############################## cylindrically binned k-mode initialization ########################################################################################################################
+############################## initializations related to cylindrically binned k-modes ########################################################################################################################
 kpar_surv=kpar(nu_ctr,channel_width,N_CHORDcosmo_int) # kpar(nu_ctr,chan_width,N_chan,H0=H0_Planck18)
 
 N_CHORDbaselines=1010 # upper bound (b/c not sure if the grid gaps will remove redundance or just unique baselines) from my formula is 1010
@@ -65,12 +65,17 @@ bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2) # too o
 # bmaxCHORD=b_EW_CHORD*N_EW_CHORD
 kperp_surv=kperp(nu_ctr,N_CHORDbaselines,bminCHORD,bmaxCHORD) # kperp(nu_ctr,N_modes,bmin,bmax)
 
-kpar_surv_grid,kperp_surv_grid=np.meshgrid(kpar_surv,kperp_surv)
+# sigma_kpar_kperp=np.load("cyl_sense_thermal_surv.npy") # NEED TO DEBUG THE INFS
+# sigma_kpar_kperp=np.exp(-(kperp_surv_grid/2)**2) # field shaped roughly like the output of 21cmSense's 2D sense calc, but have not yet thought about normalization
+
+n_sph_pts_test=450
+kpar_surv_grid,kperp_surv_grid,Pcyl=unbin_to_Pcyl(kpar_surv,kperp_surv,z_ctr,nsphpts=n_sph_pts_test)
+
+sigma_kpar_kperp=0.1*Pcyl # Adrian's recommendation: flat 10% uncertainty everywhere as a placeholder
 
 ############################## misc. other initializations for the pipeline functions ########################################################################################################################
-epsLoS_test=0.01 # ITERATE OVER DIFFERENT VALUES ONCE EVERYTHING AT LEAST RUNS
-epsbeam_test=0.02
-n_sph_pts_test=450
+epsLoS_test=0.1*sig_LoS # ITERATE OVER DIFFERENT VALUES ONCE EVERYTHING AT LEAST RUNS
+epsbeam_test=0.1*beam_fwhm
 
 ############################## one-stop shop for verbose test output ########################################################################################################################
 verbose_test_prints=True
@@ -79,22 +84,16 @@ if verbose_test_prints:
         print("........................................................................................")
     print("survey centred at.......................................................................\n    nu ={:>7.4}     MHz \n    z  = {:>9.4} \n    Dc = {:>9.4f}  Mpc\n".format(nu_ctr,z_ctr,Dc_ctr))
     print("survey spans............................................................................\n    nu =  {:>5.4}    -  {:>5.4}    MHz (deltanu = {:>6.4}    MHz) \n    z =  {:>9.4} - {:>9.4}     (deltaz  = {:>9.4}    ) \n    Dc = {:>9.4f} - {:>9.4f} Mpc (deltaDc = {:>9.4f} Mpc)\n".format(nu_lo,nu_hi,survey_width,z_hi,z_lo,deltaz,Dc_hi,Dc_lo,Dc_hi-Dc_lo))
-    print("characteristic instrument response widths...............................................\n    sigLoS = {:>7.4}    Mpc\n    beamFWHM = {:>=8.4} rad\n".format(sig_LoS,CHORD_ish_fwhm_surv))
+    print("characteristic instrument response widths...............................................\n    sigLoS = {:>7.4}    +/- {:>7.4} Mpc\n    beamFWHM = {:>=8.4} +/- {:>7.4} rad\n".format(sig_LoS,epsLoS_test,beam_fwhm,epsbeam_test))
     print("cylindrically binned wavenumbers of the survey..........................................\n    kparallel {:>8.4} - {:>8.4} Mpc^(-1) ({:>4} channels of width {:>7.4}  Mpc^(-1)) \n    kperp     {:>8.4} - {:>8.4} Mpc^(-1) ({:>4} channels of width {:>8.4} Mpc^(-1))\n".format(kpar_surv[0],kpar_surv[-1],len(kpar_surv),kpar_surv[-1]-kpar_surv[-2],   kperp_surv[0],kperp_surv[-1],len(kperp_surv),kperp_surv[-1]-kperp_surv[-2]))
+    print("summary statistics of the cylindrically binned k-bin sensitivity........................\n    np.mean(sigma_kpar_kperp) = {:>8.4} [dimensionless] \n    np.std(sigma_kpar_kperp)  = {:>8.4} [dimensionless]\n".format(np.mean(sigma_kpar_kperp),np.std(sigma_kpar_kperp)))
     for i in range(3):
         print("........................................................................................")
 
 ############################## actual pipeline tests ########################################################################################################################
 Pcont_cyl=calc_Pcont_cyl(kpar_surv,kperp_surv,
-                         sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
+                         sig_LoS,Dc_ctr,beam_fwhm,
                          pars_Planck18,epsLoS_test,epsbeam_test,z_ctr,n_sph_pts_test) 
-# sigma_kpar_kperp=np.load("cyl_sense_thermal_surv.npy") # NEED TO DEBUG THE INFS
-# sigma_kpar_kperp=np.exp(-(kperp_surv_grid/2)**2) # field shaped roughly like the output of 21cmSense's 2D sense calc, but have not yet thought about normalization
-sigma_kpar_kperp=0.1*np.ones(kperp_surv_grid.shape) # Adrian's recommendation: flat 10% uncertainty everywhere as a placeholder
-# plt.figure()
-# plt.imshow(sigma_kpar_kperp)
-# plt.colorbar()
-# plt.show()
 
 calc_P_cyl_partials=False
 if calc_P_cyl_partials:
@@ -104,7 +103,7 @@ else:
     P_cyl_partials=np.load("P_cyl_partials.npy")
 b_cyl=bias( P_cyl_partials,sigma_kpar_kperp,
             kpar_surv,kperp_surv,
-            sig_LoS,Dc_ctr,CHORD_ish_fwhm_surv,
+            sig_LoS,Dc_ctr,beam_fwhm,
             pars_Planck18,
             epsLoS_test,epsbeam_test,
             z_ctr,n_sph_pts_test)
