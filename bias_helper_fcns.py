@@ -1,11 +1,7 @@
 import numpy as np
-# from matplotlib import pyplot as plt
-# import pygtc
 import camb
 from camb import model
-# from numpy.fft import rfft2,irfft2
 from scipy.signal import convolve
-# from cyl_bin_window import *
 
 Omegam_Planck18=0.3158
 Omegabh2_Planck18=0.022383
@@ -21,9 +17,9 @@ pi=np.pi
 twopi=2.*pi
 ln2=np.log(2)
 nu_rest_21=1420.405751768 # MHz
-c=2.998e8 # m s^{-1}
-pc=30856775814914000 # m
-Mpc=pc*1e6
+# c=2.998e8 # m s^{-1}
+# pc=30856775814914000 # m
+# Mpc=pc*1e6
 
 h_Planck18=H0_Planck18/100.
 Omegamh2_Planck18=Omegam_Planck18*h_Planck18**2
@@ -56,37 +52,10 @@ def calc_perp_vec(deltakperpvec,Dc,sigbeam,beamtype="Gaussian"):
     beamtype=beamtype.lower()
     if beamtype=="gaussian":
         alpha=ln2/(sigbeam*Dc)**2
-        # print("Gaussian alpha=ln2/(sigbeam*Dc)**2=",alpha)
         vec=np.exp(-deltakperpvec**2/(2*alpha))
-    # elif beamtype=="airy":
-    #     nk=len(deltakperpvec)
-    #     vec=np.zeros(nk)
-    #     alpha=sigbeam_to_alpha(sigbeam)
-    #     print("Airy alpha=sigbeam_to_alpha(sigbeam)=",alpha)
-    #     vec=airy(deltakperpvec,alpha)
     else: 
         assert(1==0), "only a Gaussian beam is currently supported"
-        # assert(1==0), "currently supported beam types are Airy and Gaussian"
     return vec
-
-# def W_cyl_binned(deltakparvec,deltakperpvec,sigLoS,r0,sigbeam,save=False,savename="test",btype="Gaussian",plot=False): 
-#     par_vec=calc_par_vec(deltakparvec,sigLoS,r0)
-#     perp_vec=calc_perp_vec(deltakperpvec,r0,sigbeam,beamtype=btype)
-#     par_arr,perp_arr=np.meshgrid(par_vec,perp_vec)
-#     meshed=par_arr*perp_arr # interested in elementwise (not matrix) multiplication
-#     if (save):
-#         np.save('W_cyl_binned_2D_proxy'+str(time.time())+'.txt',normed)
-#     return meshed # NO LONGER NORMALIZING BC HANDLING AT THE WCONT LEVEL
-
-# def calc_Wcont(kpar,kperp,sigLoS,r0,sigbeam,epsLoS,epsbeam,savestat="False",saven=None,beamtype="Gaussian"):
-#     kpargrid,kperpgrid=np.meshgrid(kpar,kperp)
-#     Wbase=W_cyl_binned(kpar,kperp,sigLoS,r0,sigbeam,save=savestat,savename=saven,btype=beamtype)
-#     Wcont_shape=Wbase*np.sqrt((kpargrid**2*sigLoS*epsLoS)**2+(kperpgrid**2*sigbeam*epsbeam)**2)
-#     rawsum=np.sum(Wcont_shape)
-#     if (rawsum!=0): 
-#         return Wcont_shape/rawsum
-#     else:
-#         return meshed
 
 def W_cyl_binned(deltakparvec,deltakperpvec,sigLoS,r0,sigbeam,save=False,savename="test",btype="Gaussian",plot=False): 
     par_vec=calc_par_vec(deltakparvec,sigLoS,r0)
@@ -175,10 +144,7 @@ def get_mps(pars,zs,minkh=1e-4,maxkh=1,npts=500):
     pars.set_matter_power(redshifts=zs, kmax=maxkh*h)
     lin=True
     results = camb.get_results(pars)
-    if lin:
-        pars.NonLinear = model.NonLinear_none
-    else:
-        pars.NonLinear = model.NonLinear_both
+    pars.NonLinear = model.NonLinear_none
 
     kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=npts)
     return kh,pk
@@ -267,8 +233,7 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,sigbeam,pars,epsLoS,epsbeam,z,n_sph_
     return bias
 
 def printparswbiases(pars,parnames,biases):
-    for i in range(5):
-        print(".")
+    print("\n\n\n")
     for p,par in enumerate(pars):
         print('{:12} = {:-10.3e} with bias {:-12.5e}'.format(parnames[p], par, biases[p]))
     return None
