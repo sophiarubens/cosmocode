@@ -42,6 +42,23 @@ dpar        = vector of initial step size guesses to be used in numerical differ
 args not explained here will be documented in the single function in which they appear
 """
 
+def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
+    """
+    args
+    nu_ctr                     = central frequency of the survey
+    Deltanu                    = channel width
+    evol_restriction_threshold = $N\Delta\nu/\nu ~ \Delta z/z ~$ evol_restriction_threshold (1/15 common in some HERA surveys)
+                                    * N            = number of channels in the survey
+
+    returns
+    NDeltanu = survey bandwidth
+    N        = number survey channels
+    """
+    NDeltanu=nu_ctr*evol_restriction_threshold
+    N=NDeltanu/Deltanu
+    return NDeltanu,N
+
+
 def higher_dim_conv(ff,gg):
     """
     args

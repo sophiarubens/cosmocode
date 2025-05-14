@@ -26,10 +26,11 @@ dpar=1e-3*np.ones(nprm) # gets overwritten by the adaptive stepper in my numeric
 dpar[3]*=scale
 
 ############################## details of a hypothetical survey cooked up for testing purposes ########################################################################################################################
-nu_ctr=900. # centre frequency of survey in MHz
+nu_ctr=1400. # centre frequency of survey in MHz
+channel_width=0.183 # 183 kHz from CHORD Wiki -> SWGs -> Galaxies -> CHORD Pathfinder specs -> Spectral resolution
 z_ctr=freq2z(nu_rest_21,nu_ctr)
 Dc_ctr=comoving_distance(z_ctr)
-survey_width=60. # survey bandwidth in MHz ... based on the 1/15 deltanu/nu ratio inspired by HERA cosmological surveys
+survey_width,N_CHORDcosmo=get_channel_config(nu_ctr,channel_width)
 nu_lo=nu_ctr-survey_width/2.
 z_hi=freq2z(nu_rest_21,nu_lo)
 Dc_hi=comoving_distance(z_hi)
@@ -37,8 +38,6 @@ nu_hi=nu_ctr+survey_width/2.
 z_lo=freq2z(nu_rest_21,nu_hi)
 Dc_lo=comoving_distance(z_lo)
 deltaz=z_hi-z_lo
-channel_width=0.183 # 183 kHz from CHORD Wiki -> SWGs -> Galaxies -> CHORD Pathfinder specs -> Spectral resolution
-N_CHORDcosmo=survey_width/channel_width
 surv_channels=np.arange(nu_lo,nu_hi,channel_width)
 sig_LoS=0.25*(Dc_ctr-Dc_lo)/10 # dialing in the bound set by condition following from linearization...
 beam_fwhm=(1./12.)*pi/180. # CHORD pathfinder spec page
@@ -85,7 +84,7 @@ Pcont_cyl=calc_Pcont_cyl(kpar_surv,kperp_surv,
                          sig_LoS,Dc_ctr,beam_fwhm,
                          pars_Planck18,epsLoS_test,epsbeam_test,z_ctr,n_sph_pts_test) 
 
-calc_P_cyl_partials=False
+calc_P_cyl_partials=True
 if calc_P_cyl_partials:
     P_cyl_partials=build_cyl_partials(pars_Planck18,z_ctr,n_sph_pts_test,kpar_surv,kperp_surv,dpar) # build_cyl_partials(p,z,nmodes_sph,kpar,kperp,dpar)
     np.save("P_cyl_partials.npy",P_cyl_partials)
