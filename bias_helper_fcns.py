@@ -55,7 +55,7 @@ def higher_dim_conv(ff,gg):
     if (f.shape!=g.shape):
         if(f.shape!=(g.T).shape):
             assert(1==0), "incompatible array shapes"
-        else: # need to transpose g for things to work as expected
+        else: # need to transpose g for things to work as expected (fcn relies on f and g having the same shape)
             g=g.T
     a,b=f.shape # if eval makes it to this point, f.shape==g.shape is True
 
@@ -68,7 +68,7 @@ def higher_dim_conv(ff,gg):
     result=result_p[:a,:b]
     return result
 
-def calc_par_vec(kpar,sigLoS,r0): 
+def calc_par_vec(kpar,sigLoS,r0): # this was initially separated into its own function because there was a lot more going on under the hood when my integral was wrong
     """
     LoS term of the cylindrically binned window function, calculated for the k-parallel modes in the survey
     """
@@ -94,9 +94,9 @@ def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False,savename="test",beamty
     par_vec=calc_par_vec(kpar,sigLoS,r0)
     perp_vec=calc_perp_vec(kperp,r0,fwhmbeam,beamtype=beamtype)
     par_arr,perp_arr=np.meshgrid(par_vec,perp_vec,indexing="ij")
-    meshed=par_arr*perp_arr # interested in elementwise (not matrix) multiplication
+    meshed=par_arr*perp_arr # I really do want elementwise multiplication
     rawsum=np.sum(meshed)
-    if (rawsum!=0):
+    if (rawsum!=0): # normalize, but protect against division-by-zero errors
         normed=meshed/rawsum
     else:
         normed=meshed
@@ -117,7 +117,7 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     calculate the cylindrically binned "contaminant power," following from the true and perceived window functions
     """
     Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam,save=save,savename=savename,beamtype=beamtype)
-    kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,n_sph_modes=n_sph_modes)
+    _,_,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,n_sph_modes=n_sph_modes)
     Pcont=higher_dim_conv(Wcont,P)
     return Pcont
 
@@ -176,7 +176,6 @@ def get_mps(pars,z,minkh=1e-4,maxkh=1,n_sph_modes=500):
     lin=True
     results = camb.get_results(pars)
     pars.NonLinear = model.NonLinear_none
-
     kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=n_sph_modes)
     return kh,pk
 
@@ -275,9 +274,10 @@ def printparswbiases(pars,parnames,biases):
     biases   = (ncp,) vector: biases in estimating the cosmo params in the forecast resulting from inadvertent beam mismodelling (in the same order as pars and parnames)
 
     returns
-    None (but prints a formatted summary of the forecasting pipeline calculation)
+    None (fcn prints a formatted summary of the forecasting pipeline calculation)
     """
-    print("\n\n\n")
+    print("\n\nbias calculation results for the survey described above.................................")
+    print("........................................................................................")
     for p,par in enumerate(pars):
         print('{:12} = {:-10.3e} with bias {:-12.5e} (fraction = {:-10.3e})'.format(parnames[p], par, biases[p], biases[p]/par))
     return None
