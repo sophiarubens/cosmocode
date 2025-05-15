@@ -2,6 +2,7 @@ import numpy as np
 import camb
 from camb import model
 from scipy.signal import convolve
+from power import *
 
 Omegam_Planck18=0.3158
 Omegabh2_Planck18=0.022383
@@ -56,45 +57,6 @@ def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
     NDeltanu=nu_ctr*evol_restriction_threshold
     N=NDeltanu/Deltanu
     return NDeltanu,N
-
-# def decompose_perp_to_square(kperp): # if this philosophy sticks, probably just integrate it with the kperp function in cosmo_distances.py
-#     """
-#     returns
-#     kcart = kx or ky in the sky plane, with a min and max k-amplitude and vector length that meshes with the number of baselines
-#     """
-#     if (kperp[0]>kperp[-1]): # if kperp somehow got flipped even though it's created internally to always increase monotonically...
-#         kperp=np.flip(kperp)
-#     kperpmin=kperp[0]
-#     kperpmax=kperp[-1]
-#     nbaselines=len(kperp)
-#     ncart=2*nbaselines-1 # number of modes to put in kcart (general term for kx or ky, where these are less-pedantic names for what you could also conceivably call kperpx and kperpy)
-#     sqrt2=np.sqrt(2)
-#     kcartmin=kperpmin/sqrt2
-#     kcartmax=kperpmax/sqrt2
-#     kcart=np.linspace(kcartmin,kcartmax,ncart)
-#     return kcart
-
-def Pcont_statistical_strat(pars,z,kpar,kperp,sigLoS,beamfwhm_x,beamfwhm_y,n_realiz):
-    """
-    args
-    beamfwhm_x = FWHM of the beam in one       polarization direction
-    beamfwhm_y = "                 " the other "                    "
-    n_realiz   = number of times to iterate the "generate a random realization of the Tb cube" -> "multiply by the beam in config space" -> "form PS with cylindrical bins of survey" step
-
-    returns
-    contaminant power, calculated as an average over the "beam-modulated" PS resulting from the loop iterated n_realiz times 
-    """
-    kmin=np.sqrt(kpar[0]**2+ kperp[0]**2)
-    kmax=np.sqrt(kpar[-1]**2+kperp[-1]**2)
-    Ptrue=get_mps(pars,z,minkh=kmin/h,maxkh=kmax/h,n_sph_modes=500)
-
-    nkpar=len(kpar)
-    nkperp=len(kperp)
-    Pconts=np.zeros((nkpar,nkperp,n_realiz)) # holder for the cylindrically binned power spectra (will make it easy to average later)
-    for i in range(n_realiz):
-        box=
-    
-    return None
 
 def higher_dim_conv(ff,gg):
     """
@@ -175,6 +137,40 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     Pcont=higher_dim_conv(Wcont,P)
     return Pcont
 
+def calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,r0,beamfwhm_x,beamfwhm_y,n_realiz,ncubevox=100,n_sph_modes=500):
+    """
+    calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
+    (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
+
+    args
+    beamfwhm_x = FWHM of the beam in one       polarization direction
+    beamfwhm_y = "                 " the other "                    "
+    n_realiz   = number of times to iterate the "generate a random realization of the Tb cube" -> "multiply by the beam in config space" -> "form PS with cylindrical bins of survey" step
+    ncubevox   = number of voxels per side to use when constructing random realization Tb cubes
+
+    returns
+    contaminant power, calculated as an average over the "beam-modulated" PS resulting from the loop iterated n_realiz times 
+    """
+    kmin=np.sqrt(kpar[0]**2+ kperp[0]**2)
+    kmax=np.sqrt(kpar[-1]**2+kperp[-1]**2)
+    ksph,Ptrue=get_mps(pars,z,minkh=kmin/h,maxkh=kmax/h,n_sph_modes=500)
+
+    nkpar=len(kpar)
+    nkperp=len(kperp)
+    Pconts=np.zeros((nkpar,nkperp,n_realiz)) # holder for the cylindrically binned power spectra (will make it easy to average later)
+    Lcube=2*sigLoS # should be some multiple of 2*sigLoS?? 3x for 3sigma level?? or just 1x because that's how I motivated constructing it from Dchi and Dclo??
+    for i in range(n_realiz):
+        rcube,Tcube,rmags = ips(Ptrue,ksph,Lcube,ncubevox) # rgrid,T=ips(P,k,Lsurvey,nfvox)
+        if (i==0): # initialize the instrument response
+            X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij") # I didn't specify ij indexing in the meshgridding internal to ips(), but I don't think it matters at the moment since everything in the cube is so statistically isotropic,, (could eventually circle back there to be really rigorous)
+            instrument_response=np.exp(-(Z-r0)**2/(2*sigLoS**2)-ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
+        response_aware_cube=Tcube*instrument_response # configuration-space multiplication
+        kcont,Pcont=ps_autobin(response_aware_cube,"lin",Lcube,n_sph_modes) # ps_autobin(T, mode, Lsurvey, Npix) returns P() ... which returns [np.array(k),np.array(amTt/V)]
+        kpargrid,kperpgrid,Pcyl=unbin_to_Pcyl_custom(kpar,kperp,kcont,Pcont) # kpargrid,kperpgrid,Pcyl = unbin_to_Pcyl_custom(kpar,kperp,k,Psph)
+        Pconts[:,:,i]=Pcyl
+    Pcont_avg=np.mean(Pconts,axis=2)
+    return Pcont_avg
+
 def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):  
     """
     interpolate a spherically binned CAMB MPS to provide MPS values for a cylindrically binned k-grid of interest (nkpar x nkperp)
@@ -183,6 +179,42 @@ def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):
     kmin=np.sqrt(kpar[0]**2+kperp[0]**2)
     kmax=np.sqrt(kpar[-1]**2+kperp[-1]**2)
     k,Psph=get_mps(pars,z,minkh=kmin/h,maxkh=kmax/h,n_sph_modes=n_sph_modes)
+    Psph=Psph.reshape((Psph.shape[1],))
+    kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
+    Pcyl=np.zeros((len(kpar),len(kperp)))
+    for i,kpar_val in enumerate(kpar):
+        for j,kperp_val in enumerate(kperp):
+            k_of_interest=np.sqrt(kpar_val**2+kperp_val**2)
+            idx_closest_k=np.argmin(np.abs(k-k_of_interest)) # k-scalar in the CAMB MPS closest to the k-magnitude indicated by the kpar-kperp combination for that point in cylindrically binned Fourier space
+            if (idx_closest_k==0): # start of array
+                idx_2nd_closest_k=1 # use hi
+            elif (idx_closest_k==n_sph_modes-1): # end of array
+                idx_2nd_closest_k=n_sph_modes-2 # use lo
+            else: # middle of array -> check if hi or lo is closer
+                k_neighb_lo=k[idx_closest_k-1]
+                k_neighb_hi=k[idx_closest_k+1]
+                if (np.abs(k_neighb_lo-k_of_interest)<np.abs(k_neighb_hi-k_of_interest)): # use k_neighb_lo
+                    idx_2nd_closest_k=idx_closest_k-1
+                else:
+                    idx_2nd_closest_k=idx_closest_k+1
+            k_closest=k[idx_closest_k]
+            k_2nd_closest=k[idx_2nd_closest_k]
+            interp_slope=(Psph[idx_2nd_closest_k]-Psph[idx_closest_k])/(k_2nd_closest-k_closest)
+            Pcyl[i,j]=interp_slope*(k_of_interest-k_closest)
+    return kpargrid,kperpgrid,Pcyl
+
+
+def unbin_to_Pcyl_custom(kpar,kperp,k,Psph): 
+    """
+    same logic as the version not called _custom, but BYO power spectrum
+
+    args
+    k    = scalar (i.e. spherically binned) k-modes at which your 1D power spectrum is sampled
+    Psph = 1D power spectrum to de-bin to cylindrical
+
+    returns
+    interpolation-fuelled de-binning of a user-provided spherically binned power spectrum to a set of cylindrical bins of interest
+    """
     Psph=Psph.reshape((Psph.shape[1],))
     kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
     Pcyl=np.zeros((len(kpar),len(kperp)))
