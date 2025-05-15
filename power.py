@@ -1,4 +1,5 @@
 import numpy as np
+from matplotlib import pyplot as plt
 
 '''
 this module helps connect ensemble-averaged power spectrum estimates and cosmological brighness temperature boxes for two main use cases:
@@ -13,25 +14,29 @@ call structure:
 {{}} = generally no need to call directly; called as necessary by higher-level functions
 '''
 
-def P(T, k, Lsurvey, Npix):
+def P(T, k, Lsurvey):
     '''
     philosophy:
     * generate a power spectrum consistent with a brightness temperature box for which you already know the k-bins
     * in practice, to obtain a power spectrum you should access this routine through a wrapper:
-        * ps_userbin(T, kbins, Lsurvey, Npix) -> if you need maximum binning flexibility (e.g. hybrid lin-log)
-        * ps_autobin(T, mode, Lsurvey, Npix) -> if you need simple linear or logarithmic bins
+        * ps_userbin(T, kbins, Lsurvey) -> if you need maximum binning flexibility (e.g. hybrid lin-log)
+        * ps_autobin(T, mode, Lsurvey) -> if you need simple linear or logarithmic bins
 
     inputs:
-    T       = Lsurvey-x-Lsurvey-x-Lsurvey data box for which you wish to create the power spectrum
+    T       = Npix x Npix x Npix data box for which you wish to create the power spectrum
     k       = k-bins for power spectrum indexing ... designed to be provided by one of two wrapper functions: user-created (custom) bins or automatically generated (linear- or log-spaced) bins
-    Lsurvey = side length of the simulation cube (Mpc)
-    Npix    = number of bins per side of the simulation cube
+    Lsurvey = side length of the simulation cube (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
 
     outputs:
     Npix x 2 array storing kbin,P(kbin) ordered pairs
     '''
     # helper variables
+    Nk=len(k)
+    print("T.shape=",T.shape)
+    print("Nk=",Nk)
+    Npix=T.shape[0]
     Delta = Lsurvey/Npix # voxel side length
+    print("P: Lsurvey,Npix,Delta=",Lsurvey,Npix,Delta)
     dr3 = Delta**3 # size of voxel
     twopi=2*np.pi
     
@@ -43,24 +48,34 @@ def P(T, k, Lsurvey, Npix):
     mTt = mTt.real # I checked, and there aren't even any machine precision issues in the imag part
     
     # prepare to tie the processed box values to relevant k-values (generate k-quantities)
-    Kshuf=twopi*np.fft.fftshift(np.fft.fftfreq(Lsurvey,d=Delta)) # fftshift doesn't care whether you're dealing with correlations, brightness temps, or config/Fourier space coordinates ... the math is the same!
+    Kshuf=twopi*np.fft.fftshift(np.fft.fftfreq(Npix,d=Delta)) # fftshift doesn't care whether you're dealing with correlations, brightness temps, or config/Fourier space coordinates ... the math is the same!
+    print("P: k=",k)
     KX,KY,KZ=np.meshgrid(Kshuf,Kshuf,Kshuf)
-    kmags=np.sqrt(KX**2+KY**2+KZ**2)
+    kmags=np.sqrt(KX**2+KY**2+KZ**2) # literally just the Fourier duals to the config space points ... not the binned k-values yet
+    print("kmags.shape SHOULD MATCH T.shape: ",kmags.shape,kmags.shape==T.shape)
+    # assert(1==0), "box shape checks"
+    print("P: kmags.min(),kmags.max()=",kmags.min(),kmags.max())
+    # assert(1==0), "checking digitization"
     binidxs=np.digitize(kmags,k,right=False)
+    print("P: binidxs[Npix//2]=",binidxs[Npix//2])
 
     # identify which box each point falls into
-    amTt=np.zeros(Npix)
+    amTt=np.zeros(Nk)
     for i,binedge in enumerate(k):
         here=np.nonzero(i==binidxs) # want all box indices where the corresp bin index is the ith binedge (nonzero is like argwhere, but gives output that is suitable for indexing arrays)
+        # print("i=",i,"here=",here)
         if (len(here[0])>0): # already know len(here) = arr_dimns, so check for emptiness w/ len(here[0])
             amTt[i]=np.mean(mTt[here])
         else:
             amTt[0]=0
 
     V = Lsurvey**3 # volume of the simulation cube
-    return [np.array(k),np.array(amTt/V)]
+    k=np.array(k)
+    P=np.array(amTt/V)
+    print("P: k.shape,P.shape=",k.shape,P.shape)
+    return [k,P]
 
-def ps_userbin(T, kbins, Lsurvey, Npix):
+def ps_userbin(T, kbins, Lsurvey):
     '''
     philosophy: 
     * generate a power spectrum with user-provided bins, consistent with a given brightness temperature box
@@ -68,14 +83,14 @@ def ps_userbin(T, kbins, Lsurvey, Npix):
     * use when you need more bin customization flexibility than mere lin- or log-spacing
 
     inputs:
-    T       = Lsurvey-x-Lsurvey-x-Lsurvey data box for which you wish to create the power spectrum
+    T       = Npix x Npix x Npix data box for which you wish to create the power spectrum
     kbins   = user-defined (if using this wrapper function, then probably custom-spaced) VECTOR of k-bins
-    Lsurvey = side length of the simulation cube (Mpc)
-    Npix    = number of **bins** per side of the simulation cube
+    Lsurvey = side length of the simulation cube (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
 
     outputs:
     Npix x 2 array storing kbin,P(kbin) ordered pairs
     '''  
+    Npix = T.shape[0]
     kmax=kbins[-1]
     kmin=kbins[0]
     if (kmax<kmin):
@@ -87,34 +102,36 @@ def ps_userbin(T, kbins, Lsurvey, Npix):
     twopi=2*np.pi
     Delta=Lsurvey/Npix
     assert (kmax<=twopi/Delta and kmin>=twopi/Lsurvey), 'the provided k-range must be a subset of the BCS range probed by this survey'
-    return P(T,kbins,Lsurvey,Npix)
+    Nk=len(kbins)
+    return P(T,kbins,Lsurvey)
 
-def ps_autobin(T, mode, Lsurvey, Npix):
+def ps_autobin(T, mode, Lsurvey, Nk):
     '''
     philosophy:
     * generate a power spectrum with lin- or log-spaced bins, consistent with a given brightness temperature box
     * wrapper function for the power spectrum function P(T, k, Lsurvey, Npix) 
 
     inputs:
-    T       = Lsurvey-x-Lsurvey-x-Lsurvey data box for which you wish to create the power spectrum
+    T       = Npix x Npix x Npix data box for which you wish to create the power spectrum
     mode    = binning mode (linear or logarithmic)
-    Lsurvey = side length of the simulation cube (Mpc)
-    Npix    = number of **bins** per side of the simulation cube
+    Lsurvey = side length of the simulation cube (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
+    Nk      = number of k-bins to include in the power spectrum
 
     outputs:
     Npix x 2 array storing kbin,P(kbin) ordered pairs
     '''
+    Npix=T.shape[0]
     twopi=2*np.pi
     Delta=Lsurvey/Npix
-    kbins=np.logspace(np.log10(twopi/Lsurvey),np.log10(twopi/Delta),num=Npix)
+    # kbins=np.logspace(np.log10(twopi/Lsurvey),np.log10(twopi/Delta),num=Nk) why even bother with this line if it's going to be overwritten anyway?...
     assert (mode=='lin' or mode=='log'), 'only linear and logarithmic auto-generated bins are currently supported'
-    kmin=twopi/Npix
+    kmin=twopi/Delta # was Npix but I don't think that makes sense anymore
     kmax=twopi/Lsurvey
     if (mode=='log'):
-        kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Npix)
+        kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk)
     else:
-        kbins=np.linspace(kmin,kmax,Npix)
-    return P(T,kbins,Lsurvey,Npix)
+        kbins=np.linspace(kmin,kmax,Nk)
+    return P(T,kbins,Lsurvey)
 
 def flip(n,nfvox):
     '''
@@ -144,7 +161,7 @@ def ips(P,k,Lsurvey,nfvox):
     inputs:
     P = power spectrum
     k = wavenumber-space points at which the power spectrum is sampled
-    Lsurvey = length of a simulation cube side, in Mpc
+    Lsurvey = length of a simulation cube side, in Mpc (just sets the volume element scaling... nothing to do with pixelization)
     nfvox = number of voxels to create per sim cube side
 
     outputs:
@@ -153,14 +170,12 @@ def ips(P,k,Lsurvey,nfvox):
     # helper variable setup
     k=k.real # enforce what makes sense physically
     P=P.real
-    # print("ips: P.shape=",P.shape)
     Npix=len(P)
     assert(nfvox>=Npix), "nfvox>=Npix is baked into the code at the moment. I'm going to fix this (interpolation...) after I handle the more pressing issues, but for now, why would you even want nfvox<Npix?"
     Delta = Lsurvey/nfvox # voxel side length
     dr3 = Delta**3 # voxel volume
     twopi = 2*np.pi
     V=Lsurvey**3
-    # print("ips: V=",V)
     r=twopi/k # gives the right thing but not 100% sure why it breaks if I add back the /Lsurvey I thought belonged
     
     # CORNER-origin r grid    
@@ -173,7 +188,6 @@ def ips(P,k,Lsurvey,nfvox):
     # take appropriate draws from normal distributions to populate T-tilde
     sigmas=np.flip(np.sqrt(V*P/2)) # has Npix elements ... each element describes the T-tilde values in that k-bin ... flip to anticipate the fact that I'm working in r-space but calculated this vector in k-space
     sigmas=np.reshape(sigmas,(sigmas.shape[1],)) # transition from the (1,npts) of the CAMB PS to (npts,) ... I think this became a problem in May because I got rid of some hard-coded reshaping in get_mps
-    # print("ips: sigmas.shape=",sigmas.shape)
     Ttre=np.zeros((nfvox,nfvox,nfvox))
     Ttim=np.zeros((nfvox,nfvox,nfvox))
     binidxs=np.digitize(rgrid,r,right=False) # must pass x,bins; rgrid is the big box and r has floors
@@ -181,7 +195,6 @@ def ips(P,k,Lsurvey,nfvox):
         sig=sigmas[i]
         here=np.nonzero(i==binidxs) # all box indices where the corresp bin index is the ith binedge (iterable)
         numhere=len(np.argwhere(i==binidxs)) # number of voxels in the bin we're currently considering
-        # print("ips: sig,numhere=",sig,numhere)
         sampsRe=np.random.normal(scale=sig, size=(numhere,)) # samples for filling the current bin
         sampsIm=np.random.normal(scale=sig, size=(numhere,))
         if (numhere>0):
@@ -217,5 +230,62 @@ def ips(P,k,Lsurvey,nfvox):
     T=np.fft.ifftn(Tt) # numpy needs array indexing to be corner-based to take FFTs
     T=(np.fft.fftshift(T)/dr3).real # send origin back to center (physics coordinates) and take T out of integral-land (it's real by this point [yes, I checked], but I do need to take the extra step of saving discarding the imag part [nonzero at roughly the machine precision level, O(1e-13)] to avoid future headaches)
     
-    # return rgrid,T # in place before May 15th
     return rgrid,T,rmags
+
+############## TESTS TESTS TESTS
+Lsurvey = 100
+Npix = 100
+Nk = 12
+
+plt.figure()
+for i in range(10):
+    T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+    kfloors,vals=ps_autobin(T,"log",Lsurvey,Nk) # ps_autobin(T, mode, Lsurvey, Nk)
+    plt.scatter(np.log(kfloors),vals)
+plt.xlabel("$\log(k*Mpc)$")
+plt.ylabel("Power (K$^2$ Mpc$^3$)")
+plt.title("Test PS calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
+plt.ylim(0,1.2*max(vals))
+plt.show()
+
+# Lsurvey=100 # Mpc
+# plot=True
+# cases=['ps_wn_2px.txt','z5spec.txt','ps_wn_20px.txt']
+# ncases=len(cases)
+# if plot:
+#     fig,axs=plt.subplots(2*ncases,3, figsize=(15,10)) # (3 power specs * 2 voxel schemes per power spec) = 6 generated boxes to look at slices of
+# t0=time.time()
+# for k,case in enumerate(cases):
+#     kfl,P=np.genfromtxt(case,dtype='complex').T
+#     Npix=len(P)
+
+#     # n_field_voxel_cases=[4,3]
+#     n_field_voxel_cases=[21,22]
+#     # n_field_voxel_cases=[44,45] # 15 s
+#     # n_field_voxel_cases=[65,66] # 24 s
+#     # n_field_voxel_cases=[88,89] # 36 s
+#     # n_field_voxel_cases=[99,100] # 97 s
+#     for j,n_field_voxels in enumerate(n_field_voxel_cases):
+#         tests=[0,n_field_voxels//2,n_field_voxels-3]
+#         rgen,Tgen=ips(P,kfl,Lsurvey,n_field_voxels)
+#         print('done with inversion for k,j=',k,j)
+#         if plot:
+#             for i,test in enumerate(tests):
+
+#                 if len(cases)>1:
+#                     im=axs[2*k+j,i].imshow(Tgen[:,:,test])
+#                     fig.colorbar(im)
+#                     axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
+#                 else:
+#                     im=axs[2*k+j,i].imshow(Tgen[:,:,test])
+#                     fig.colorbar(im)
+#                     axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
+
+# if plot:
+#     plt.suptitle('brightness temp box slices generated from inverting a PS I calculated')
+#     plt.tight_layout()
+#     plt.show()
+#     fig.savefig('ips_tests.png')
+#     t1=time.time()
+
+# print('test suite took',t1-t0,'s')
