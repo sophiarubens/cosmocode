@@ -161,17 +161,19 @@ def calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamf
     nkpar=len(kpar)
     nkperp=len(kperp)
     Pconts=np.zeros((nkpar,nkperp,n_realiz)) # holder for the cylindrically binned power spectra (will make it easy to average later)
-    Lcube=2*sigLoS # should be some multiple of 2*sigLoS?? 3x for 3sigma level?? or just 1x because that's how I motivated constructing it from Dchi and Dclo??
-    sigLoS_instances=     np.random.normal(loc=sigLoS,     scale=epsLoS, size=n_realiz) # np.random.normal(loc=0.0, scale=1.0, size=None),, loc~mu, scale~sigma
-    beamfwhm_x_instances= np.random.normal(loc=beamfwhm_x, scale=eps_x,  size=n_realiz)
-    beamfwhm_y_instances= np.random.normal(loc=beamfwhm_y, scale=eps_y,  size=n_realiz)
+    Lcube=int(2*sigLoS) # should be some multiple of 2*sigLoS?? 3x for 3sigma level?? or just 1x because that's how I motivated constructing it from Dchi and Dclo??
+    sigLoS_instances=     np.random.normal(loc=sigLoS,     scale=epsLoS*sigLoS,    size=n_realiz) # np.random.normal(loc=0.0, scale=1.0, size=None),, loc~mu, scale~sigma
+    beamfwhm_x_instances= np.random.normal(loc=beamfwhm_x, scale=eps_x*beamfwhm_x, size=n_realiz)
+    beamfwhm_y_instances= np.random.normal(loc=beamfwhm_y, scale=eps_y*beamfwhm_y, size=n_realiz)
     for i in range(n_realiz):
         rcube,Tcube,rmags = ips(Ptrue,ksph,Lcube,ncubevox) # rgrid,T=ips(P,k,Lsurvey,nfvox)
         if (i==0): # initialize the instrument response
             X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij") # I didn't specify ij indexing in the meshgridding internal to ips(), but I don't think it matters at the moment since everything in the cube is so statistically isotropic,, (could eventually circle back there to be really rigorous)
-        instrument_response=np.exp(-(Z-r0)**2/(2*sigLoS_instances[i]**2)-ln2*((X/beamfwhm_x_instances[i])**2+(Y/beamfwhm_y_instances[i])**2)/r0**2)
+        instrument_response=np.exp(-Z**2/(2*sigLoS_instances[i]**2)-ln2*((X/beamfwhm_x_instances[i])**2+(Y/beamfwhm_y_instances[i])**2)/r0**2) # mathematically equivalent to offsetting Z down the line of sight by r0 and then using the original functional form with the subtraction, but with fewer steps
         response_aware_cube=Tcube*instrument_response # configuration-space multiplication
-        kcont,Pcont=ps_autobin(response_aware_cube,"lin",Lcube,n_sph_modes) # ps_autobin(T, mode, Lsurvey, Npix) returns P() ... which returns [np.array(k),np.array(amTt/V)]
+        print("response_aware_cube instance=",response_aware_cube)
+        kcont,Pcont=ps_autobin(response_aware_cube,"lin",Lcube,n_sph_modes//50) # ps_autobin(T, mode, Lsurvey, Npix) returns P() ... which returns [np.array(k),np.array(amTt/V)]
+        print("Pcont instance=",Pcont)
         kpargrid,kperpgrid,Pcyl=unbin_to_Pcyl_custom(kpar,kperp,kcont,Pcont) # kpargrid,kperpgrid,Pcyl = unbin_to_Pcyl_custom(kpar,kperp,k,Psph)
         Pconts[:,:,i]=Pcyl
     Pcont_avg=np.mean(Pconts,axis=2)
@@ -221,7 +223,9 @@ def unbin_to_Pcyl_custom(kpar,kperp,k,Psph):
     returns
     interpolation-fuelled de-binning of a user-provided spherically binned power spectrum to a set of cylindrical bins of interest
     """
-    Psph=Psph.reshape((Psph.shape[1],))
+    if (Psph.shape[0]==1): # if transposed compared to what I want,
+        Psph=Psph.reshape((Psph.shape[1],)) # transpose it
+    n_sph_modes=len(Psph) # now, backing out the length is unambiguous
     kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
     Pcyl=np.zeros((len(kpar),len(kperp)))
     for i,kpar_val in enumerate(kpar):
@@ -360,6 +364,7 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
                                        kpar,kperp,
                                        sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
                                        n_realiz,ncubevox=ncubevox,n_sph_modes=n_sph_modes) # calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500)
+    print("bias: Pcont=",Pcont)
     Pcont_div_sigma=Pcont/unc
     B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)
     bias=(np.linalg.inv(F)@B).reshape((F.shape[0],))

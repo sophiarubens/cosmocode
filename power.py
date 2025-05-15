@@ -153,21 +153,27 @@ def ips(P,k,Lsurvey,nfvox):
     # helper variable setup
     k=k.real # enforce what makes sense physically
     P=P.real
+    # print("ips: P.shape=",P.shape)
     Npix=len(P)
     assert(nfvox>=Npix), "nfvox>=Npix is baked into the code at the moment. I'm going to fix this (interpolation...) after I handle the more pressing issues, but for now, why would you even want nfvox<Npix?"
     Delta = Lsurvey/nfvox # voxel side length
     dr3 = Delta**3 # voxel volume
     twopi = 2*np.pi
     V=Lsurvey**3
+    # print("ips: V=",V)
     r=twopi/k # gives the right thing but not 100% sure why it breaks if I add back the /Lsurvey I thought belonged
     
     # CORNER-origin r grid    
+    print("ips: Lsurvey,nfvox=",Lsurvey,nfvox)
     rmags=Lsurvey*np.fft.fftfreq(nfvox)
+    print("ips: rmags=",rmags)
     RX,RY,RZ=np.meshgrid(rmags,rmags,rmags)
     rgrid=np.sqrt(RX**2+RY**2+RZ**2)
     
     # take appropriate draws from normal distributions to populate T-tilde
     sigmas=np.flip(np.sqrt(V*P/2)) # has Npix elements ... each element describes the T-tilde values in that k-bin ... flip to anticipate the fact that I'm working in r-space but calculated this vector in k-space
+    sigmas=np.reshape(sigmas,(sigmas.shape[1],)) # transition from the (1,npts) of the CAMB PS to (npts,) ... I think this became a problem in May because I got rid of some hard-coded reshaping in get_mps
+    # print("ips: sigmas.shape=",sigmas.shape)
     Ttre=np.zeros((nfvox,nfvox,nfvox))
     Ttim=np.zeros((nfvox,nfvox,nfvox))
     binidxs=np.digitize(rgrid,r,right=False) # must pass x,bins; rgrid is the big box and r has floors
@@ -175,7 +181,7 @@ def ips(P,k,Lsurvey,nfvox):
         sig=sigmas[i]
         here=np.nonzero(i==binidxs) # all box indices where the corresp bin index is the ith binedge (iterable)
         numhere=len(np.argwhere(i==binidxs)) # number of voxels in the bin we're currently considering
-        print("in ips: sig,numhere=",sig,numhere)
+        # print("ips: sig,numhere=",sig,numhere)
         sampsRe=np.random.normal(scale=sig, size=(numhere,)) # samples for filling the current bin
         sampsIm=np.random.normal(scale=sig, size=(numhere,))
         if (numhere>0):
