@@ -175,6 +175,7 @@ def ips(P,k,Lsurvey,nfvox):
         sig=sigmas[i]
         here=np.nonzero(i==binidxs) # all box indices where the corresp bin index is the ith binedge (iterable)
         numhere=len(np.argwhere(i==binidxs)) # number of voxels in the bin we're currently considering
+        print("in ips: sig,numhere=",sig,numhere)
         sampsRe=np.random.normal(scale=sig, size=(numhere,)) # samples for filling the current bin
         sampsIm=np.random.normal(scale=sig, size=(numhere,))
         if (numhere>0):
@@ -210,4 +211,5 @@ def ips(P,k,Lsurvey,nfvox):
     T=np.fft.ifftn(Tt) # numpy needs array indexing to be corner-based to take FFTs
     T=(np.fft.fftshift(T)/dr3).real # send origin back to center (physics coordinates) and take T out of integral-land (it's real by this point [yes, I checked], but I do need to take the extra step of saving discarding the imag part [nonzero at roughly the machine precision level, O(1e-13)] to avoid future headaches)
     
-    return rgrid,T
+    # return rgrid,T # in place before May 15th
+    return rgrid,T,rmags

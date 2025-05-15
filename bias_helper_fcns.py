@@ -137,7 +137,7 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     Pcont=higher_dim_conv(Wcont,P)
     return Pcont
 
-def calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,r0,beamfwhm_x,beamfwhm_y,n_realiz,ncubevox=100,n_sph_modes=500):
+def calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500):
     """
     calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
     (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -145,12 +145,15 @@ def calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,r0,beamfwhm_x,beamfwhm_y,n
     args
     beamfwhm_x = FWHM of the beam in one       polarization direction
     beamfwhm_y = "                 " the other "                    "
+    eps_x      = fractional uncertainty in beamfwhm_x
+    eps_y      = fractional uncertainty in beamfwhm_y
     n_realiz   = number of times to iterate the "generate a random realization of the Tb cube" -> "multiply by the beam in config space" -> "form PS with cylindrical bins of survey" step
     ncubevox   = number of voxels per side to use when constructing random realization Tb cubes
 
     returns
     contaminant power, calculated as an average over the "beam-modulated" PS resulting from the loop iterated n_realiz times 
     """
+    h=pars[0]/100 # this relies on H0 being the first parameter in pars ... and more fundamentally, H0 being in the forecast at all
     kmin=np.sqrt(kpar[0]**2+ kperp[0]**2)
     kmax=np.sqrt(kpar[-1]**2+kperp[-1]**2)
     ksph,Ptrue=get_mps(pars,z,minkh=kmin/h,maxkh=kmax/h,n_sph_modes=500)
@@ -159,11 +162,14 @@ def calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,r0,beamfwhm_x,beamfwhm_y,n
     nkperp=len(kperp)
     Pconts=np.zeros((nkpar,nkperp,n_realiz)) # holder for the cylindrically binned power spectra (will make it easy to average later)
     Lcube=2*sigLoS # should be some multiple of 2*sigLoS?? 3x for 3sigma level?? or just 1x because that's how I motivated constructing it from Dchi and Dclo??
+    sigLoS_instances=     np.random.normal(loc=sigLoS,     scale=epsLoS, size=n_realiz) # np.random.normal(loc=0.0, scale=1.0, size=None),, loc~mu, scale~sigma
+    beamfwhm_x_instances= np.random.normal(loc=beamfwhm_x, scale=eps_x,  size=n_realiz)
+    beamfwhm_y_instances= np.random.normal(loc=beamfwhm_y, scale=eps_y,  size=n_realiz)
     for i in range(n_realiz):
         rcube,Tcube,rmags = ips(Ptrue,ksph,Lcube,ncubevox) # rgrid,T=ips(P,k,Lsurvey,nfvox)
         if (i==0): # initialize the instrument response
             X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij") # I didn't specify ij indexing in the meshgridding internal to ips(), but I don't think it matters at the moment since everything in the cube is so statistically isotropic,, (could eventually circle back there to be really rigorous)
-            instrument_response=np.exp(-(Z-r0)**2/(2*sigLoS**2)-ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
+        instrument_response=np.exp(-(Z-r0)**2/(2*sigLoS_instances[i]**2)-ln2*((X/beamfwhm_x_instances[i])**2+(Y/beamfwhm_y_instances[i])**2)/r0**2)
         response_aware_cube=Tcube*instrument_response # configuration-space multiplication
         kcont,Pcont=ps_autobin(response_aware_cube,"lin",Lcube,n_sph_modes) # ps_autobin(T, mode, Lsurvey, Npix) returns P() ... which returns [np.array(k),np.array(amTt/V)]
         kpargrid,kperpgrid,Pcyl=unbin_to_Pcyl_custom(kpar,kperp,kcont,Pcont) # kpargrid,kperpgrid,Pcyl = unbin_to_Pcyl_custom(kpar,kperp,k,Psph)
@@ -327,7 +333,7 @@ def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
         V[n,:,:]=cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
     return V
 
-def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None):
+def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,n_realiz=10,ncubevox=100):
     """
     args
     partials = ncp x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
@@ -347,7 +353,13 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph
         V[i,:,:]=partials[i,:,:]/unc # elementwise division for an nkpar x nkperp slice
     V_completely_transposed=np.transpose(V,axes=(2,1,0)) # from the docs: "For an n-D array, if axes are given, their order indicates how the axes are permuted"
     F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
-    Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_modes,save=save,savename=savename,beamtype=beamtype)
+    if cyl_sym_resp:
+        Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,save=save,savename=savename,beamtype=beamtype)
+    else: 
+        Pcont=calc_Pcont_cyl_asym_resp(pars,z,
+                                       kpar,kperp,
+                                       sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
+                                       n_realiz,ncubevox=ncubevox,n_sph_modes=n_sph_modes) # calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500)
     Pcont_div_sigma=Pcont/unc
     B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)
     bias=(np.linalg.inv(F)@B).reshape((F.shape[0],))
