@@ -47,8 +47,7 @@ def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
     args
     nu_ctr                     = central frequency of the survey
     Deltanu                    = channel width
-    evol_restriction_threshold = $N\Delta\nu/\nu ~ \Delta z/z ~$ evol_restriction_threshold (1/15 common in some HERA surveys)
-                                    * N            = number of channels in the survey
+    evol_restriction_threshold = $N\Delta\nu/\nu ~ \Delta z/z ~$ evol_restriction_threshold (1/15 common in some HERA surveys); N = number of channels in the survey
 
     returns
     NDeltanu = survey bandwidth
@@ -58,6 +57,44 @@ def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
     N=NDeltanu/Deltanu
     return NDeltanu,N
 
+# def decompose_perp_to_square(kperp): # if this philosophy sticks, probably just integrate it with the kperp function in cosmo_distances.py
+#     """
+#     returns
+#     kcart = kx or ky in the sky plane, with a min and max k-amplitude and vector length that meshes with the number of baselines
+#     """
+#     if (kperp[0]>kperp[-1]): # if kperp somehow got flipped even though it's created internally to always increase monotonically...
+#         kperp=np.flip(kperp)
+#     kperpmin=kperp[0]
+#     kperpmax=kperp[-1]
+#     nbaselines=len(kperp)
+#     ncart=2*nbaselines-1 # number of modes to put in kcart (general term for kx or ky, where these are less-pedantic names for what you could also conceivably call kperpx and kperpy)
+#     sqrt2=np.sqrt(2)
+#     kcartmin=kperpmin/sqrt2
+#     kcartmax=kperpmax/sqrt2
+#     kcart=np.linspace(kcartmin,kcartmax,ncart)
+#     return kcart
+
+def Pcont_statistical_strat(pars,z,kpar,kperp,sigLoS,beamfwhm_x,beamfwhm_y,n_realiz):
+    """
+    args
+    beamfwhm_x = FWHM of the beam in one       polarization direction
+    beamfwhm_y = "                 " the other "                    "
+    n_realiz   = number of times to iterate the "generate a random realization of the Tb cube" -> "multiply by the beam in config space" -> "form PS with cylindrical bins of survey" step
+
+    returns
+    contaminant power, calculated as an average over the "beam-modulated" PS resulting from the loop iterated n_realiz times 
+    """
+    kmin=np.sqrt(kpar[0]**2+ kperp[0]**2)
+    kmax=np.sqrt(kpar[-1]**2+kperp[-1]**2)
+    Ptrue=get_mps(pars,z,minkh=kmin/h,maxkh=kmax/h,n_sph_modes=500)
+
+    nkpar=len(kpar)
+    nkperp=len(kperp)
+    Pconts=np.zeros((nkpar,nkperp,n_realiz)) # holder for the cylindrically binned power spectra (will make it easy to average later)
+    for i in range(n_realiz):
+        box=
+    
+    return None
 
 def higher_dim_conv(ff,gg):
     """
