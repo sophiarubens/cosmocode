@@ -32,11 +32,11 @@ def P(T, k, Lsurvey):
     '''
     # helper variables
     Nk=len(k)
-    print("T.shape=",T.shape)
-    print("Nk=",Nk)
+    # print("T.shape=",T.shape)
+    # print("Nk=",Nk)
     Npix=T.shape[0]
     Delta = Lsurvey/Npix # voxel side length
-    print("P: Lsurvey,Npix,Delta=",Lsurvey,Npix,Delta)
+    # print("P: Lsurvey,Npix,Delta=",Lsurvey,Npix,Delta)
     dr3 = Delta**3 # size of voxel
     twopi=2*np.pi
     
@@ -49,21 +49,14 @@ def P(T, k, Lsurvey):
     
     # prepare to tie the processed box values to relevant k-values (generate k-quantities)
     Kshuf=twopi*np.fft.fftshift(np.fft.fftfreq(Npix,d=Delta)) # fftshift doesn't care whether you're dealing with correlations, brightness temps, or config/Fourier space coordinates ... the math is the same!
-    print("P: k=",k)
     KX,KY,KZ=np.meshgrid(Kshuf,Kshuf,Kshuf)
     kmags=np.sqrt(KX**2+KY**2+KZ**2) # literally just the Fourier duals to the config space points ... not the binned k-values yet
-    print("kmags.shape SHOULD MATCH T.shape: ",kmags.shape,kmags.shape==T.shape)
-    # assert(1==0), "box shape checks"
-    print("P: kmags.min(),kmags.max()=",kmags.min(),kmags.max())
-    # assert(1==0), "checking digitization"
     binidxs=np.digitize(kmags,k,right=False)
-    print("P: binidxs[Npix//2]=",binidxs[Npix//2])
 
     # identify which box each point falls into
     amTt=np.zeros(Nk)
     for i,binedge in enumerate(k):
         here=np.nonzero(i==binidxs) # want all box indices where the corresp bin index is the ith binedge (nonzero is like argwhere, but gives output that is suitable for indexing arrays)
-        # print("i=",i,"here=",here)
         if (len(here[0])>0): # already know len(here) = arr_dimns, so check for emptiness w/ len(here[0])
             amTt[i]=np.mean(mTt[here])
         else:
@@ -72,7 +65,6 @@ def P(T, k, Lsurvey):
     V = Lsurvey**3 # volume of the simulation cube
     k=np.array(k)
     P=np.array(amTt/V)
-    print("P: k.shape,P.shape=",k.shape,P.shape)
     return [k,P]
 
 def ps_userbin(T, kbins, Lsurvey):
@@ -101,7 +93,8 @@ def ps_userbin(T, kbins, Lsurvey):
         assert(1==0), "kbins is either constant or non-monotonic -> cannot create useful bins from these" # force quit ... the always false condition is just a hanger for the warning message
     twopi=2*np.pi
     Delta=Lsurvey/Npix
-    assert (kmax<=twopi/Delta and kmin>=twopi/Lsurvey), 'the provided k-range must be a subset of the BCS range probed by this survey'
+    # print("kmax,kmin,twopi/Delta,twopi/Lsurvey=",kmax,kmin,twopi/Delta,twopi/Lsurvey)
+    # assert (kmax<=twopi/Delta and kmin>=twopi/Lsurvey), 'the provided k-range must be a subset of the range probed by this survey'
     Nk=len(kbins)
     return P(T,kbins,Lsurvey)
 
@@ -123,14 +116,13 @@ def ps_autobin(T, mode, Lsurvey, Nk):
     Npix=T.shape[0]
     twopi=2*np.pi
     Delta=Lsurvey/Npix
-    # kbins=np.logspace(np.log10(twopi/Lsurvey),np.log10(twopi/Delta),num=Nk) why even bother with this line if it's going to be overwritten anyway?...
     assert (mode=='lin' or mode=='log'), 'only linear and logarithmic auto-generated bins are currently supported'
-    kmin=twopi/Delta # was Npix but I don't think that makes sense anymore
-    kmax=twopi/Lsurvey
+    kmax=twopi/Delta # was Npix but I don't think that makes sense anymore
+    kmin=twopi/Lsurvey
     if (mode=='log'):
-        kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk)
+        kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk+1)[:-1] # bypass the poor stats for the largest k-bin
     else:
-        kbins=np.linspace(kmin,kmax,Nk)
+        kbins=np.linspace(kmin,kmax,Nk+1)[:-1]
     return P(T,kbins,Lsurvey)
 
 def flip(n,nfvox):
@@ -179,9 +171,9 @@ def ips(P,k,Lsurvey,nfvox):
     r=twopi/k # gives the right thing but not 100% sure why it breaks if I add back the /Lsurvey I thought belonged
     
     # CORNER-origin r grid    
-    print("ips: Lsurvey,nfvox=",Lsurvey,nfvox)
+    # print("ips: Lsurvey,nfvox=",Lsurvey,nfvox)
     rmags=Lsurvey*np.fft.fftfreq(nfvox)
-    print("ips: rmags=",rmags)
+    # print("ips: rmags=",rmags)
     RX,RY,RZ=np.meshgrid(rmags,rmags,rmags)
     rgrid=np.sqrt(RX**2+RY**2+RZ**2)
     
@@ -232,22 +224,30 @@ def ips(P,k,Lsurvey,nfvox):
     
     return rgrid,T,rmags
 
-############## TESTS TESTS TESTS
-Lsurvey = 100
-Npix = 100
-Nk = 12
+# ############## TESTS FWD
+# Lsurvey = 103
+# Npix = 99
+# Nk = 12
 
-plt.figure()
-for i in range(10):
-    T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-    kfloors,vals=ps_autobin(T,"log",Lsurvey,Nk) # ps_autobin(T, mode, Lsurvey, Nk)
-    plt.scatter(np.log(kfloors),vals)
-plt.xlabel("$\log(k*Mpc)$")
-plt.ylabel("Power (K$^2$ Mpc$^3$)")
-plt.title("Test PS calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
-plt.ylim(0,1.2*max(vals))
-plt.show()
+# kcustom=np.logspace(np.log10(2.*np.pi/100),np.log10(5),Nk)
 
+# plt.figure()
+# maxvals=0.0
+# for i in range(10):
+#     T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+#     kfloors,vals=ps_userbin(T,kcustom,Lsurvey) # ps_userbin(T, kbins, Lsurvey)
+#     # kfloors,vals=ps_autobin(T,"log",Lsurvey,Nk)
+#     plt.scatter(np.log(kfloors),vals)
+#     maxvalshere=np.max(vals)
+#     if (maxvalshere>maxvals):
+#         maxvals=maxvalshere
+# plt.xlabel("log(k*1Mpc)")
+# plt.ylabel("Power (K$^2$ Mpc$^3$)")
+# plt.title("Test PS calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
+# plt.ylim(0,1.2*maxvals)
+# plt.show()
+
+############## TESTS BWD
 # Lsurvey=100 # Mpc
 # plot=True
 # cases=['ps_wn_2px.txt','z5spec.txt','ps_wn_20px.txt']

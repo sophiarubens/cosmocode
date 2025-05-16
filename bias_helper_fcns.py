@@ -137,7 +137,7 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     Pcont=higher_dim_conv(Wcont,P)
     return Pcont
 
-def calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500):
+def calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500,recalc_Pcont=False):
     """
     calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
     (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -171,12 +171,13 @@ def calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamf
             X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij") # I didn't specify ij indexing in the meshgridding internal to ips(), but I don't think it matters at the moment since everything in the cube is so statistically isotropic,, (could eventually circle back there to be really rigorous)
         instrument_response=np.exp(-Z**2/(2*sigLoS_instances[i]**2)-ln2*((X/beamfwhm_x_instances[i])**2+(Y/beamfwhm_y_instances[i])**2)/r0**2) # mathematically equivalent to offsetting Z down the line of sight by r0 and then using the original functional form with the subtraction, but with fewer steps
         response_aware_cube=Tcube*instrument_response # configuration-space multiplication
-        print("response_aware_cube instance=",response_aware_cube)
-        kcont,Pcont=ps_autobin(response_aware_cube,"lin",Lcube,n_sph_modes//50) # ps_autobin(T, mode, Lsurvey, Npix) returns P() ... which returns [np.array(k),np.array(amTt/V)]
-        print("Pcont instance=",Pcont)
+        # print("response_aware_cube instance=",response_aware_cube)
+        kcont,Pcont=ps_userbin(response_aware_cube,ksph,Lcube) # ps_userbin(T, kbins, Lsurvey) returns P() ... which returns [k,P]
+        # print("Pcont instance=",Pcont)
         kpargrid,kperpgrid,Pcyl=unbin_to_Pcyl_custom(kpar,kperp,kcont,Pcont) # kpargrid,kperpgrid,Pcyl = unbin_to_Pcyl_custom(kpar,kperp,k,Psph)
         Pconts[:,:,i]=Pcyl
     Pcont_avg=np.mean(Pconts,axis=2)
+    np.save("Pcont_avg.npy",Pcont_avg)
     return Pcont_avg
 
 def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):  
@@ -337,7 +338,7 @@ def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
         V[n,:,:]=cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
     return V
 
-def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,n_realiz=10,ncubevox=100):
+def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,n_realiz=10,ncubevox=100,recalc_Pcont=False):
     """
     args
     partials = ncp x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
@@ -363,8 +364,16 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
         Pcont=calc_Pcont_cyl_asym_resp(pars,z,
                                        kpar,kperp,
                                        sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
-                                       n_realiz,ncubevox=ncubevox,n_sph_modes=n_sph_modes) # calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500)
-    print("bias: Pcont=",Pcont)
+                                       n_realiz,ncubevox=ncubevox,n_sph_modes=n_sph_modes,
+                                       recalc_Pcont=recalc_Pcont) # calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500,recalc_Pcont=False)
+    plt.figure()
+    plt.imshow(Pcont, origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]]) # origin="lower",extent=[L_lo,R_hi,T_lo,B_hi]
+    plt.xlabel("k$_{||}$ (Mpc$^{-1}$)")
+    plt.ylabel("k$_{\perp}$ (Mpc$^{-1}$)")
+    plt.title("Pcont")
+    plt.colorbar()
+    plt.savefig("Pcont.png")
+    plt.show()
     Pcont_div_sigma=Pcont/unc
     B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)
     bias=(np.linalg.inv(F)@B).reshape((F.shape[0],))
