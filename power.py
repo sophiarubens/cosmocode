@@ -35,7 +35,6 @@ def P(T, k, Lsurvey):
          - if binto=="sph": [(Nk,),(Nk,)] object unpackable as kbins,powers
          - if binto=="cyl": [[(Nkpar,),(Nkperp,)],(Nkpar,Nkperp)] object unpackable as [kparvec,kperpvec],powers_on_grid **MAKE SURE THIS ENDS UP BEING TRUE**
     '''
-    print("P: len(k)=",len(k)) # I think I can now control the binto branching just using the shape of k... test
     if len(k)==2:
         binto="cyl"
     else:
@@ -56,30 +55,28 @@ def P(T, k, Lsurvey):
 
     # establish Cartesian Fourier duals to box coordinates
     Kshuf=twopi*np.fft.fftshift(np.fft.fftfreq(Npix,d=Delta)) # fftshift doesn't care whether you're dealing with correlations, brightness temps, or config/Fourier space coordinates ... the math is the same!
-    KX,KY,KZ=np.meshgrid(Kshuf,Kshuf,Kshuf)
-    ## PROBABLY NEED TO ADD AN INDEXING KEYWORD WHICH BECOMES IMPORTANT FOR THE CASE OF CYLINDRICAL SYMMETRY BECAUSE THE INDICES ARE NO LONGER ALL INTERCHANGEABLE
     
     if (binto=="sph"):
-        Nk=len(k)
+        Nk=len(k) # number of k-modes to put in the power spectrum
+        KX,KY,KZ=np.meshgrid(Kshuf,Kshuf,Kshuf) # grid of Fourier-space points at which I have box values
 
         # prepare to tie the processed box values to relevant k-values (prep for binning)
         kmags=np.sqrt(KX**2+KY**2+KZ**2) # BINNING SPHERICALLY literally just the Fourier duals to the config space points ... not the binned k-values yet
         binidxs=np.digitize(kmags,k,right=False)
         binidxs_1d=np.reshape(binidxs,(Npix**3,))
         mTt_1d=    np.reshape(mTt,    (Npix**3,))
-        print("P: binidxs.shape,binidxs_1d.shape,mTt_1d.shape=",binidxs.shape,binidxs_1d.shape,mTt_1d.shape)
 
         # binning
+        t0=time.time()
         summTt=np.bincount(binidxs_1d,weights=mTt_1d,minlength=Nk)
         NmTt=  np.bincount(binidxs_1d,               minlength=Nk)
-        print("summTt.shape,NmTt.shape=",summTt.shape,NmTt.shape)
 
         # binned value preprocessing
         amTt=np.zeros(Nk)
         nonemptybins=np.nonzero(NmTt)
         amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
+        t1=time.time()
     elif (binto=="cyl"):
-        # print("in the binto=='cyl' branch of P: ")
         kpar,kperp=k # this assumes my apparently-nontraditional convention of putting kpar first... fix this later, probably
         Nkpar=len(kpar)
         Nkperp=len(kperp)
@@ -90,39 +87,31 @@ def P(T, k, Lsurvey):
         perpbinidxs=np.digitize(kperpmags,kperp,right=False)
         perpbinidxs_1d=np.reshape(perpbinidxs,(Npix**2,))
         amTt=np.zeros((Nkpar,Nkperp))
-
         parbinidxs=np.digitize(Kshuf,kpar, right=False) # which kpar bin each kpar-for-the-box value falls into
-        # print("P: kpar.shape=",kpar.shape)
-        # print("P: parbinidxs.shape=",parbinidxs.shape)
 
         # binning 
-        # # verify that I'm commenting on kpar variation on an axis where it is literally changing in the meshgridded instance,,
         summTt=  np.zeros((Nkpar,Nkperp)) # need to access once for each kpar slice, but should have shape (Nkpar,Nkperp) ... each time I access it, I'll access the correct Nkpar row, but all Nkperp columns will be updated
         NmTt=    np.zeros((Nkpar,Nkperp))
         N_slices=np.zeros((Nkpar,Nkperp))
+        t0=time.time()
         for i in range(Nkpar): # iterate over kpar axis of the box (Npix loop trips)
-            # print("i=",i)
             mTt_slice=mTt[i,:,:]
             mTt_slice_1d=np.reshape(mTt_slice,(Npix**2,))
             current_bincounts=np.bincount(perpbinidxs_1d,weights=mTt_slice_1d,minlength=Nkperp)
-            # print("current_bincounts.shape, summTt.shape=",current_bincounts.shape, summTt.shape)
-            # print("current_bincounts=",current_bincounts)
             summTt[i,:]+=current_bincounts
-            # print("summTt[i,:]=",summTt[i,:])
             if (i==0):
                 slice_bin_counts=np.bincount(perpbinidxs_1d, minlength=Nkperp)
             NmTt[i,:]  +=slice_bin_counts
             N_slices+=1
         nonemptybins=np.nonzero(N_slices)
         amTt[nonemptybins]=summTt[nonemptybins]/(NmTt[nonemptybins]*N_slices[nonemptybins]) # extra /N b/c multiple box slices might go into a given kpar bin
-
+        t1=time.time()
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
         return None
     
     # translate to power spectrum terms
-    # t1=time.time()
-    # print("P: binning took",t1-t0,"s")
+    print("P: binning and binned value preprocessing took",t1-t0,"s")
     P=np.array(amTt/V)
     return [k,P]
 
@@ -213,9 +202,7 @@ def ips(P,k,Lsurvey,nfvox):
     r=twopi/k # gives the right thing but not 100% sure why it breaks if I add back the /Lsurvey I thought belonged
     
     # CORNER-origin r grid    
-    # print("ips: Lsurvey,nfvox=",Lsurvey,nfvox)
     rmags=Lsurvey*np.fft.fftfreq(nfvox)
-    # print("ips: rmags=",rmags)
     RX,RY,RZ=np.meshgrid(rmags,rmags,rmags)
     rgrid=np.sqrt(RX**2+RY**2+RZ**2)
     
@@ -266,29 +253,27 @@ def ips(P,k,Lsurvey,nfvox):
     
     return rgrid,T,rmags
 
-# ############## TEST SPH FWD
-# Lsurvey = 103
-# Npix = 99
-# Nk = 12
-
-# plt.figure()
-# maxvals=0.0
-# for i in range(10):
-#     T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-#     kfloors,vals=ps_autobin(T,"log",Lsurvey,Nk)
-#     plt.scatter(np.log(kfloors),vals)
-#     maxvalshere=np.max(vals)
-#     if (maxvalshere>maxvals):
-#         maxvals=maxvalshere
-# plt.xlabel("log(k*1Mpc)")
-# plt.ylabel("Power (K$^2$ Mpc$^3$)")
-# plt.title("Test PS calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
-# plt.ylim(0,1.2*maxvals)
-# plt.show() #  WORKING AS OF MIDDAY ON MAY 20TH
-
-# ############## TEST CYL FWD
+############## TEST SPH FWD
 Lsurvey = 103
 Npix = 99
+Nk = 12
+
+plt.figure()
+maxvals=0.0
+for i in range(10):
+    T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+    kfloors,vals=ps_autobin(T,"log",Lsurvey,Nk)
+    plt.scatter(np.log(kfloors),vals)
+    maxvalshere=np.max(vals)
+    if (maxvalshere>maxvals):
+        maxvals=maxvalshere
+plt.xlabel("log(k*1Mpc)")
+plt.ylabel("Power (K$^2$ Mpc$^3$)")
+plt.title("Test PS calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
+plt.ylim(0,1.2*maxvals)
+plt.show() #  WORKING AS OF MIDDAY ON MAY 20TH
+
+# ############## TEST CYL FWD
 Nkpar=12 # 327
 Nkperp=7 # 1010
 
