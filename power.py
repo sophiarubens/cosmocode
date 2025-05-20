@@ -60,63 +60,15 @@ def P(T, k, Lsurvey, binto="sph"):
     if (binto=="sph"):
         Nk=len(k)
 
-        # prepare to tie the processed box values to relevant k-values
+        # prepare to tie the processed box values to relevant k-values (prep for binning)
         kmags=np.sqrt(KX**2+KY**2+KZ**2) # BINNING SPHERICALLY literally just the Fourier duals to the config space points ... not the binned k-values yet
-        print("np.min(kmags),np.max(kmags),k=",np.min(kmags),np.max(kmags),k)
-
-        t0=time.time()
-        ##### START OF THE V4 APPROACH WHICH IS SIMPLE LIKE V1 BUT MORE VECTORIZED
         binidxs=np.digitize(kmags,k,right=False)
         binidxs_1d=np.reshape(binidxs,(Npix**3,))
         mTt_1d=    np.reshape(mTt,    (Npix**3,))
+
+        # binning
         summTt=np.bincount(binidxs_1d,weights=mTt_1d,minlength=Nk)
         NmTt=  np.bincount(binidxs_1d,               minlength=Nk)
-        # amTt=summTt/NmTt # simple, but not safe against division-by-zero errors
-        amTt=np.zeros(Nk)
-        nonemptybins=np.nonzero(NmTt)
-        amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
-        #####
-
-        # ##### START OF THE V3 SPEED-ORIENTED APPROACH
-        # summTt=np.zeros(Nk)
-        # NmTt=np.zeros(Nk)
-        # binidxs=np.digitize(kmags,k,right=False)
-        # for ii in range(Npix):
-        #     for jj in range(Npix):
-        #         for kk in range(Npix):
-        #             bin_of_current_box_val=binidxs[ii,jj,kk]
-        #             summTt[bin_of_current_box_val]+=mTt[ii,jj,kk]
-        #             NmTt[bin_of_current_box_val]+=1
-        # amTt=summTt/NmTt
-        # ##### END OF THIS V3 APPROACH
-
-        # ##### START OF THE V2 = "SEND EACH POINT INTO THE CORRECT BIN WHEN YOU FIRST ENCOUNTER IT" APPROACH
-        # summTt=np.zeros(Nk) # sum of mTt values that go into each bin
-        # NmTt=np.zeros(Nk) # number of mTt values that go into each bin
-        # for ii in range(Npix):
-        #     for jj in range(Npix):
-        #         for kk in range(Npix):
-        #             binidx=np.searchsorted(k,kmags[ii,jj,kk]) # there's no getting around the fact that I *will* have to check which bin something belongs in
-        #             summTt[binidx]+=mTt[ii,jj,kk]
-        #             NmTt[binidx]+=1
-        # # NmTt[NmTt==0]=0
-        # amTt=summTt/NmTt
-        # ##### END OF THIS V2 APPROACH
-
-        # ##### START OF THE V1 "TOO MANY CONVEYOR BELT TRIPS" APPROACH
-        # binidxs=np.digitize(kmags,k,right=False)
-
-        # # identify which box each point falls into
-        # amTt=np.zeros(Nk)
-        # for i,binedge in enumerate(k):
-        #     here=np.nonzero(i==binidxs) # want all box indices where the corresp bin index is the ith binedge (nonzero is like argwhere, but gives output that is suitable for indexing arrays)
-        #     if (len(here[0])>0): # already know len(here) = arr_dimns, so check for emptiness w/ len(here[0])
-        #         amTt[i]=np.mean(mTt[here]) # otherwise: leave as zero
-        # ##### END OF THIS OLD APPROACH
-        t1=time.time()
-        print("P: binning took",t1-t0,"s")
-        P=np.array(amTt/V)
-        return [k,P]
     elif (binto=="cyl"):
         # print("in the binto=='cyl' branch of P: ")
         kpar,kperp=k # this assumes my apparently-nontraditional convention of putting kpar first... fix this later, probably
@@ -124,13 +76,21 @@ def P(T, k, Lsurvey, binto="sph"):
         Nkperp=len(kperp)
         # print("Nkpar,Nkperp=",Nkpar,Nkperp)
 
-        # prepare to tie the processed box values to relevant k-values
+        # prepare to tie the processed box values to relevant k-values (prep for binning)
         kparmags=KZ
         kperpmags=np.sqrt(KX**2+KY**2)
-        parbinidxs =np.digitize(kparmags, kpar, right=False)
+        parbinidxs= np.digitize(kparmags, kpar, right=False)
         perpbinidxs=np.digitize(kperpmags,kperp,right=False)
+        parbinidxs_1d= np.reshape(parbinidxs, (Npix**3,))
+        perpbinidxs_1d=np.reshape(perpbinidxs,(Npix**3,))
         print("parbinidxs.min(),parbinidxs.max()=",parbinidxs.min(),parbinidxs.max())
         print("perpbinidxs.min(),perpbinidxs.max()=",perpbinidxs.min(),perpbinidxs.max())
+
+        # binning
+
+        # translation to power spectrum terms
+        amTt=np.zeros(Nk)
+        nonemptybins=np.non
 
         # identify which point each box falls into
         amTt=np.zeros((Nkpar,Nkperp))
@@ -146,6 +106,15 @@ def P(T, k, Lsurvey, binto="sph"):
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
         return None
+    
+    # translation to power spectrum terms
+    amTt=np.zeros(Nk)
+    nonemptybins=np.nonzero(NmTt)
+    amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
+    # t1=time.time()
+    # print("P: binning took",t1-t0,"s")
+    P=np.array(amTt/V)
+    return [k,P]
 
 def ps_userbin(T, kbins, Lsurvey, binto="sph"):
     '''
