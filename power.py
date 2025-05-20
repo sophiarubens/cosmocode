@@ -65,10 +65,17 @@ def P(T, k, Lsurvey, binto="sph"):
         binidxs=np.digitize(kmags,k,right=False)
         binidxs_1d=np.reshape(binidxs,(Npix**3,))
         mTt_1d=    np.reshape(mTt,    (Npix**3,))
+        print("P: binidxs.shape,binidxs_1d.shape,mTt_1d.shape=",binidxs.shape,binidxs_1d.shape,mTt_1d.shape)
 
         # binning
         summTt=np.bincount(binidxs_1d,weights=mTt_1d,minlength=Nk)
         NmTt=  np.bincount(binidxs_1d,               minlength=Nk)
+        print("summTt.shape,NmTt.shape=",summTt.shape,NmTt.shape)
+
+        # binned value preprocessing
+        amTt=np.zeros(Nk)
+        nonemptybins=np.nonzero(NmTt)
+        amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
     elif (binto=="cyl"):
         # print("in the binto=='cyl' branch of P: ")
         kpar,kperp=k # this assumes my apparently-nontraditional convention of putting kpar first... fix this later, probably
@@ -81,90 +88,46 @@ def P(T, k, Lsurvey, binto="sph"):
         kperpmags=np.sqrt(KX**2+KY**2)
         parbinidxs= np.digitize(kparmags, kpar, right=False)
         perpbinidxs=np.digitize(kperpmags,kperp,right=False)
-        parbinidxs_1d= np.reshape(parbinidxs, (Npix**3,))
+        # parbinidxs_1d= np.reshape(parbinidxs, (Npix**3,))
         perpbinidxs_1d=np.reshape(perpbinidxs,(Npix**3,))
+        mTt_1d=        np.reshape(mTt,        (Npix**3,)) # move out of the branch once things are debugged bc cyl and sph ended up using the same thing
         print("parbinidxs.min(),parbinidxs.max()=",parbinidxs.min(),parbinidxs.max())
         print("perpbinidxs.min(),perpbinidxs.max()=",perpbinidxs.min(),perpbinidxs.max())
+        amTt=np.zeros((Nkpar,Nkperp))
 
         # binning
+        for i in range(Nkpar):
+            summTti=np.bincount(perpbinidxs_1d, weights=mTt_1d, minlength=Nkperp)
+            NmTti=  np.bincount(perpbinidxs_1d,                 minlength=Nkperp)
 
-        # translation to power spectrum terms
-        amTt=np.zeros(Nk)
-        nonemptybins=np.non
+            # binned value preprocessing
+            nonemptybins=np.nonzero(NmTti)
+            amTt[i,:]=summTti[nonemptybins]/NmTti[nonemptybins]
 
-        # identify which point each box falls into
-        amTt=np.zeros((Nkpar,Nkperp))
-        for i,parbinedge in enumerate(kpar):
-            for j,perpbinedge in enumerate(kperp):
-                here=np.nonzero(np.logical_and(i==parbinidxs,j==perpbinidxs)) # need to verify this generalization to 2D
-                if (len(here[0])>0):
-                    amTt[i,j]=np.mean(mTt[here])
-        kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij") # need to verify that the indexing actually does what I mean for it to do
-        P=np.array(amTt/V)
-        # print("before return: kpargrid.shape,kperpgrid.shape,P.shape,kpar.shape,kperp.shape=",kpargrid.shape,kperpgrid.shape,P.shape,kpar.shape,kperp.shape)
-        return [[kpargrid,kperpgrid],P,kpar,kperp]
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
         return None
     
-    # translation to power spectrum terms
-    amTt=np.zeros(Nk)
-    nonemptybins=np.nonzero(NmTt)
-    amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
+    # translate to power spectrum terms
     # t1=time.time()
     # print("P: binning took",t1-t0,"s")
     P=np.array(amTt/V)
     return [k,P]
 
-def ps_userbin(T, kbins, Lsurvey, binto="sph"):
-    '''
-    philosophy: 
-    * generate a power spectrum with user-provided bins, consistent with a given brightness temperature box
-    * wrapper function for the power spectrum function P(T, k, Lsurvey, Npix) 
-    * use when you need more bin customization flexibility than mere lin- or log-spacing
-
-    inputs:
-    T       = Npix x Npix x Npix data box for which you wish to create the power spectrum
-    kbins   = user-defined (if using this wrapper function, then probably custom-spaced) k-bins
-                - if binto=="sph": vector of shape (Nk,) or similar
-                - if binto=="cyl": potentially ragged array [(Nkpar,),(Nkperp,)] or similar, unpackable as kpar,kperp=kbins
-    Lsurvey = side length of the simulation cube (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
-
-    outputs:
-    one copy of P() output
-    '''  
-    Npix = T.shape[0] # assumes that you use the function as intended and pass a data cube
-    if (binto=="sph"):
-        kmax=kbins[-1]
-        kmin=kbins[0]
-        if (kmax<kmin):
-            kbins=np.flip(kbins)
-            # kmax=kbins[-1] # not actually used anywhere ... leave commented for now to make sure things behave as expected/ that I'm not missing anything before actually removing
-            # kmin=kbins[0]
-        elif (kmax==kmin):
-            assert(1==0), "constant or non-monotonic k bins -> try again with more sensible binning" # force quit ... the always false condition is just a hanger for the warning message
-        twopi=2*np.pi
-        Delta=Lsurvey/Npix
-        Nk=len(kbins)
-    elif (binto=="cyl"):
-        kpar,kperp=kbins
-        kparmin,kparmax=kpar[0],kpar[-1]
-        kperpmin,kperpmax=kperp[0],kperp[-1]
-        if (kparmax<kparmin):
-            kpar=np.flip(kbins)
-        elif (kparmax==kparmin):
-            assert(1==0), "constant or non-monotonic kpar bins -> try again with more sensible binning"
-        if (kperpmax<kperpmin):
-            kperp=np.flip(kperp)
-        elif(kperpmax==kperpmin):
-            assert(1==0), "constant or non-monotonic kperp bins -> try again with more sensible binning"
-        kbins=[kpar,kperp]
+def get_bins(Npix,Lsurvey,Nk,mode):
+    Delta=Lsurvey/Npix
+    twopi=2.*np.pi
+    kmax=twopi/Delta
+    kmin=twopi/Lsurvey
+    if (mode=="log"):
+        kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk)
+    elif (mode=="lin"):
+        kbins=np.linspace(kmin,kmax,Nk)
     else:
-        assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
+        assert(1==0), "only log and linear binning are currently supported"
+    return kbins
 
-    return P(T,kbins,Lsurvey, binto=binto)
-
-def ps_autobin(T, mode, Lsurvey, Nk):
+def ps_autobin(T, mode, Lsurvey, Nk0, Nk1=0):
     '''
     philosophy:
     * generate a spherically binned power spectrum with lin- or log-spaced bins, consistent with a given brightness temperature box
@@ -175,24 +138,21 @@ def ps_autobin(T, mode, Lsurvey, Nk):
     T       = Npix x Npix x Npix data box for which you wish to create the power spectrum
     mode    = binning mode (linear or logarithmic)
     Lsurvey = side length of the simulation cube (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
-    Nk      = number of k-bins to include in the power spectrum
+    Nk0      = number of k-bins to include in the power spectrum (if this is the only nonzero Nk, the power spectrum will be binned spherically)
+    Nk1     = number of k-bins to include along axis=1 of the power spectrum (if nonzero, the power spectrum will be binned cylindrically)
 
     outputs:
     one copy of P() output
     '''
     Npix=T.shape[0]
-    twopi=2*np.pi
-    Delta=Lsurvey/Npix
-    assert (mode=='lin' or mode=='log'), 'only linear and logarithmic auto-generated bins are currently supported'
+    k0bins=get_bins(Lsurvey,Npix,Nk0,mode)
     
-    kmax=twopi/Delta # was Npix but I don't think that makes sense anymore
-    kmin=twopi/Lsurvey
-    if (mode=='log'):
-        # kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk+1)[:-1] # bypass the poor stats for the largest k-bin
-        kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk)
+    if (Nk1>0):
+        k1bins=get_bins(Lsurvey,Npix,Nk1,mode)
+        kbins=[k0bins,k1bins]
     else:
-        # kbins=np.linspace(kmin,kmax,Nk+1)[:-1]
-        kbins=np.linspace(kmin,kmax,Nk)
+        kbins=k0bins
+    
     return P(T,kbins,Lsurvey)
 
 def flip(n,nfvox):
@@ -294,43 +254,32 @@ def ips(P,k,Lsurvey,nfvox):
     
     return rgrid,T,rmags
 
-############## TEST SPH FWD
-Lsurvey = 103
-Npix = 99
-Nk = 12
+# ############## TEST SPH FWD
+# Lsurvey = 103
+# Npix = 99
+# Nk = 12
 
-# kcustom=np.logspace(np.log10(2.*np.pi/100),np.log10(5),Nk)
-plt.figure()
-maxvals=0.0
-for i in range(10):
-    T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-    # kfloors,vals=ps_userbin(T,kcustom,Lsurvey)
-    kfloors,vals=ps_autobin(T,"log",Lsurvey,Nk)
-    plt.scatter(np.log(kfloors),vals)
-    maxvalshere=np.max(vals)
-    if (maxvalshere>maxvals):
-        maxvals=maxvalshere
-plt.xlabel("log(k*1Mpc)")
-plt.ylabel("Power (K$^2$ Mpc$^3$)")
-plt.title("Test PS calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
-plt.ylim(0,1.2*maxvals)
-plt.show()
+# plt.figure()
+# maxvals=0.0
+# for i in range(10):
+#     T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+#     kfloors,vals=ps_autobin(T,"log",Lsurvey,Nk)
+#     plt.scatter(np.log(kfloors),vals)
+#     maxvalshere=np.max(vals)
+#     if (maxvalshere>maxvals):
+#         maxvals=maxvalshere
+# plt.xlabel("log(k*1Mpc)")
+# plt.ylabel("Power (K$^2$ Mpc$^3$)")
+# plt.title("Test PS calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
+# plt.ylim(0,1.2*maxvals)
+# plt.show() #  WORKING AS OF MIDDAY ON MAY 20TH
 
 # ############## TEST CYL FWD
-# Lsurvey = 8
-# # Nkpar = 327
-# # Nkperp = 1010
-# Nkpar=12
-# Nkperp=7
+Lsurvey = 103
+Npix = 99
+Nkpar=12 # 327
+Nkperp=7 # 1010
 
-# kperp=np.linspace(0.09,3.3,Nkperp)
-# kpar=np.linspace(0.02,6.1,Nkpar)
-# deltakpar=kpar[1]-kpar[0]
-# deltakperp=kperp[1]-kperp[0]
-# largerdeltak=np.max((deltakpar,deltakperp))
-
-# Npix = 99 # bad bc things get skipped
-# kcustom=[kpar,kperp]
 # nsubrow=3
 # nsubcol=3
 # vmin=np.infty
@@ -339,7 +288,7 @@ plt.show()
 # for i in range(nsubrow):
 #     for j in range(nsubcol):
 #         T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-#         [kpargrid_returned,kperpgrid_returned],vals,kpar_returned,kperp_returned=ps_userbin(T,kcustom,Lsurvey,binto="cyl")
+#         [kpargrid_returned,kperpgrid_returned],vals,kpar_returned,kperp_returned=ps_autobin(T,"log",Lsurvey,Nk,binto="cyl")
 #         im=axs[i,j].imshow(vals,origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]])
 #         axs[i,j].set_ylabel("$k_{||}$")
 #         axs[i,j].set_xlabel("$k_\perp$")
