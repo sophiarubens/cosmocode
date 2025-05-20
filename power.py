@@ -92,7 +92,7 @@ def P(T, k, Lsurvey):
         # binning 
         summTt=  np.zeros((Nkpar,Nkperp)) # need to access once for each kpar slice, but should have shape (Nkpar,Nkperp) ... each time I access it, I'll access the correct Nkpar row, but all Nkperp columns will be updated
         NmTt=    np.zeros((Nkpar,Nkperp))
-        N_slices=np.zeros((Nkpar,Nkperp))
+        # N_slices=np.zeros((Nkpar,Nkperp))
         t0=time.time()
         for i in range(Nkpar): # iterate over kpar axis of the box (Npix loop trips)
             mTt_slice=mTt[i,:,:]
@@ -102,9 +102,12 @@ def P(T, k, Lsurvey):
             if (i==0):
                 slice_bin_counts=np.bincount(perpbinidxs_1d, minlength=Nkperp)
             NmTt[i,:]  +=slice_bin_counts
-            N_slices+=1
-        nonemptybins=np.nonzero(N_slices)
-        amTt[nonemptybins]=summTt[nonemptybins]/(NmTt[nonemptybins]*N_slices[nonemptybins]) # extra /N b/c multiple box slices might go into a given kpar bin
+            # N_slices[i,:]+=1 # was previously not indexed ... shocking that the output looked at sensible as it did, or not... that was just an unphysical normalization, I guess
+        # print("summTt,NmTt,N_slices=\n",summTt,"\n\n",NmTt,"\n\n",N_slices)
+        # nonemptybins=np.nonzero(N_slices)
+        nonemptybins=np.nonzero(NmTt)
+        amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
+        # amTt[nonemptybins]=summTt[nonemptybins]/(NmTt[nonemptybins]*N_slices[nonemptybins]) # extra /N b/c multiple box slices might go into a given kpar bin
         t1=time.time()
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
@@ -122,11 +125,18 @@ def get_bins(Npix,Lsurvey,Nk,mode):
     kmin=twopi/Lsurvey
     if (mode=="log"):
         kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk)
+        # arg=np.log(Npix)/Nk
+        # limiting_spacing=10.**(2.*arg)-10.**arg
+        limiting_spacing=Npix-10.**((1.-(1./Nk))*np.log10(Npix))
     elif (mode=="lin"):
         kbins=np.linspace(kmin,kmax,Nk)
+        limiting_spacing=twopi*(Npix-1)/(Nk*Lsurvey)
     else:
         assert(1==0), "only log and linear binning are currently supported"
-    return kbins
+    return kbins,limiting_spacing
+
+class ResolutionError(Exception):
+    pass
 
 def ps_autobin(T, mode, Lsurvey, Nk0, Nk1=0):
     '''
@@ -146,10 +156,20 @@ def ps_autobin(T, mode, Lsurvey, Nk0, Nk1=0):
     one copy of P() output
     '''
     Npix=T.shape[0]
-    k0bins=get_bins(Lsurvey,Npix,Nk0,mode)
+    deltak_box=1./Lsurvey
+
+    k0bins,limiting_spacing_0=get_bins(Lsurvey,Npix,Nk0,mode)
+    # print("deltak_box,limiting_spacing_0=",deltak_box,limiting_spacing_0)
+    if (limiting_spacing_0<deltak_box):
+        # print("about to raise resolution error for Nk0")
+        raise ResolutionError
     
     if (Nk1>0):
-        k1bins=get_bins(Lsurvey,Npix,Nk1,mode)
+        k1bins,limiting_spacing_1=get_bins(Lsurvey,Npix,Nk1,mode)
+        # print("deltak_box,limiting_spacing_1=",deltak_box,limiting_spacing_1)
+        if (limiting_spacing_1<deltak_box):
+            # print("about to raise resolution error for Nk1")
+            raise ResolutionError
         kbins=[k0bins,k1bins]
     else:
         kbins=k0bins
@@ -255,7 +275,7 @@ def ips(P,k,Lsurvey,nfvox):
 
 ############## TEST SPH FWD
 Lsurvey = 103
-Npix = 99
+Npix = 111
 Nk = 12
 
 plt.figure()
@@ -271,11 +291,13 @@ plt.xlabel("log(k*1Mpc)")
 plt.ylabel("Power (K$^2$ Mpc$^3$)")
 plt.title("Test PS calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
 plt.ylim(0,1.2*maxvals)
-plt.show() #  WORKING AS OF MIDDAY ON MAY 20TH
+plt.show() # WORKS AS OF 14:28 20.05.25
 
 # ############## TEST CYL FWD
-Nkpar=12 # 327
-Nkperp=7 # 1010
+# Nkpar=12 # 327
+# Nkperp=7 # 1010
+Nkpar=51
+Nkperp=17
 
 nsubrow=3
 nsubcol=3
