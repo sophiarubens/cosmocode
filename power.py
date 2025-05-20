@@ -15,7 +15,7 @@ call structure:
 {{}} = generally no need to call directly; called as necessary by higher-level functions
 '''
 
-def P(T, k, Lsurvey, binto="sph"):
+def P(T, k, Lsurvey):
     '''
     philosophy:
     * generate a power spectrum consistent with a brightness temperature box for which you already know the k-bins
@@ -26,21 +26,23 @@ def P(T, k, Lsurvey, binto="sph"):
     inputs:
     T       = Npix x Npix x Npix data box for which you wish to create the power spectrum
     k       = k-bins for power spectrum indexing ... designed to be provided by one of two wrapper functions: user-created (custom) bins or automatically generated (linear- or log-spaced) bins
-                 - if binto=="sph": k is assumed to have shape (Nk,) or similar (e.g. (Nk,1) or (1,Nk))
-                 - if binto=="cyl": k is assumed to be a (possibly ragged) array that can be unpacked as kpar,kperp=k where kpar has shape (Nkpar,) (or similar) and kperp has shape (Nkperp,) or similar
+                 - shape (Nk,) or similar (e.g. (Nk,1) or (1,Nk)) for spherical binning
+                 - shape [(Nkpar,),(Nkperp,)] or similar for cylindrical binning
     Lsurvey = side length of the simulation cube (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
-    binto   = how to bin the resulting power spectrum (current options: spherically (1D) or cylindrically (2D, flat-sky approximation))
 
     outputs:
     k-modes and powers of the power spectrum
          - if binto=="sph": [(Nk,),(Nk,)] object unpackable as kbins,powers
-         - if binto=="cyl": [(Nkpar,Nkperp),(Nkpar,Nkperp),(Nkpar,),(Nkperp,)] object unpackable as kgrid,powers,kparvec,kperpvec
+         - if binto=="cyl": [[(Nkpar,),(Nkperp,)],(Nkpar,Nkperp)] object unpackable as [kparvec,kperpvec],powers_on_grid **MAKE SURE THIS ENDS UP BEING TRUE**
     '''
+    print("P: len(k)=",len(k)) # I think I can now control the binto branching just using the shape of k... test
+    if len(k)==2:
+        binto="cyl"
+    else:
+        binto="sph" # sweeps pathological edge cases under the rug for now
     # helper variables
-    # print("T.shape=",T.shape)
     Npix=T.shape[0]
     Delta = Lsurvey/Npix # voxel side length
-    # print("P: Lsurvey,Npix,Delta=",Lsurvey,Npix,Delta)
     dr3 = Delta**3 # size of voxel
     twopi=2*np.pi
     V = Lsurvey**3 # volume of the simulation cube
@@ -81,28 +83,38 @@ def P(T, k, Lsurvey, binto="sph"):
         kpar,kperp=k # this assumes my apparently-nontraditional convention of putting kpar first... fix this later, probably
         Nkpar=len(kpar)
         Nkperp=len(kperp)
-        # print("Nkpar,Nkperp=",Nkpar,Nkperp)
 
         # prepare to tie the processed box values to relevant k-values (prep for binning)
-        kparmags=KZ
+        KX,KY=np.meshgrid(Kshuf,Kshuf)
         kperpmags=np.sqrt(KX**2+KY**2)
-        parbinidxs= np.digitize(kparmags, kpar, right=False)
         perpbinidxs=np.digitize(kperpmags,kperp,right=False)
-        # parbinidxs_1d= np.reshape(parbinidxs, (Npix**3,))
-        perpbinidxs_1d=np.reshape(perpbinidxs,(Npix**3,))
-        mTt_1d=        np.reshape(mTt,        (Npix**3,)) # move out of the branch once things are debugged bc cyl and sph ended up using the same thing
-        print("parbinidxs.min(),parbinidxs.max()=",parbinidxs.min(),parbinidxs.max())
-        print("perpbinidxs.min(),perpbinidxs.max()=",perpbinidxs.min(),perpbinidxs.max())
+        perpbinidxs_1d=np.reshape(perpbinidxs,(Npix**2,))
         amTt=np.zeros((Nkpar,Nkperp))
 
-        # binning
-        for i in range(Nkpar):
-            summTti=np.bincount(perpbinidxs_1d, weights=mTt_1d, minlength=Nkperp)
-            NmTti=  np.bincount(perpbinidxs_1d,                 minlength=Nkperp)
+        parbinidxs=np.digitize(Kshuf,kpar, right=False) # which kpar bin each kpar-for-the-box value falls into
+        # print("P: kpar.shape=",kpar.shape)
+        # print("P: parbinidxs.shape=",parbinidxs.shape)
 
-            # binned value preprocessing
-            nonemptybins=np.nonzero(NmTti)
-            amTt[i,:]=summTti[nonemptybins]/NmTti[nonemptybins]
+        # binning 
+        # # verify that I'm commenting on kpar variation on an axis where it is literally changing in the meshgridded instance,,
+        summTt=  np.zeros((Nkpar,Nkperp)) # need to access once for each kpar slice, but should have shape (Nkpar,Nkperp) ... each time I access it, I'll access the correct Nkpar row, but all Nkperp columns will be updated
+        NmTt=    np.zeros((Nkpar,Nkperp))
+        N_slices=np.zeros((Nkpar,Nkperp))
+        for i in range(Nkpar): # iterate over kpar axis of the box (Npix loop trips)
+            # print("i=",i)
+            mTt_slice=mTt[i,:,:]
+            mTt_slice_1d=np.reshape(mTt_slice,(Npix**2,))
+            current_bincounts=np.bincount(perpbinidxs_1d,weights=mTt_slice_1d,minlength=Nkperp)
+            # print("current_bincounts.shape, summTt.shape=",current_bincounts.shape, summTt.shape)
+            # print("current_bincounts=",current_bincounts)
+            summTt[i,:]+=current_bincounts
+            # print("summTt[i,:]=",summTt[i,:])
+            if (i==0):
+                slice_bin_counts=np.bincount(perpbinidxs_1d, minlength=Nkperp)
+            NmTt[i,:]  +=slice_bin_counts
+            N_slices+=1
+        nonemptybins=np.nonzero(N_slices)
+        amTt[nonemptybins]=summTt[nonemptybins]/(NmTt[nonemptybins]*N_slices[nonemptybins]) # extra /N b/c multiple box slices might go into a given kpar bin
 
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
@@ -280,28 +292,29 @@ Npix = 99
 Nkpar=12 # 327
 Nkperp=7 # 1010
 
-# nsubrow=3
-# nsubcol=3
-# vmin=np.infty
-# vmax=-np.infty
-# fig,axs=plt.subplots(nsubrow,nsubcol)
-# for i in range(nsubrow):
-#     for j in range(nsubcol):
-#         T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-#         [kpargrid_returned,kperpgrid_returned],vals,kpar_returned,kperp_returned=ps_autobin(T,"log",Lsurvey,Nk,binto="cyl")
-#         im=axs[i,j].imshow(vals,origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]])
-#         axs[i,j].set_ylabel("$k_{||}$")
-#         axs[i,j].set_xlabel("$k_\perp$")
-#         minval=np.min(vals)
-#         maxval=np.max(vals)
-#         if (minval<vmin):
-#             vmin=minval
-#         if (maxval>vmax):
-#             vmax=maxval
-# fig.colorbar(im,extend="both")
-# plt.suptitle("Test cyl PS calc")
-# plt.tight_layout()
-# plt.show()
+nsubrow=3
+nsubcol=3
+vmin=np.infty
+vmax=-np.infty
+fig,axs=plt.subplots(nsubrow,nsubcol)
+for i in range(nsubrow):
+    for j in range(nsubcol):
+        T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+        k,vals=ps_autobin(T,"log",Lsurvey,Nkpar,Nk1=Nkperp)
+        kpar,kperp=k
+        im=axs[i,j].imshow(vals,origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]])
+        axs[i,j].set_ylabel("$k_{||}$")
+        axs[i,j].set_xlabel("$k_\perp$")
+        minval=np.min(vals)
+        maxval=np.max(vals)
+        if (minval<vmin):
+            vmin=minval
+        if (maxval>vmax):
+            vmax=maxval
+fig.colorbar(im,extend="both")
+plt.suptitle("Test cyl PS calc")
+plt.tight_layout()
+plt.show()
 
 ############## TESTS BWD
 # Lsurvey=100 # Mpc
