@@ -1,6 +1,5 @@
 import numpy as np
 from matplotlib import pyplot as plt
-import time
 
 pi=np.pi
 twopi=2.*pi
@@ -11,9 +10,9 @@ this module helps connect ensemble-averaged power spectrum estimates and cosmolo
 2. // backwards direction: generate one realization of a brightness temperature box consistent with a known power spectrum
 
 call structure:
-1. ps_autobin -> 1. {{get_bins}}
-                 2. {{P}}
-2. ips -> {{flip}}
+1. generate_P -> 1. {{get_bins}}
+                 2. {{P_driver}}
+2. generate_box -> {{flip}}
 
 {{}} = generally no need to call directly; called as necessary by higher-level functions
 '''
@@ -21,13 +20,13 @@ call structure:
 class ResolutionError(Exception):
     pass
 
-def P(T, k, Lsurvey):
+def P_driver(T, k, Lsurvey):
     '''
     philosophy:
     * generate a power spectrum consistent with a brightness temperature box for which you already know the k-bins
     * in practice, to obtain a power spectrum you should access this routine through a wrapper:
         * ps_userbin(T, kbins, Lsurvey) -> if you need maximum binning flexibility (e.g. hybrid lin-log)
-        * ps_autobin(T, mode, Lsurvey) -> if you need simple linear or logarithmic bins
+        * generate_P(T, mode, Lsurvey) -> if you need simple linear or logarithmic bins
 
     inputs:
     T       = Npix x Npix x Npix data box for which you wish to create the power spectrum
@@ -137,11 +136,11 @@ def get_bins(Npix,Lsurvey,Nk,mode):
         assert(1==0), "only log and linear binning are currently supported"
     return kbins,limiting_spacing
 
-def ps_autobin(T, mode, Lsurvey, Nk0, Nk1=0):
+def generate_P(T, mode, Lsurvey, Nk0, Nk1=0):
     '''
     philosophy:
     * generate a spherically binned power spectrum with lin- or log-spaced bins, consistent with a given brightness temperature box
-    * wrapper function for the power spectrum function P(T, k, Lsurvey, Npix) 
+    * wrapper function for the power spectrum function P_driver(T, k, Lsurvey, Npix) 
     * I could generalize this to calculate cylindrical bins accessed by a particular instrument, but I'd need to pass a slew of survey parameters to this function, and for now it seems cleaner to precalculate them the way you want and then pass to the custom bin wrapper
 
     inputs:
@@ -152,7 +151,7 @@ def ps_autobin(T, mode, Lsurvey, Nk0, Nk1=0):
     Nk1     = number of k-bins to include along axis=1 of the power spectrum (if nonzero, the power spectrum will be binned cylindrically)
 
     outputs:
-    one copy of P() output
+    one copy of P_driver() output
     '''
     Npix=T.shape[0]
     deltak_box=twopi/Lsurvey
@@ -169,7 +168,7 @@ def ps_autobin(T, mode, Lsurvey, Nk0, Nk1=0):
     else:
         kbins=k0bins
     
-    return P(T,kbins,Lsurvey)
+    return P_driver(T,kbins,Lsurvey)
 
 def flip(n,nfvox):
     '''
@@ -191,7 +190,7 @@ def flip(n,nfvox):
         n=-n
     return n   
 
-def ips(P,k,Lsurvey,nfvox):
+def generate_box(P,k,Lsurvey,nfvox):
     '''
     philosophy:
     generate a brightness temperature box consistent with a given matter power spectrum
@@ -267,102 +266,3 @@ def ips(P,k,Lsurvey,nfvox):
     T=(np.fft.fftshift(T)/dr3).real # send origin back to center (physics coordinates) and take T out of integral-land (it's real by this point [yes, I checked], but I do need to take the extra step of saving discarding the imag part [nonzero at roughly the machine precision level, O(1e-13)] to avoid future headaches)
     
     return rgrid,T,rmags
-
-############## TEST SPH FWD
-Lsurvey = 103
-Npix = 200 # 150 looks ok for spherical (if a little stripy for cylindrical), but turning up to 200 means the lowest-k bin is always empty (for spherical and along both axes for cylindrical ... I think it's just b/c the log-spaced bins are so close together)
-Nk = 14
-
-plt.figure()
-maxvals=0.0
-for i in range(5):
-    T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-    kfloors,vals=ps_autobin(T,"lin",Lsurvey,Nk)
-    plt.scatter(kfloors,vals)
-    maxvalshere=np.max(vals)
-    if (maxvalshere>maxvals):
-        maxvals=maxvalshere
-plt.xlabel("k (1/Mpc)")
-plt.ylabel("Power (K$^2$ Mpc$^3$)")
-plt.title("Test white noise P(k) calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
-plt.ylim(0,1.2*maxvals)
-plt.savefig("wn_sph.png",dpi=500)
-plt.show() # WORKS AS OF 14:28 20.05.25
-
-# assert(1==0), "fix sph first"
-# ############## TEST CYL FWD
-Nkpar=9 # 327
-Nkperp=12 # 1010
-# Nkpar=300
-# Nkperp=100
-
-nsubrow=3
-nsubcol=3
-vmin=np.infty
-vmax=-np.infty
-fig,axs=plt.subplots(nsubrow,nsubcol,figsize=(8,10))
-for i in range(nsubrow):
-    for j in range(nsubcol):
-        T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-        k,vals=ps_autobin(T,"lin",Lsurvey,Nkpar,Nk1=Nkperp) 
-        kpar,kperp=k
-        kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
-        im=axs[i,j].pcolor(kpargrid,kperpgrid,vals)
-        axs[i,j].set_ylabel("$k_{||}$")
-        axs[i,j].set_xlabel("$k_\perp$")
-        axs[i,j].set_title("Realization {:2}".format(i*nsubrow+j))
-        axs[i,j].set_aspect("equal")
-        minval=np.min(vals)
-        maxval=np.max(vals)
-        if (minval<vmin):
-            vmin=minval
-        if (maxval>vmax):
-            vmax=maxval
-fig.colorbar(im,extend="both")
-plt.suptitle("Test white noise P(kpar,kperp) calc for Lsurvey,Npix,Nkpar,Nkperp={:4},{:4},{:4},{:4}".format(Lsurvey,Npix,Nkpar,Nkperp))
-plt.tight_layout()
-plt.savefig("wn_cyl.png",dpi=500)
-plt.show()
-
-############# TESTS BWD
-Lsurvey=100 # Mpc
-plot=True
-cases=['ps_wn_2px.txt','z5spec.txt','ps_wn_20px.txt']
-ncases=len(cases)
-if plot:
-    fig,axs=plt.subplots(2*ncases,3, figsize=(15,10)) # (3 power specs * 2 voxel schemes per power spec) = 6 generated boxes to look at slices of
-t0=time.time()
-for k,case in enumerate(cases):
-    kfl,P=np.genfromtxt(case,dtype='complex').T
-    Npix=len(P)
-
-    # n_field_voxel_cases=[4,3]
-    n_field_voxel_cases=[21,22]
-    # n_field_voxel_cases=[44,45] # 15 s
-    # n_field_voxel_cases=[65,66] # 24 s
-    # n_field_voxel_cases=[88,89] # 36 s
-    # n_field_voxel_cases=[99,100] # 97 s
-    for j,n_field_voxels in enumerate(n_field_voxel_cases):
-        tests=[0,n_field_voxels//2,n_field_voxels-3]
-        rgen,Tgen,rmags=ips(P,kfl,Lsurvey,n_field_voxels)
-        print('done with inversion for k,j=',k,j)
-        if plot:
-            for i,test in enumerate(tests):
-
-                if len(cases)>1:
-                    im=axs[2*k+j,i].imshow(Tgen[:,:,test])
-                    fig.colorbar(im)
-                    axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
-                else:
-                    im=axs[2*k+j,i].imshow(Tgen[:,:,test])
-                    fig.colorbar(im)
-                    axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
-
-if plot:
-    plt.suptitle('brightness temp box slices generated from inverting a PS I calculated')
-    plt.tight_layout()
-    fig.savefig('ips_tests.png')
-    t1=time.time()
-    plt.show()
-
-print('test suite took',t1-t0,'s')
