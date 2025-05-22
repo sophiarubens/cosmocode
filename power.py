@@ -38,6 +38,7 @@ def P(T, k, Lsurvey):
          - if binto=="sph": [(Nk,),(Nk,)] object unpackable as kbins,powers
          - if binto=="cyl": [[(Nkpar,),(Nkperp,)],(Nkpar,Nkperp)] object unpackable as [kparvec,kperpvec],powers_on_grid **MAKE SURE THIS ENDS UP BEING TRUE**
     '''
+    # print("k=",k)
     if len(k)==2:
         binto="cyl"
     else:
@@ -66,33 +67,21 @@ def P(T, k, Lsurvey):
 
         # prepare to tie the processed box values to relevant k-values (prep for binning)
         kmags=np.sqrt(KX**2+KY**2+KZ**2) # BINNING SPHERICALLY literally just the Fourier duals to the config space points ... not the binned k-values yet
-        # print("kmags[Npix//2,Npix//2,Npix//2],np.argmin(kmags),kmags.min(),twopi/Lsurvey=",kmags[Npix//2,Npix//2,Npix//2],np.argmin(kmags),kmags.min(),twopi/Lsurvey)
-        # assert(1==0), "binning scrutiny"
         binidxs=np.digitize(kmags,k,right=False)
-        # print("k.shape=",k.shape)
-        # print("binidxs.min(),binidxs.max()=",binidxs.min(),binidxs.max())
         binidxs_1d=np.reshape(binidxs,(Npix**3,))
         mTt_1d=    np.reshape(mTt,    (Npix**3,))
-        # print("kmags[binidxs[0]]=",kmags[binidxs[0]])
-        # print("kmags[binidxs[-1]]=",kmags[binidxs[-1]]) # check if it is safe to lump what lives here w/ the adjacent bin ... 
-        # print("sph: kmags.shape,binidxs_1d.shape=",kmags.shape,binidxs_1d.shape)
 
         # binning
         t0=time.time()
         summTt=np.bincount(binidxs_1d,weights=mTt_1d,minlength=Nk)
-        NmTt=  np.bincount(binidxs_1d,               minlength=Nk) # FOUND THE PROBLEM: SOMEHOW THERE'S AN EXTRA VALUE IN HERE, SO THINGS ARE ENDING UP WITH LENGTH NK+1 INSTEAD OF NK
-        # print("summTt=",summTt)
-        # print("NmTt=",NmTt)
-        if (len(summTt)==(Nk+1)): # if the numerics conspire to separate out the kbox=0 term into its own special case of "below the 0th bin floor"
-            # print("pruning kbox=0 artificial bin")
+        NmTt=  np.bincount(binidxs_1d,               minlength=Nk)
+        if (len(summTt)==(Nk+1)): # prune central voxel "below the floor of the lowest bin" extension bin
             summTt=summTt[1:]
             NmTt=  NmTt[1:]
 
         # binned value preprocessing
         amTt=np.zeros(Nk)
         nonemptybins=np.nonzero(NmTt)
-        # print("sph: summTt.shape,NmTt.shape,len(nonemptybins[0])=",summTt.shape,NmTt.shape,len(nonemptybins[0]))
-        # print("sph: min(nonemptybins),max(nonemptybins)=",min(nonemptybins),max(nonemptybins))
         amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
         t1=time.time()
     elif (binto=="cyl"):
@@ -106,50 +95,37 @@ def P(T, k, Lsurvey):
         perpbinidxs_slice=    np.digitize(kperpmags_slice,kperp,right=False)
         perpbinidxs_slice_1d= np.reshape(perpbinidxs_slice,(Npix**2,))
         parbinidxs_column=np.digitize(Kshuf,kpar, right=False) # which kpar bin each kpar-for-the-box value falls into
-        # print("cyl: kperpmags_slice.shape,perpbinidxs_slice_1d.shape,parbinidxs_column.shape=",kperpmags_slice.shape,perpbinidxs_slice_1d.shape,parbinidxs_column.shape)
 
         # binning 
         summTt=  np.zeros((Nkpar,Nkperp)) # need to access once for each kparBOX slice, but should have shape (NkparBIN,NkperpBIN) ... each time I access it, I'll access the correct NkparBIN row, but all NkperpBIN columns will be updated
         NmTt=    np.zeros((Nkpar,Nkperp))
-        N_slices_per_par_bin=np.zeros((Nkpar,Nkperp)) # to store how many box slices go into a given kpar bin
+        # N_slices_per_par_bin=np.zeros((Nkpar,Nkperp)) # to store how many box slices go into a given kpar bin
         t0=time.time()
         for i in range(Npix): # iterate over kpar axis of the box to capture all LoS slices
-            ##
             if (i==0):
                 slice_bin_counts= np.bincount(perpbinidxs_slice_1d, minlength=Nkperp)
-                # print("just evaluated the undoctored version of slice_bin_counts")
-                if (len(slice_bin_counts)==(Nkperp+1)):
-                    # print("pruning slice_bin_counts artificial bin")
+                if (len(slice_bin_counts)==(Nkperp+1)): # prune central voxel "below the floor of the lowest bin" extension bin
                     slice_bin_counts=slice_bin_counts[1:]
-            ##
-            mTt_slice=    mTt[:,:,i]
-            mTt_slice_1d= np.reshape(mTt_slice,(Npix**2,))
-            current_binsums=          np.bincount(perpbinidxs_slice_1d,weights=mTt_slice_1d,minlength=Nkperp)
-            if (len(current_binsums)==(Nkperp+1)):
-                # print("pruning current_binsums artificial bin")
+            mTt_slice=       mTt[:,:,i]
+            mTt_slice_1d=    np.reshape(mTt_slice,(Npix**2,))
+            current_binsums= np.bincount(perpbinidxs_slice_1d,weights=mTt_slice_1d,minlength=Nkperp)
+            if (len(current_binsums)==(Nkperp+1)): # prune central voxel "below the floor of the lowest bin" extension bin
                 current_binsums=current_binsums[1:]
-            current_par_bin=            parbinidxs_column[i] # this is where things are getting oversubscribed?? (it's finding bins one past the end?)
-            # print("cyl: i,current_binsums.shape,current_par_bin=",i,current_binsums.shape,current_par_bin)
+            current_par_bin= parbinidxs_column[i] # this is where things are getting oversubscribed?? (it's finding bins one past the end?)
             if (current_par_bin!=0):
                 current_par_bin-=1
-                ##
                 summTt[current_par_bin,:]+= current_binsums
-                
                 NmTt[current_par_bin,:]+= slice_bin_counts
-                N_slices_per_par_bin[current_par_bin,:]+= 1
-                ##
+                # N_slices_per_par_bin[current_par_bin,:]+= 1
         nonemptybins=np.nonzero(NmTt)
-        # print("cyl: len(nonemptybins[0])=",len(nonemptybins[0]))
         amTt=np.zeros((Nkpar,Nkperp))
-        # print("cyl: nonemptybins[0].min(),nonemptybins[0].max(),nonemptybins[1].min(),nonemptybins[1].max()=",min(nonemptybins[0]),max(nonemptybins[0]),min(nonemptybins[1]),max(nonemptybins[1]))
-        amTt[nonemptybins]=summTt[nonemptybins]/(NmTt[nonemptybins]*N_slices_per_par_bin[nonemptybins])
+        amTt[nonemptybins]=summTt[nonemptybins]/(NmTt[nonemptybins])
         t1=time.time()
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
         return None
     
     # translate to power spectrum terms
-    # print("P: binning and binned value preprocessing took",t1-t0,"s")
     P=np.array(amTt/V)
     return [k,P]
 
@@ -305,24 +281,26 @@ def ips(P,k,Lsurvey,nfvox):
 
 ############## TEST SPH FWD
 Lsurvey = 103
-Npix = 200 # 150 looks ok for spherical (if a little stripy for cylindrical), but turning up to 200 means the lowest-k bin is always empty (for spherical and along both axes for cylindrical)
-Nk = 12
+Npix = 200 # 150 looks ok for spherical (if a little stripy for cylindrical), but turning up to 200 means the lowest-k bin is always empty (for spherical and along both axes for cylindrical ... I think it's just b/c the log-spaced bins are so close together)
+Nk = 14
 
 plt.figure()
 maxvals=0.0
 for i in range(5):
     T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-    kfloors,vals=ps_autobin(T,"log",Lsurvey,Nk)
-    plt.scatter(np.log(kfloors),vals)
+    kfloors,vals=ps_autobin(T,"lin",Lsurvey,Nk)
+    plt.scatter(kfloors,vals)
     maxvalshere=np.max(vals)
     if (maxvalshere>maxvals):
         maxvals=maxvalshere
-plt.xlabel("log(k*1Mpc)")
+    # break # just look at one iteration for now to iron out the empty bin issue
+plt.xlabel("k (1/Mpc)")
 plt.ylabel("Power (K$^2$ Mpc$^3$)")
 plt.title("Test PS calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
 plt.ylim(0,1.2*maxvals)
 plt.show() # WORKS AS OF 14:28 20.05.25
 
+# assert(1==0), "fix sph first"
 # ############## TEST CYL FWD
 Nkpar=9 # 327
 Nkperp=12 # 1010
@@ -337,9 +315,12 @@ fig,axs=plt.subplots(nsubrow,nsubcol)
 for i in range(nsubrow):
     for j in range(nsubcol):
         T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-        k,vals=ps_autobin(T,"log",Lsurvey,Nkpar,Nk1=Nkperp)
+        # k,vals=ps_autobin(T,"log",Lsurvey,Nkpar,Nk1=Nkperp) # lowest bin is tiny -> has bad stats
+        k,vals=ps_autobin(T,"lin",Lsurvey,Nkpar,Nk1=Nkperp) # suspiciously regular in its stripiness
         kpar,kperp=k
-        im=axs[i,j].imshow(vals,origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]])
+        kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
+        # im=axs[i,j].imshow(vals,origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]])
+        im=axs[i,j].pcolor(kpargrid,kperpgrid,vals)
         axs[i,j].set_ylabel("$k_{||}$")
         axs[i,j].set_xlabel("$k_\perp$")
         minval=np.min(vals)
