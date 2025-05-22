@@ -11,12 +11,15 @@ this module helps connect ensemble-averaged power spectrum estimates and cosmolo
 2. // backwards direction: generate one realization of a brightness temperature box consistent with a known power spectrum
 
 call structure:
-1. ps_userbin
-   ps_autobin -> {{P}}
+1. ps_autobin -> 1. {{get_bins}}
+                 2. {{P}}
 2. ips -> {{flip}}
 
 {{}} = generally no need to call directly; called as necessary by higher-level functions
 '''
+
+class ResolutionError(Exception):
+    pass
 
 def P(T, k, Lsurvey):
     '''
@@ -134,9 +137,6 @@ def get_bins(Npix,Lsurvey,Nk,mode):
         assert(1==0), "only log and linear binning are currently supported"
     return kbins,limiting_spacing
 
-class ResolutionError(Exception):
-    pass
-
 def ps_autobin(T, mode, Lsurvey, Nk0, Nk1=0):
     '''
     philosophy:
@@ -223,7 +223,7 @@ def ips(P,k,Lsurvey,nfvox):
     
     # take appropriate draws from normal distributions to populate T-tilde
     sigmas=np.flip(np.sqrt(V*P/2)) # has Npix elements ... each element describes the T-tilde values in that k-bin ... flip to anticipate the fact that I'm working in r-space but calculated this vector in k-space
-    sigmas=np.reshape(sigmas,(sigmas.shape[1],)) # transition from the (1,npts) of the CAMB PS to (npts,) ... I think this became a problem in May because I got rid of some hard-coded reshaping in get_mps
+    sigmas=np.reshape(sigmas,(sigmas.shape[0],)) # transition from the (1,npts) of the CAMB PS to (npts,) ... I think this became a problem in May because I got rid of some hard-coded reshaping in get_mps
     Ttre=np.zeros((nfvox,nfvox,nfvox))
     Ttim=np.zeros((nfvox,nfvox,nfvox))
     bin_indices=np.digitize(rgrid,r,right=False) # must pass x,bins; rgrid is the big box and r has floors
@@ -282,7 +282,6 @@ for i in range(5):
     maxvalshere=np.max(vals)
     if (maxvalshere>maxvals):
         maxvals=maxvalshere
-    # break # just look at one iteration for now to iron out the empty bin issue
 plt.xlabel("k (1/Mpc)")
 plt.ylabel("Power (K$^2$ Mpc$^3$)")
 plt.title("Test white noise P(k) calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
@@ -325,45 +324,45 @@ plt.tight_layout()
 plt.savefig("wn_cyl.png",dpi=500)
 plt.show()
 
-############## TESTS BWD
-# Lsurvey=100 # Mpc
-# plot=True
-# cases=['ps_wn_2px.txt','z5spec.txt','ps_wn_20px.txt']
-# ncases=len(cases)
-# if plot:
-#     fig,axs=plt.subplots(2*ncases,3, figsize=(15,10)) # (3 power specs * 2 voxel schemes per power spec) = 6 generated boxes to look at slices of
-# t0=time.time()
-# for k,case in enumerate(cases):
-#     kfl,P=np.genfromtxt(case,dtype='complex').T
-#     Npix=len(P)
+############# TESTS BWD
+Lsurvey=100 # Mpc
+plot=True
+cases=['ps_wn_2px.txt','z5spec.txt','ps_wn_20px.txt']
+ncases=len(cases)
+if plot:
+    fig,axs=plt.subplots(2*ncases,3, figsize=(15,10)) # (3 power specs * 2 voxel schemes per power spec) = 6 generated boxes to look at slices of
+t0=time.time()
+for k,case in enumerate(cases):
+    kfl,P=np.genfromtxt(case,dtype='complex').T
+    Npix=len(P)
 
-#     # n_field_voxel_cases=[4,3]
-#     n_field_voxel_cases=[21,22]
-#     # n_field_voxel_cases=[44,45] # 15 s
-#     # n_field_voxel_cases=[65,66] # 24 s
-#     # n_field_voxel_cases=[88,89] # 36 s
-#     # n_field_voxel_cases=[99,100] # 97 s
-#     for j,n_field_voxels in enumerate(n_field_voxel_cases):
-#         tests=[0,n_field_voxels//2,n_field_voxels-3]
-#         rgen,Tgen=ips(P,kfl,Lsurvey,n_field_voxels)
-#         print('done with inversion for k,j=',k,j)
-#         if plot:
-#             for i,test in enumerate(tests):
+    # n_field_voxel_cases=[4,3]
+    n_field_voxel_cases=[21,22]
+    # n_field_voxel_cases=[44,45] # 15 s
+    # n_field_voxel_cases=[65,66] # 24 s
+    # n_field_voxel_cases=[88,89] # 36 s
+    # n_field_voxel_cases=[99,100] # 97 s
+    for j,n_field_voxels in enumerate(n_field_voxel_cases):
+        tests=[0,n_field_voxels//2,n_field_voxels-3]
+        rgen,Tgen,rmags=ips(P,kfl,Lsurvey,n_field_voxels)
+        print('done with inversion for k,j=',k,j)
+        if plot:
+            for i,test in enumerate(tests):
 
-#                 if len(cases)>1:
-#                     im=axs[2*k+j,i].imshow(Tgen[:,:,test])
-#                     fig.colorbar(im)
-#                     axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
-#                 else:
-#                     im=axs[2*k+j,i].imshow(Tgen[:,:,test])
-#                     fig.colorbar(im)
-#                     axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
+                if len(cases)>1:
+                    im=axs[2*k+j,i].imshow(Tgen[:,:,test])
+                    fig.colorbar(im)
+                    axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
+                else:
+                    im=axs[2*k+j,i].imshow(Tgen[:,:,test])
+                    fig.colorbar(im)
+                    axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
 
-# if plot:
-#     plt.suptitle('brightness temp box slices generated from inverting a PS I calculated')
-#     plt.tight_layout()
-#     plt.show()
-#     fig.savefig('ips_tests.png')
-#     t1=time.time()
+if plot:
+    plt.suptitle('brightness temp box slices generated from inverting a PS I calculated')
+    plt.tight_layout()
+    fig.savefig('ips_tests.png')
+    t1=time.time()
+    plt.show()
 
-# print('test suite took',t1-t0,'s')
+print('test suite took',t1-t0,'s')
