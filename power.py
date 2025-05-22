@@ -66,18 +66,33 @@ def P(T, k, Lsurvey):
 
         # prepare to tie the processed box values to relevant k-values (prep for binning)
         kmags=np.sqrt(KX**2+KY**2+KZ**2) # BINNING SPHERICALLY literally just the Fourier duals to the config space points ... not the binned k-values yet
+        # print("kmags[Npix//2,Npix//2,Npix//2],np.argmin(kmags),kmags.min(),twopi/Lsurvey=",kmags[Npix//2,Npix//2,Npix//2],np.argmin(kmags),kmags.min(),twopi/Lsurvey)
+        # assert(1==0), "binning scrutiny"
         binidxs=np.digitize(kmags,k,right=False)
+        # print("k.shape=",k.shape)
+        # print("binidxs.min(),binidxs.max()=",binidxs.min(),binidxs.max())
         binidxs_1d=np.reshape(binidxs,(Npix**3,))
         mTt_1d=    np.reshape(mTt,    (Npix**3,))
+        # print("kmags[binidxs[0]]=",kmags[binidxs[0]])
+        # print("kmags[binidxs[-1]]=",kmags[binidxs[-1]]) # check if it is safe to lump what lives here w/ the adjacent bin ... 
+        # print("sph: kmags.shape,binidxs_1d.shape=",kmags.shape,binidxs_1d.shape)
 
         # binning
         t0=time.time()
         summTt=np.bincount(binidxs_1d,weights=mTt_1d,minlength=Nk)
-        NmTt=  np.bincount(binidxs_1d,               minlength=Nk)
+        NmTt=  np.bincount(binidxs_1d,               minlength=Nk) # FOUND THE PROBLEM: SOMEHOW THERE'S AN EXTRA VALUE IN HERE, SO THINGS ARE ENDING UP WITH LENGTH NK+1 INSTEAD OF NK
+        # print("summTt=",summTt)
+        # print("NmTt=",NmTt)
+        if (len(summTt)==(Nk+1)): # if the numerics conspire to separate out the kbox=0 term into its own special case of "below the 0th bin floor"
+            print("pruning kbox=0 artificial bin")
+            summTt=summTt[1:]
+            NmTt=  NmTt[1:]
 
         # binned value preprocessing
         amTt=np.zeros(Nk)
         nonemptybins=np.nonzero(NmTt)
+        # print("sph: summTt.shape,NmTt.shape,len(nonemptybins[0])=",summTt.shape,NmTt.shape,len(nonemptybins[0]))
+        # print("sph: min(nonemptybins),max(nonemptybins)=",min(nonemptybins),max(nonemptybins))
         amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
         t1=time.time()
     elif (binto=="cyl"):
@@ -86,21 +101,12 @@ def P(T, k, Lsurvey):
         Nkperp=len(kperp)
 
         # prepare to tie the processed box values to relevant k-values (prep for binning)
-        kperpmags=np.sqrt(KX**2+KY**2) # if I've managed to build this the way I meant to, kperpmag slices [:,:,i] with different i should match
-        # print("kperpmags check:")
-        # print("kperpmags[:,:,0]=",kperpmags[:,:,0])
-        # print("kperpmags[:,:,2]=",kperpmags[:,:,2])
-        # print("kperpmags[:,:,-4]=",kperpmags[:,:,-4])
-        # print("np.all(kperpmags[:,:,0]==kperpmags[:,:,2]),np.all(kperpmags[:,:,2]==kperpmags[:,:,-4])=\n",
-        #        np.all(kperpmags[:,:,0]==kperpmags[:,:,2]),np.all(kperpmags[:,:,2]==kperpmags[:,:,-4]))
+        kperpmags=np.sqrt(KX**2+KY**2) # if I've managed to build this the way I meant to, kperpmag slices [:,:,i] with different i should match [[here, I'm jumping on the "kpar is like z" bandwagon,, probably fix and avoid mixing conventions at some point]]
         kperpmags_slice=      kperpmags[:,:,0] # take a representative slice, now that I've rigorously checked that things vary the way I want
         perpbinidxs_slice=    np.digitize(kperpmags_slice,kperp,right=False)
         perpbinidxs_slice_1d= np.reshape(perpbinidxs_slice,(Npix**2,))
-        # print("perpbinidxs_slice_1d=",perpbinidxs_slice_1d)
-        amTt=np.zeros((Nkpar,Nkperp))
         parbinidxs_column=np.digitize(Kshuf,kpar, right=False) # which kpar bin each kpar-for-the-box value falls into
-        # print("parbinidxs_column=",kpar,parbinidxs_column) # should look a little snake-y?!
-        # assert(1==0), "cylindrical binning quagmire check"
+        print("cyl: kperpmags_slice.shape,perpbinidxs_slice_1d.shape,parbinidxs_column.shape=",kperpmags_slice.shape,perpbinidxs_slice_1d.shape,parbinidxs_column.shape)
 
         # binning 
         summTt=  np.zeros((Nkpar,Nkperp)) # need to access once for each kparBOX slice, but should have shape (NkparBIN,NkperpBIN) ... each time I access it, I'll access the correct NkparBIN row, but all NkperpBIN columns will be updated
@@ -108,18 +114,20 @@ def P(T, k, Lsurvey):
         N_slices_per_par_bin=np.zeros((Nkpar,Nkperp)) # to store how many box slices go into a given kpar bin
         t0=time.time()
         for i in range(Npix): # iterate over kpar axis of the box to capture all LoS slices
-            # print("i=",i)
             mTt_slice=    mTt[:,:,i]
             mTt_slice_1d= np.reshape(mTt_slice,(Npix**2,))
-            # print("mTt_slice_1d=",mTt_slice_1d)
             current_bincounts=          np.bincount(perpbinidxs_slice_1d,weights=mTt_slice_1d,minlength=Nkperp)
-            current_par_bin=            parbinidxs_column[i]
+            current_par_bin=            parbinidxs_column[i] # this is where things are getting oversubscribed?? (it's finding bins one past the end?)
             summTt[current_par_bin,:]+= current_bincounts
             if (i==0):
                 slice_bin_counts= np.bincount(perpbinidxs_slice_1d, minlength=Nkperp)
+                print("cyl: i,current_bincounts.shape,current_par_bin=",i,current_bincounts.shape,current_par_bin)
             NmTt[current_par_bin,:]+= slice_bin_counts
             N_slices_per_par_bin[current_par_bin,:]+= 1
         nonemptybins=np.nonzero(NmTt)
+        print("cyl: len(nonemptybins[0])=",len(nonemptybins[0]))
+        amTt=np.zeros((Nkpar,Nkperp))
+        print("cyl: nonemptybins[0].min(),nonemptybins[0].max(),nonemptybins[1].min(),nonemptybins[1].max()=",min(nonemptybins[0]),max(nonemptybins[0]),min(nonemptybins[1]),max(nonemptybins[1]))
         amTt[nonemptybins]=summTt[nonemptybins]/(NmTt[nonemptybins]*N_slices_per_par_bin[nonemptybins])
         t1=time.time()
     else:
@@ -283,7 +291,7 @@ def ips(P,k,Lsurvey,nfvox):
 
 ############## TEST SPH FWD
 Lsurvey = 103
-Npix = 111 # works, but things go bad when I try to turn it up to 200 ... figure out the indexing issue
+Npix = 150 # 111 works, but things go bad when I try to turn it up to 150 ... figure out the indexing issue
 Nk = 12
 
 plt.figure()
