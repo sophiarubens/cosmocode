@@ -31,101 +31,90 @@ def P(T, k, Lsurvey):
     k       = k-bins for power spectrum indexing ... designed to be provided by one of two wrapper functions: user-created (custom) bins or automatically generated (linear- or log-spaced) bins
                  - shape (Nk,) or similar (e.g. (Nk,1) or (1,Nk)) for spherical binning
                  - shape [(Nkpar,),(Nkperp,)] or similar for cylindrical binning
-    Lsurvey = side length of the simulation cube (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
+    Lsurvey = side length of the cosmological box (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
 
     outputs:
     k-modes and powers of the power spectrum
          - if binto=="sph": [(Nk,),(Nk,)] object unpackable as kbins,powers
          - if binto=="cyl": [[(Nkpar,),(Nkperp,)],(Nkpar,Nkperp)] object unpackable as [kparvec,kperpvec],powers_on_grid **MAKE SURE THIS ENDS UP BEING TRUE**
     '''
-    # print("k=",k)
-    if len(k)==2:
-        binto="cyl"
-    else:
-        binto="sph" # sweeps pathological edge cases under the rug for now
     # helper variables
-    Npix=T.shape[0]
+    lenk=len(k)
+    if lenk==2:
+        binto="cyl"
+    else: # kind of hackily relying on the properties of list-stored ragged arrays to let the "if" catch cases that need to be cyl and then shuffle everything else along to spherical ... not very robust against pathological calls
+        binto="sph"
+    Npix  =T.shape[0]
     Delta = Lsurvey/Npix # voxel side length
-    dr3 = Delta**3 # size of voxel
-    twopi=2*np.pi
-    V = Lsurvey**3 # volume of the simulation cube
+    dr3   = Delta**3     # voxel volume
+    V     = Lsurvey**3   # volume of the cosmo box
     
     # process the box values
-    Ts = np.fft.ifftshift(T)*dr3 # T-ishifted (np wants a corner origin; ifftshift takes you there)
-    Tts = np.fft.fftn(Ts) # T-tilde
-    Tt = np.fft.fftshift(Tts) # shift back to physics land
-    mTt = Tt*np.conjugate(Tt) # mod-squared of Tt
-    mTt = mTt.real # I checked, and there aren't even any machine precision issues in the imag part
+    Ts  = np.fft.ifftshift(T)*dr3 # T-ishifted (np wants a corner origin; ifftshift takes you there)
+    Tts = np.fft.fftn(Ts)         # T-tilde
+    Tt  = np.fft.fftshift(Tts)    # shift back to physics land
+    mTt = Tt*np.conjugate(Tt)     # mod-squared of Tt
+    mTt = mTt.real                # I checked, and there aren't even any machine precision issues in the imag part
 
     # establish Cartesian Fourier duals to box coordinates
-    Kshuf=twopi*np.fft.fftshift(np.fft.fftfreq(Npix,d=Delta)) # fftshift doesn't care whether you're dealing with correlations, brightness temps, or config/Fourier space coordinates ... the math is the same!
-    KX,KY,KZ=np.meshgrid(Kshuf,Kshuf,Kshuf,indexing="ij") # grid of Fourier-space points at which I have box values
-    # Kunshuf=twopi*np.fft.fftfreq(2*Npix,d=Delta)[:Npix]
+    k_vec_for_box= twopi*np.fft.fftshift(np.fft.fftfreq(Npix,d=Delta))
+    kx_box_grid,ky_box_grid,kz_box_grid=      np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier duals to config space coords (ofc !not !yet !binned)
 
     if (binto=="sph"):
-        Nk=len(k) # number of k-modes to put in the power spectrum
+        Nk=lenk # number of k-modes to put in the power spectrum
 
-        # prepare to tie the processed box values to relevant k-values (prep for binning)
-        kmags=np.sqrt(KX**2+KY**2+KZ**2) # BINNING SPHERICALLY literally just the Fourier duals to the config space points ... not the binned k-values yet
-        binidxs=np.digitize(kmags,k,right=False)
-        binidxs_1d=np.reshape(binidxs,(Npix**3,))
-        mTt_1d=    np.reshape(mTt,    (Npix**3,))
+        # prepare to tie the processed box values to relevant k-values
+        k_box=          np.sqrt(kx_box_grid**2+ky_box_grid**2+kz_box_grid**2) # scalar k for each voxel
+        bin_indices=    np.digitize(k_box,k,right=False)                      # box with entries indexing which bin each voxel belongs in
+        bin_indices_1d= np.reshape(bin_indices,(Npix**3,))                    # to bin, I use np.bincount, which requires 1D input
+        mTt_1d=         np.reshape(mTt,    (Npix**3,))                        # ^ same preprocessing
 
         # binning
-        t0=time.time()
-        summTt=np.bincount(binidxs_1d,weights=mTt_1d,minlength=Nk)
-        NmTt=  np.bincount(binidxs_1d,               minlength=Nk)
+        summTt=np.bincount(bin_indices_1d,weights=mTt_1d,minlength=Nk) # for the ensemble average: sum    of mTt values in each bin
+        NmTt=  np.bincount(bin_indices_1d,               minlength=Nk) # for the ensemble average: number of mTt values in each bin
         if (len(summTt)==(Nk+1)): # prune central voxel "below the floor of the lowest bin" extension bin
             summTt=summTt[1:]
             NmTt=  NmTt[1:]
+        amTt=np.zeros(Nk) # template to store the ensemble average: to avoid division-by-zero errors, I use an empty-bin mask for the ensemble average sum/count division to leave zero power (instead of ending up with nan power) in empty bins
 
-        # binned value preprocessing
-        amTt=np.zeros(Nk)
-        nonemptybins=np.nonzero(NmTt)
-        amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
-        t1=time.time()
     elif (binto=="cyl"):
         kpar,kperp=k # this assumes my apparently-nontraditional convention of putting kpar first... fix this later, probably
         Nkpar=len(kpar)
         Nkperp=len(kperp)
 
-        # prepare to tie the processed box values to relevant k-values (prep for binning)
-        kperpmags=np.sqrt(KX**2+KY**2) # if I've managed to build this the way I meant to, kperpmag slices [:,:,i] with different i should match [[here, I'm jumping on the "kpar is like z" bandwagon,, probably fix and avoid mixing conventions at some point]]
-        kperpmags_slice=      kperpmags[:,:,0] # take a representative slice, now that I've rigorously checked that things vary the way I want
-        perpbinidxs_slice=    np.digitize(kperpmags_slice,kperp,right=False)
-        perpbinidxs_slice_1d= np.reshape(perpbinidxs_slice,(Npix**2,))
-        parbinidxs_column=np.digitize(Kshuf,kpar, right=False) # which kpar bin each kpar-for-the-box value falls into
+        # prepare to tie the processed box values to relevant k-values
+        kperpmags=                np.sqrt(kx_box_grid**2+ky_box_grid**2)         # here, I'm jumping on the "kpar is like z" bandwagon,, probably fix and avoid mixing conventions at some point
+        kperpmags_slice=          kperpmags[:,:,0]                               # take a representative slice, now that I've rigorously checked that things vary the way I want
+        perpbin_indices_slice=    np.digitize(kperpmags_slice,kperp,right=False) # each representative slice has the same bull's-eye pattern of bin indices... no need to calculate for each slice, not to mention how it would be overkill to reshape the whole box down to 1D and digitize and bincount that
+        perpbin_indices_slice_1d= np.reshape(perpbin_indices_slice,(Npix**2,))   # even though I've chosen a representative slice, I still need to flatten down to 1D in anticipation of bincounting
+        parbin_indices_column=    np.digitize(k_vec_for_box,kpar, right=False)   # vector with entries indexing which kpar bin each voxel belongs in (pending slight postprocessing in the loop) ... just as I could look at a representative slice for the kperp direction, I can look at a representative chunk for the LoS direction (though, naturally, in this case it is a "column") ... no need to reshape, b/c (1). it's already 1D and (2). I don't have an explicit bincount call along this axis because I iterate over kpar slices
 
         # binning 
-        summTt=  np.zeros((Nkpar,Nkperp)) # need to access once for each kparBOX slice, but should have shape (NkparBIN,NkperpBIN) ... each time I access it, I'll access the correct NkparBIN row, but all NkperpBIN columns will be updated
-        NmTt=    np.zeros((Nkpar,Nkperp))
-        # N_slices_per_par_bin=np.zeros((Nkpar,Nkperp)) # to store how many box slices go into a given kpar bin
-        t0=time.time()
-        for i in range(Npix): # iterate over kpar axis of the box to capture all LoS slices
-            if (i==0):
-                slice_bin_counts= np.bincount(perpbinidxs_slice_1d, minlength=Nkperp)
+        summTt= np.zeros((Nkpar,Nkperp)) # for the ensemble average: sum    of mTt values in each bin  ... each time I access it, I'll access the kparBIN row of interest, but update all NkperpBIN columns
+        NmTt=   np.zeros((Nkpar,Nkperp)) # for the ensemble average: number of mTt values in each bin
+        for i in range(Npix): # iterate over the kpar axis of the box to capture all LoS slices
+            if (i==0): # stats of the kperp "bull's eye" slice
+                slice_bin_counts= np.bincount(perpbin_indices_slice_1d, minlength=Nkperp) # each slice's update to the denominator of the ensemble average
                 if (len(slice_bin_counts)==(Nkperp+1)): # prune central voxel "below the floor of the lowest bin" extension bin
                     slice_bin_counts=slice_bin_counts[1:]
-            mTt_slice=       mTt[:,:,i]
-            mTt_slice_1d=    np.reshape(mTt_slice,(Npix**2,))
-            current_binsums= np.bincount(perpbinidxs_slice_1d,weights=mTt_slice_1d,minlength=Nkperp)
+            mTt_slice=       mTt[:,:,i]                                                                  # take the slice of interest of the preprocessed box values
+            mTt_slice_1d=    np.reshape(mTt_slice,(Npix**2,))                                            # reshape to 1D for bincount compatibility
+            current_binsums= np.bincount(perpbin_indices_slice_1d,weights=mTt_slice_1d,minlength=Nkperp) # this slice's update to the numerator of the ensemble average
             if (len(current_binsums)==(Nkperp+1)): # prune central voxel "below the floor of the lowest bin" extension bin
                 current_binsums=current_binsums[1:]
-            current_par_bin= parbinidxs_column[i] # this is where things are getting oversubscribed?? (it's finding bins one past the end?)
-            if (current_par_bin!=0):
-                current_par_bin-=1
-                summTt[current_par_bin,:]+= current_binsums
-                NmTt[current_par_bin,:]+= slice_bin_counts
-                # N_slices_per_par_bin[current_par_bin,:]+= 1
-        nonemptybins=np.nonzero(NmTt)
-        amTt=np.zeros((Nkpar,Nkperp))
-        amTt[nonemptybins]=summTt[nonemptybins]/(NmTt[nonemptybins])
-        t1=time.time()
+            current_par_bin= parbin_indices_column[i]
+            if (current_par_bin!=0):                         # digitize philosophy is to use index 0 for values below the lowest bin floor (the origin voxel has kx,ky,kz=0,0,0, which yields a kpar and kperp smaller than the lowest bin floor, because a survey can never probe k=0 unless Lsurvey->infinity), so discard this point and move on
+                current_par_bin-=           1                # other indices need to be shifted down by one because of how I treat bin floors
+                summTt[current_par_bin,:]+= current_binsums  # update the numerator of the ensemble average
+                NmTt[current_par_bin,:]+=   slice_bin_counts # update the denominator of the ensemble average
+        amTt=np.zeros((Nkpar,Nkperp)) # template to store the ensemble average (same philosophy as for the spherical case—see above)
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
         return None
     
     # translate to power spectrum terms
+    nonemptybins=np.nonzero(NmTt)
+    amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
     P=np.array(amTt/V)
     return [k,P]
 
@@ -158,7 +147,7 @@ def ps_autobin(T, mode, Lsurvey, Nk0, Nk1=0):
     inputs:
     T       = Npix x Npix x Npix data box for which you wish to create the power spectrum
     mode    = binning mode (linear or logarithmic)
-    Lsurvey = side length of the simulation cube (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
+    Lsurvey = side length of the cosmological box (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
     Nk0      = number of k-bins to include in the power spectrum (if this is the only nonzero Nk, the power spectrum will be binned spherically)
     Nk1     = number of k-bins to include along axis=1 of the power spectrum (if nonzero, the power spectrum will be binned cylindrically)
 
@@ -189,7 +178,7 @@ def flip(n,nfvox):
 
     inputs:
     n     = index you want to flip
-    odd   = flag (1/0, not actually boolean) for the number of voxels per side of the cube
+    odd   = flag (1/0, not actually boolean) for the number of voxels per side of the box
     nfvox = number of voxels per box side
 
     outputs:
@@ -210,8 +199,8 @@ def ips(P,k,Lsurvey,nfvox):
     inputs:
     P = power spectrum
     k = wavenumber-space points at which the power spectrum is sampled
-    Lsurvey = length of a simulation cube side, in Mpc (just sets the volume element scaling... nothing to do with pixelization)
-    nfvox = number of voxels to create per sim cube side
+    Lsurvey = length of a cosmological box side, in Mpc (just sets the volume element scaling... nothing to do with pixelization)
+    nfvox = number of voxels to create per cosmo box side
 
     outputs:
     nfvox x nfvox x nfvox brightness temp box
@@ -237,11 +226,11 @@ def ips(P,k,Lsurvey,nfvox):
     sigmas=np.reshape(sigmas,(sigmas.shape[1],)) # transition from the (1,npts) of the CAMB PS to (npts,) ... I think this became a problem in May because I got rid of some hard-coded reshaping in get_mps
     Ttre=np.zeros((nfvox,nfvox,nfvox))
     Ttim=np.zeros((nfvox,nfvox,nfvox))
-    binidxs=np.digitize(rgrid,r,right=False) # must pass x,bins; rgrid is the big box and r has floors
+    bin_indices=np.digitize(rgrid,r,right=False) # must pass x,bins; rgrid is the big box and r has floors
     for i,binedge in enumerate(r):
         sig=sigmas[i]
-        here=np.nonzero(i==binidxs) # all box indices where the corresp bin index is the ith binedge (iterable)
-        numhere=len(np.argwhere(i==binidxs)) # number of voxels in the bin we're currently considering
+        here=np.nonzero(i==bin_indices) # all box indices where the corresp bin index is the ith binedge (iterable)
+        numhere=len(np.argwhere(i==bin_indices)) # number of voxels in the bin we're currently considering
         sampsRe=np.random.normal(scale=sig, size=(numhere,)) # samples for filling the current bin
         sampsIm=np.random.normal(scale=sig, size=(numhere,))
         if (numhere>0):
@@ -296,8 +285,9 @@ for i in range(5):
     # break # just look at one iteration for now to iron out the empty bin issue
 plt.xlabel("k (1/Mpc)")
 plt.ylabel("Power (K$^2$ Mpc$^3$)")
-plt.title("Test PS calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
+plt.title("Test white noise P(k) calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
 plt.ylim(0,1.2*maxvals)
+plt.savefig("wn_sph.png",dpi=500)
 plt.show() # WORKS AS OF 14:28 20.05.25
 
 # assert(1==0), "fix sph first"
@@ -311,18 +301,18 @@ nsubrow=3
 nsubcol=3
 vmin=np.infty
 vmax=-np.infty
-fig,axs=plt.subplots(nsubrow,nsubcol)
+fig,axs=plt.subplots(nsubrow,nsubcol,figsize=(8,10))
 for i in range(nsubrow):
     for j in range(nsubcol):
         T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-        # k,vals=ps_autobin(T,"log",Lsurvey,Nkpar,Nk1=Nkperp) # lowest bin is tiny -> has bad stats
-        k,vals=ps_autobin(T,"lin",Lsurvey,Nkpar,Nk1=Nkperp) # suspiciously regular in its stripiness
+        k,vals=ps_autobin(T,"lin",Lsurvey,Nkpar,Nk1=Nkperp) 
         kpar,kperp=k
         kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
-        # im=axs[i,j].imshow(vals,origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]])
         im=axs[i,j].pcolor(kpargrid,kperpgrid,vals)
         axs[i,j].set_ylabel("$k_{||}$")
         axs[i,j].set_xlabel("$k_\perp$")
+        axs[i,j].set_title("Realization {:2}".format(i*nsubrow+j))
+        axs[i,j].set_aspect("equal")
         minval=np.min(vals)
         maxval=np.max(vals)
         if (minval<vmin):
@@ -330,8 +320,9 @@ for i in range(nsubrow):
         if (maxval>vmax):
             vmax=maxval
 fig.colorbar(im,extend="both")
-plt.suptitle("Test cyl PS calc")
+plt.suptitle("Test white noise P(kpar,kperp) calc for Lsurvey,Npix,Nkpar,Nkperp={:4},{:4},{:4},{:4}".format(Lsurvey,Npix,Nkpar,Nkperp))
 plt.tight_layout()
+plt.savefig("wn_cyl.png",dpi=500)
 plt.show()
 
 ############## TESTS BWD
