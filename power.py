@@ -84,7 +84,7 @@ def P(T, k, Lsurvey):
         # print("summTt=",summTt)
         # print("NmTt=",NmTt)
         if (len(summTt)==(Nk+1)): # if the numerics conspire to separate out the kbox=0 term into its own special case of "below the 0th bin floor"
-            print("pruning kbox=0 artificial bin")
+            # print("pruning kbox=0 artificial bin")
             summTt=summTt[1:]
             NmTt=  NmTt[1:]
 
@@ -106,7 +106,7 @@ def P(T, k, Lsurvey):
         perpbinidxs_slice=    np.digitize(kperpmags_slice,kperp,right=False)
         perpbinidxs_slice_1d= np.reshape(perpbinidxs_slice,(Npix**2,))
         parbinidxs_column=np.digitize(Kshuf,kpar, right=False) # which kpar bin each kpar-for-the-box value falls into
-        print("cyl: kperpmags_slice.shape,perpbinidxs_slice_1d.shape,parbinidxs_column.shape=",kperpmags_slice.shape,perpbinidxs_slice_1d.shape,parbinidxs_column.shape)
+        # print("cyl: kperpmags_slice.shape,perpbinidxs_slice_1d.shape,parbinidxs_column.shape=",kperpmags_slice.shape,perpbinidxs_slice_1d.shape,parbinidxs_column.shape)
 
         # binning 
         summTt=  np.zeros((Nkpar,Nkperp)) # need to access once for each kparBOX slice, but should have shape (NkparBIN,NkperpBIN) ... each time I access it, I'll access the correct NkparBIN row, but all NkperpBIN columns will be updated
@@ -114,20 +114,34 @@ def P(T, k, Lsurvey):
         N_slices_per_par_bin=np.zeros((Nkpar,Nkperp)) # to store how many box slices go into a given kpar bin
         t0=time.time()
         for i in range(Npix): # iterate over kpar axis of the box to capture all LoS slices
-            mTt_slice=    mTt[:,:,i]
-            mTt_slice_1d= np.reshape(mTt_slice,(Npix**2,))
-            current_bincounts=          np.bincount(perpbinidxs_slice_1d,weights=mTt_slice_1d,minlength=Nkperp)
-            current_par_bin=            parbinidxs_column[i] # this is where things are getting oversubscribed?? (it's finding bins one past the end?)
-            summTt[current_par_bin,:]+= current_bincounts
+            ##
             if (i==0):
                 slice_bin_counts= np.bincount(perpbinidxs_slice_1d, minlength=Nkperp)
-                print("cyl: i,current_bincounts.shape,current_par_bin=",i,current_bincounts.shape,current_par_bin)
-            NmTt[current_par_bin,:]+= slice_bin_counts
-            N_slices_per_par_bin[current_par_bin,:]+= 1
+                # print("just evaluated the undoctored version of slice_bin_counts")
+                if (len(slice_bin_counts)==(Nkperp+1)):
+                    # print("pruning slice_bin_counts artificial bin")
+                    slice_bin_counts=slice_bin_counts[1:]
+            ##
+            mTt_slice=    mTt[:,:,i]
+            mTt_slice_1d= np.reshape(mTt_slice,(Npix**2,))
+            current_binsums=          np.bincount(perpbinidxs_slice_1d,weights=mTt_slice_1d,minlength=Nkperp)
+            if (len(current_binsums)==(Nkperp+1)):
+                # print("pruning current_binsums artificial bin")
+                current_binsums=current_binsums[1:]
+            current_par_bin=            parbinidxs_column[i] # this is where things are getting oversubscribed?? (it's finding bins one past the end?)
+            # print("cyl: i,current_binsums.shape,current_par_bin=",i,current_binsums.shape,current_par_bin)
+            if (current_par_bin!=0):
+                current_par_bin-=1
+                ##
+                summTt[current_par_bin,:]+= current_binsums
+                
+                NmTt[current_par_bin,:]+= slice_bin_counts
+                N_slices_per_par_bin[current_par_bin,:]+= 1
+                ##
         nonemptybins=np.nonzero(NmTt)
-        print("cyl: len(nonemptybins[0])=",len(nonemptybins[0]))
+        # print("cyl: len(nonemptybins[0])=",len(nonemptybins[0]))
         amTt=np.zeros((Nkpar,Nkperp))
-        print("cyl: nonemptybins[0].min(),nonemptybins[0].max(),nonemptybins[1].min(),nonemptybins[1].max()=",min(nonemptybins[0]),max(nonemptybins[0]),min(nonemptybins[1]),max(nonemptybins[1]))
+        # print("cyl: nonemptybins[0].min(),nonemptybins[0].max(),nonemptybins[1].min(),nonemptybins[1].max()=",min(nonemptybins[0]),max(nonemptybins[0]),min(nonemptybins[1]),max(nonemptybins[1]))
         amTt[nonemptybins]=summTt[nonemptybins]/(NmTt[nonemptybins]*N_slices_per_par_bin[nonemptybins])
         t1=time.time()
     else:
@@ -291,12 +305,12 @@ def ips(P,k,Lsurvey,nfvox):
 
 ############## TEST SPH FWD
 Lsurvey = 103
-Npix = 150 # 111 works, but things go bad when I try to turn it up to 150 ... figure out the indexing issue
+Npix = 200 # 150 looks ok for spherical (if a little stripy for cylindrical), but turning up to 200 means the lowest-k bin is always empty (for spherical and along both axes for cylindrical)
 Nk = 12
 
 plt.figure()
 maxvals=0.0
-for i in range(10):
+for i in range(5):
     T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
     kfloors,vals=ps_autobin(T,"log",Lsurvey,Nk)
     plt.scatter(np.log(kfloors),vals)
@@ -311,7 +325,7 @@ plt.show() # WORKS AS OF 14:28 20.05.25
 
 # ############## TEST CYL FWD
 Nkpar=9 # 327
-Nkperp=19 # 1010
+Nkperp=12 # 1010
 # Nkpar=300
 # Nkperp=100
 
