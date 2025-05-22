@@ -2,6 +2,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 import time
 
+pi=np.pi
+twopi=2.*pi
+
 '''
 this module helps connect ensemble-averaged power spectrum estimates and cosmological brighness temperature boxes for two main use cases:
 1. // forward direction: generate a power spectrum that describes the statistics of a brightness temperature box
@@ -55,10 +58,11 @@ def P(T, k, Lsurvey):
 
     # establish Cartesian Fourier duals to box coordinates
     Kshuf=twopi*np.fft.fftshift(np.fft.fftfreq(Npix,d=Delta)) # fftshift doesn't care whether you're dealing with correlations, brightness temps, or config/Fourier space coordinates ... the math is the same!
-    
+    KX,KY,KZ=np.meshgrid(Kshuf,Kshuf,Kshuf,indexing="ij") # grid of Fourier-space points at which I have box values
+    # Kunshuf=twopi*np.fft.fftfreq(2*Npix,d=Delta)[:Npix]
+
     if (binto=="sph"):
         Nk=len(k) # number of k-modes to put in the power spectrum
-        KX,KY,KZ=np.meshgrid(Kshuf,Kshuf,Kshuf) # grid of Fourier-space points at which I have box values
 
         # prepare to tie the processed box values to relevant k-values (prep for binning)
         kmags=np.sqrt(KX**2+KY**2+KZ**2) # BINNING SPHERICALLY literally just the Fourier duals to the config space points ... not the binned k-values yet
@@ -82,39 +86,48 @@ def P(T, k, Lsurvey):
         Nkperp=len(kperp)
 
         # prepare to tie the processed box values to relevant k-values (prep for binning)
-        KX,KY=np.meshgrid(Kshuf,Kshuf)
-        kperpmags=np.sqrt(KX**2+KY**2)
-        perpbinidxs=np.digitize(kperpmags,kperp,right=False)
-        perpbinidxs_1d=np.reshape(perpbinidxs,(Npix**2,))
+        kperpmags=np.sqrt(KX**2+KY**2) # if I've managed to build this the way I meant to, kperpmag slices [:,:,i] with different i should match
+        # print("kperpmags check:")
+        # print("kperpmags[:,:,0]=",kperpmags[:,:,0])
+        # print("kperpmags[:,:,2]=",kperpmags[:,:,2])
+        # print("kperpmags[:,:,-4]=",kperpmags[:,:,-4])
+        # print("np.all(kperpmags[:,:,0]==kperpmags[:,:,2]),np.all(kperpmags[:,:,2]==kperpmags[:,:,-4])=\n",
+        #        np.all(kperpmags[:,:,0]==kperpmags[:,:,2]),np.all(kperpmags[:,:,2]==kperpmags[:,:,-4]))
+        kperpmags_slice=      kperpmags[:,:,0] # take a representative slice, now that I've rigorously checked that things vary the way I want
+        perpbinidxs_slice=    np.digitize(kperpmags_slice,kperp,right=False)
+        perpbinidxs_slice_1d= np.reshape(perpbinidxs_slice,(Npix**2,))
+        # print("perpbinidxs_slice_1d=",perpbinidxs_slice_1d)
         amTt=np.zeros((Nkpar,Nkperp))
-        parbinidxs=np.digitize(Kshuf,kpar, right=False) # which kpar bin each kpar-for-the-box value falls into
+        parbinidxs_column=np.digitize(Kshuf,kpar, right=False) # which kpar bin each kpar-for-the-box value falls into
+        # print("parbinidxs_column=",kpar,parbinidxs_column) # should look a little snake-y?!
+        # assert(1==0), "cylindrical binning quagmire check"
 
         # binning 
-        summTt=  np.zeros((Nkpar,Nkperp)) # need to access once for each kpar slice, but should have shape (Nkpar,Nkperp) ... each time I access it, I'll access the correct Nkpar row, but all Nkperp columns will be updated
+        summTt=  np.zeros((Nkpar,Nkperp)) # need to access once for each kparBOX slice, but should have shape (NkparBIN,NkperpBIN) ... each time I access it, I'll access the correct NkparBIN row, but all NkperpBIN columns will be updated
         NmTt=    np.zeros((Nkpar,Nkperp))
-        # N_slices=np.zeros((Nkpar,Nkperp))
+        N_slices_per_par_bin=np.zeros((Nkpar,Nkperp)) # to store how many box slices go into a given kpar bin
         t0=time.time()
-        for i in range(Nkpar): # iterate over kpar axis of the box (Npix loop trips)
-            mTt_slice=mTt[i,:,:]
-            mTt_slice_1d=np.reshape(mTt_slice,(Npix**2,))
-            current_bincounts=np.bincount(perpbinidxs_1d,weights=mTt_slice_1d,minlength=Nkperp)
-            summTt[i,:]+=current_bincounts
+        for i in range(Npix): # iterate over kpar axis of the box to capture all LoS slices
+            # print("i=",i)
+            mTt_slice=    mTt[:,:,i]
+            mTt_slice_1d= np.reshape(mTt_slice,(Npix**2,))
+            # print("mTt_slice_1d=",mTt_slice_1d)
+            current_bincounts=          np.bincount(perpbinidxs_slice_1d,weights=mTt_slice_1d,minlength=Nkperp)
+            current_par_bin=            parbinidxs_column[i]
+            summTt[current_par_bin,:]+= current_bincounts
             if (i==0):
-                slice_bin_counts=np.bincount(perpbinidxs_1d, minlength=Nkperp)
-            NmTt[i,:]  +=slice_bin_counts
-            # N_slices[i,:]+=1 # was previously not indexed ... shocking that the output looked at sensible as it did, or not... that was just an unphysical normalization, I guess
-        # print("summTt,NmTt,N_slices=\n",summTt,"\n\n",NmTt,"\n\n",N_slices)
-        # nonemptybins=np.nonzero(N_slices)
+                slice_bin_counts= np.bincount(perpbinidxs_slice_1d, minlength=Nkperp)
+            NmTt[current_par_bin,:]+= slice_bin_counts
+            N_slices_per_par_bin[current_par_bin,:]+= 1
         nonemptybins=np.nonzero(NmTt)
-        amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
-        # amTt[nonemptybins]=summTt[nonemptybins]/(NmTt[nonemptybins]*N_slices[nonemptybins]) # extra /N b/c multiple box slices might go into a given kpar bin
+        amTt[nonemptybins]=summTt[nonemptybins]/(NmTt[nonemptybins]*N_slices_per_par_bin[nonemptybins])
         t1=time.time()
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
         return None
     
     # translate to power spectrum terms
-    print("P: binning and binned value preprocessing took",t1-t0,"s")
+    # print("P: binning and binned value preprocessing took",t1-t0,"s")
     P=np.array(amTt/V)
     return [k,P]
 
@@ -125,9 +138,8 @@ def get_bins(Npix,Lsurvey,Nk,mode):
     kmin=twopi/Lsurvey
     if (mode=="log"):
         kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk)
-        # arg=np.log(Npix)/Nk
-        # limiting_spacing=10.**(2.*arg)-10.**arg
-        limiting_spacing=Npix-10.**((1.-(1./Nk))*np.log10(Npix))
+        arg=np.log(Npix)/Nk
+        limiting_spacing=twopi*(10.**(2.*arg)-10.**arg)
     elif (mode=="lin"):
         kbins=np.linspace(kmin,kmax,Nk)
         limiting_spacing=twopi*(Npix-1)/(Nk*Lsurvey)
@@ -156,19 +168,15 @@ def ps_autobin(T, mode, Lsurvey, Nk0, Nk1=0):
     one copy of P() output
     '''
     Npix=T.shape[0]
-    deltak_box=1./Lsurvey
+    deltak_box=twopi/Lsurvey
 
     k0bins,limiting_spacing_0=get_bins(Lsurvey,Npix,Nk0,mode)
-    # print("deltak_box,limiting_spacing_0=",deltak_box,limiting_spacing_0)
     if (limiting_spacing_0<deltak_box):
-        # print("about to raise resolution error for Nk0")
         raise ResolutionError
     
     if (Nk1>0):
         k1bins,limiting_spacing_1=get_bins(Lsurvey,Npix,Nk1,mode)
-        # print("deltak_box,limiting_spacing_1=",deltak_box,limiting_spacing_1)
         if (limiting_spacing_1<deltak_box):
-            # print("about to raise resolution error for Nk1")
             raise ResolutionError
         kbins=[k0bins,k1bins]
     else:
@@ -275,7 +283,7 @@ def ips(P,k,Lsurvey,nfvox):
 
 ############## TEST SPH FWD
 Lsurvey = 103
-Npix = 111
+Npix = 111 # works, but things go bad when I try to turn it up to 200 ... figure out the indexing issue
 Nk = 12
 
 plt.figure()
@@ -294,10 +302,10 @@ plt.ylim(0,1.2*maxvals)
 plt.show() # WORKS AS OF 14:28 20.05.25
 
 # ############## TEST CYL FWD
-# Nkpar=12 # 327
-# Nkperp=7 # 1010
-Nkpar=51
-Nkperp=17
+Nkpar=9 # 327
+Nkperp=19 # 1010
+# Nkpar=300
+# Nkperp=100
 
 nsubrow=3
 nsubcol=3
