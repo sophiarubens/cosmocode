@@ -22,14 +22,26 @@ plt.ylabel("Power (K$^2$ Mpc$^3$)")
 plt.title("Test white noise P(k) calc for Lsurvey,Npix,Nk={:4},{:4},{:4}".format(Lsurvey,Npix,Nk))
 plt.ylim(0,1.2*maxvals)
 plt.savefig("wn_sph.png",dpi=500)
-plt.show() # WORKS AS OF 14:28 20.05.25
+plt.show()
 
-# assert(1==0), "fix sph first"
+## TEST SPH INTERPOLATION
+k_want=np.linspace(0.01,4.,50)
+k_have=np.reshape(kfloors,(Nk,))
+P_have=np.reshape(vals,(Nk,))
+k_want_returned,P_want=interpolate_P(P_have,k_have,k_want,avoid_extrapolation=False) # use the most recent output of the fwd direction test loop
+plt.figure()
+plt.scatter(kfloors,        vals,  label="generated P(k)")
+plt.scatter(k_want_returned,P_want,label="interpolated P(k)")
+plt.xlabel("k")
+plt.ylabel("P(k)")
+plt.title("spherical P(k) comparison")
+plt.axvline(kfloors[0])
+plt.axvline(kfloors[-1],label="bounds of generated P(k)")
+plt.show()
+
 # ############## TEST CYL FWD
 Nkpar=9 # 327
 Nkperp=12 # 1010
-# Nkpar=300
-# Nkperp=100
 
 nsubrow=3
 nsubcol=3
@@ -57,6 +69,27 @@ fig.colorbar(im,extend="both")
 plt.suptitle("Test white noise P(kpar,kperp) calc for Lsurvey,Npix,Nkpar,Nkperp={:4},{:4},{:4},{:4}".format(Lsurvey,Npix,Nkpar,Nkperp))
 plt.tight_layout()
 plt.savefig("wn_cyl.png",dpi=500)
+plt.show()
+
+## TEST CYL INTERPOLATION
+kpar_want=np.linspace(0.01,4.,100)
+kperp_want=np.linspace(0.03,2.,100)
+k_want=(kpar_want,kperp_want)
+k_want_returned,P_want=interpolate_P(vals,k,k_want,avoid_extrapolation=False) # use the most recent output of the fwd direction test loop
+kpar_want_returned,kperp_want_returned=k_want_returned
+kpar_want_grid,kperp_want_grid=np.meshgrid(kpar_want_returned,kperp_want_returned,indexing="ij")
+fig,axs=plt.subplots(1,2,figsize=(10,5))
+axs[0].pcolor(kpargrid,kperpgrid,vals)
+axs[0].set_title("P from generate_P")
+axs[1].pcolor(kpar_want_grid,kperp_want_grid,P_want)
+axs[1].axvline(kpar[0])
+axs[1].axvline(kpar[-1])
+axs[1].axhline(kperp[0])
+axs[1].axhline(kperp[-1])
+for i in range(2):
+    axs[i].set_xlabel("kpar")
+    axs[i].set_ylabel("kperp")
+plt.suptitle("power spectrum interpolation tests")
 plt.show()
 
 ############# TESTS BWD

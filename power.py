@@ -1,32 +1,34 @@
 import numpy as np
 from matplotlib import pyplot as plt
+from scipy.interpolate import interpn,interp1d
 
 pi=np.pi
 twopi=2.*pi
 
-'''
-this module helps connect ensemble-averaged power spectrum estimates and cosmological brighness temperature boxes for two main use cases:
-1. // forward direction: generate a power spectrum that describes the statistics of a brightness temperature box
-2. // backwards direction: generate one realization of a brightness temperature box consistent with a known power spectrum
+"""
+this module helps connect ensemble-averaged power spectrum estimates and cosmological brighness temperature boxes for three main use cases:
+1. forward direction:   generate a power spectrum that describes the statistics of a brightness temperature box
+2. backwards direction: generate one realization of a brightness temperature box consistent with a known power spectrum
+3. regridding:          interpolate a power spectrum to k-modes of interest
 
 call structure:
-1. generate_P -> 1. {{get_bins}}
-                 2. {{P_driver}}
-2. generate_box -> {{flip}}
+1. generate_P    -> 1. {{get_bins}}
+                    2. {{P_driver}}
+2. generate_box  ->    {{flip}}
+3. interpolate_P
 
 {{}} = generally no need to call directly; called as necessary by higher-level functions
-'''
+"""
 
 class ResolutionError(Exception):
     pass
 
 def P_driver(T, k, Lsurvey):
-    '''
+    """
     philosophy:
     * generate a power spectrum consistent with a brightness temperature box for which you already know the k-bins
-    * in practice, to obtain a power spectrum you should access this routine through a wrapper:
-        * ps_userbin(T, kbins, Lsurvey) -> if you need maximum binning flexibility (e.g. hybrid lin-log)
-        * generate_P(T, mode, Lsurvey) -> if you need simple linear or logarithmic bins
+    * In practice, to obtain a power spectrum you should access this routine through a wrapper that calculates (for now, lin- or log-spaced bins) corresponding to a particular Lsurvey, Nk0, (and, if relevant, Nk1), and Npix case. 
+      If instrument considerations (channel width and baseline distribution) lead you to be interested in the power spectrum at some other k-modes, you should interpolate the output of generate_P
 
     inputs:
     T       = Npix x Npix x Npix data box for which you wish to create the power spectrum
@@ -39,7 +41,7 @@ def P_driver(T, k, Lsurvey):
     k-modes and powers of the power spectrum
          - if binto=="sph": [(Nk,),(Nk,)] object unpackable as kbins,powers
          - if binto=="cyl": [[(Nkpar,),(Nkperp,)],(Nkpar,Nkperp)] object unpackable as [kparvec,kperpvec],powers_on_grid **MAKE SURE THIS ENDS UP BEING TRUE**
-    '''
+    """
     # helper variables
     lenk=len(k)
     if lenk==2:
@@ -137,11 +139,10 @@ def get_bins(Npix,Lsurvey,Nk,mode):
     return kbins,limiting_spacing
 
 def generate_P(T, mode, Lsurvey, Nk0, Nk1=0):
-    '''
+    """
     philosophy:
     * generate a spherically binned power spectrum with lin- or log-spaced bins, consistent with a given brightness temperature box
     * wrapper function for the power spectrum function P_driver(T, k, Lsurvey, Npix) 
-    * I could generalize this to calculate cylindrical bins accessed by a particular instrument, but I'd need to pass a slew of survey parameters to this function, and for now it seems cleaner to precalculate them the way you want and then pass to the custom bin wrapper
 
     inputs:
     T       = Npix x Npix x Npix data box for which you wish to create the power spectrum
@@ -152,7 +153,7 @@ def generate_P(T, mode, Lsurvey, Nk0, Nk1=0):
 
     outputs:
     one copy of P_driver() output
-    '''
+    """
     Npix=T.shape[0]
     deltak_box=twopi/Lsurvey
 
@@ -170,8 +171,45 @@ def generate_P(T, mode, Lsurvey, Nk0, Nk1=0):
     
     return P_driver(T,kbins,Lsurvey)
 
+def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
+    """
+    philosophy:
+    * wraps scipy.interpolate.interpn
+    * default behaviour upon requesting extrapolation: "ValueError: One of the requested xi is out of bounds in dimension 0"
+    * if extrapolation is acceptable for your purposes, rerun with extrapolate=True (bounds_error supersedes fill_value, so there's no issue with fill_value always being set to what it needs to be to permit extrapolation [None for the nd case, "extrapolate" for the 1d case])
+
+    inputs:
+    P_have      = power spectrum you'd like to interpolate
+                    * if sph: (Nk,) or equiv.
+                    * if cyl: (Nkpar,Nkperp) or equiv.
+    k_have      = k-modes at which you have power spectrum values
+                    * if sph: (Nk,) or equiv.
+                    * if cyl: ((Nkpar,),(Nkperp,)) or equiv.
+    k_want      = k-modes at which you'd like to comment on the power spectrum (NOT necessary that Nk==Nk_want (sph) or Nkpar==Nkpar_want && Nkperp==Nkperp_want (cyl))
+                    * if sph: (Nk_want,) or equiv.
+                    * if cyl: ((Nkpar_want,),(Nkperp_want,)) or equiv. 
+    extrapolate = boolean (would you like the wrapper to extrapolate if k_want is a superset of k_have?)
+
+    outputs: 
+    same format as the output of generate_P (which itself returns one copy of P_driver output)
+    """
+    if (len(k_have)==2): # still relying on the same somewhat hacky litmus test for sph vs. cyl as in generate_P (hacky because it is contingent on shuffling around the k-modes the way I have been)
+        kpar_have,kperp_have=k_have
+        kpar_want,kperp_want=k_want
+        kpar_want_grid,kperp_want_grid=np.meshgrid(kpar_want,kperp_want,indexing="ij")
+        P_want=interpn((kpar_have,kperp_have),P_have,(kpar_want_grid,kperp_want_grid),bounds_error=avoid_extrapolation,fill_value=None)
+    else:
+        # P_want=interpn( k_have,               P_have, k_want,                         bounds_error=avoid_extrapolation,fill_value=None)
+        P_interpolator=interp1d(k_have,P_have,bounds_error=avoid_extrapolation,fill_value="extrapolate")
+        P_want=P_interpolator(k_want)
+        # ##
+        # f_interp=interp1d(x_have,f_have,bounds_error=False,fill_value="extrapolate")
+        # f_want=f_interp(x_want)
+        # ##
+    return (k_want,P_want)
+
 def flip(n,nfvox):
-    '''
+    """
     philosophy:
     if nfvox is even, send i=-nfvox//2 to -nfvox//2; for all other i, send i to -i
 
@@ -182,7 +220,7 @@ def flip(n,nfvox):
 
     outputs:
     index flipped according to the above philosophy
-    '''
+    """
     odd=nfvox%2
     if ((not odd) and (n==-nfvox//2)):
         pass
@@ -191,7 +229,7 @@ def flip(n,nfvox):
     return n   
 
 def generate_box(P,k,Lsurvey,nfvox):
-    '''
+    """
     philosophy:
     generate a brightness temperature box consistent with a given matter power spectrum
 
@@ -203,7 +241,7 @@ def generate_box(P,k,Lsurvey,nfvox):
 
     outputs:
     nfvox x nfvox x nfvox brightness temp box
-    '''
+    """
     # helper variable setup
     k=k.real # enforce what makes sense physically
     P=P.real
