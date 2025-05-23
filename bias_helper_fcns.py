@@ -161,35 +161,50 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
     nkpar=len(kpar)
     nkperp=len(kperp)
     Pconts=np.zeros((nkpar,nkperp,n_realiz)) # holder for the cylindrically binned power spectra (will make it easy to average later)
-    # Lcube=int(2*sigLoS) # should be some multiple of 2*sigLoS?? 3x for 3sigma level?? or just 1x because that's how I motivated constructing it from Dchi and Dclo??
     Lcube=twopi/kmin
-    sigLoS_instances=     np.random.normal(loc=sigLoS,     scale=epsLoS*sigLoS,    size=n_realiz) # np.random.normal(loc=0.0, scale=1.0, size=None),, loc~mu, scale~sigma
-    beamfwhm_x_instances= np.random.normal(loc=beamfwhm_x, scale=eps_x*beamfwhm_x, size=n_realiz)
-    beamfwhm_y_instances= np.random.normal(loc=beamfwhm_y, scale=eps_y*beamfwhm_y, size=n_realiz)
-    for i in range(n_realiz):
-        rcube,Tcube,rmags = generate_box(Ptrue,ksph,Lcube,ncubevox) # rgrid,T,rmags=generate_box(P,k,Lsurvey,nfvox)
-        if (i==0): # initialize the instrument response
-            X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
-        instrument_response=np.exp(-Z**2/(2*sigLoS_instances[i]**2)-ln2*((X/beamfwhm_x_instances[i])**2+(Y/beamfwhm_y_instances[i])**2)/r0**2) # mathematically equivalent to offsetting Z down the line of sight by r0 and then using the original functional form with the subtraction, but with fewer steps
-        print("instrument_response=",instrument_response)
-        response_aware_cube=Tcube*instrument_response # configuration-space multiplication
-        print("response_aware_cube instance=",response_aware_cube)
-        print("attempting to generate P with\nLcube,nkpar_box,nkperp_box=",Lcube,nkpar_box,nkperp_box)
-        kcont_intrinsic_to_box,Pcont_intrinsic_to_box=generate_P(response_aware_cube,"lin",Lcube,nkpar_box,Nk1=nkperp_box) # bin directly to cyl // generate_P(T, mode, Lsurvey, Nk0, Nk1=0)
-        print("finished generating P")
-        kcont,Pcont=interpolate_P(Pcont_intrinsic_to_box,kcont_intrinsic_to_box,(kpar,kperp),avoid_extrapolation=False) # interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True)
-        print("finished interpolating P")
-        print("Pcont instance=",Pcont)
-        plt.figure()
-        kpargrid,kperpgrid=np.meshgrid(kcont[0],kcont[1],indexing="ij")
-        plt.pcolor(kpargrid,kperpgrid,Pcont)
-        plt.title("extremely preliminary Pcont visualization")
-        plt.show()
-        Pconts[:,:,i]=Pcont
-        assert(1==0), "stopping after one iteration to check the reasonableness of all the cube and PS pieces"
-    Pcont_avg=np.mean(Pconts,axis=2)
-    np.save("Pcont_avg.npy",Pcont_avg)
-    return Pcont_avg
+
+    rbox,Tbox,rmags=generate_box(Ptrue,ksph,Lcube,ncubevox)
+    X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
+    response_true=    np.exp(-Z**2/(2*sigLoS             **2) -ln2*((X/ beamfwhm_x           )**2+(Y/ beamfwhm_y           )**2)/r0**2)
+    response_thought= np.exp(-Z**2/(2*(sigLoS*(1-epsLoS))**2) -ln2*((X/(beamfwhm_x*(1-eps_x)))**2+(Y/(beamfwhm_y*(1-eps_y)))**2)/r0**2)
+    print("response_true==response_thought:",response_true==response_thought)
+    T_x_true_resp=   Tbox* response_true
+    T_x_thought_resp=Tbox* response_thought
+    print("T_x_true_resp==T_x_thought_resp:",T_x_true_resp==T_x_thought_resp)
+    ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box)
+    kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lcube,nkpar_box,Nk1=nkperp_box)
+    print("Ptrue_intrinsic_to_box==Pthought_intrinsic_to_box:",Ptrue_intrinsic_to_box==Pthought_intrinsic_to_box)
+    k_survey=(kpar,kperp)
+    ktrue,   Ptrue=    interpolate_P(Ptrue_intrinsic_to_box,    ktrue_intrinsic_to_box,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
+    kthought,Pthought= interpolate_P(Pthought_intrinsic_to_box, kthought_intrinsic_to_box, k_survey, avoid_extrapolation=False)
+    Pcont=Ptrue-Pthought
+    print("Pcont=",Pcont)
+    print("computed numerical Pcont")
+    return Pcont
+
+    # ### # start of old strategy
+    # sigLoS_instances=     np.random.normal(loc=sigLoS,     scale=epsLoS*sigLoS,    size=n_realiz) # np.random.normal(loc=0.0, scale=1.0, size=None),, loc~mu, scale~sigma
+    # beamfwhm_x_instances= np.random.normal(loc=beamfwhm_x, scale=eps_x*beamfwhm_x, size=n_realiz)
+    # beamfwhm_y_instances= np.random.normal(loc=beamfwhm_y, scale=eps_y*beamfwhm_y, size=n_realiz)
+    # for i in range(n_realiz):
+    #     rcube,Tcube,rmags = generate_box(Ptrue,ksph,Lcube,ncubevox) # rgrid,T,rmags=generate_box(P,k,Lsurvey,nfvox)
+    #     if (i==0): # initialize the instrument response
+    #         X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
+    #     instrument_response=np.exp(-Z**2/(2*sigLoS_instances[i]**2)-ln2*((X/beamfwhm_x_instances[i])**2+(Y/beamfwhm_y_instances[i])**2)/r0**2) # mathematically equivalent to offsetting Z down the line of sight by r0 and then using the original functional form with the subtraction, but with fewer steps
+    #     print("response computed")
+    #     response_aware_cube=Tcube*instrument_response # configuration-space multiplication
+    #     print("cube modulated")
+    #     kcont_intrinsic_to_box,Pcont_intrinsic_to_box=generate_P(response_aware_cube,"lin",Lcube,nkpar_box,Nk1=nkperp_box) # bin directly to cyl // generate_P(T, mode, Lsurvey, Nk0, Nk1=0)
+    #     print("intrinsic box PS computed")
+    #     kcont,Pcont=interpolate_P(Pcont_intrinsic_to_box,kcont_intrinsic_to_box,(kpar,kperp),avoid_extrapolation=False) # interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True)
+    #     print("PS interpolated")
+    #     Pconts[:,:,i]=Pcont
+    #     # assert(1==0), "stopping after one iteration to check the reasonableness of all the cube and PS pieces"
+    # Pcont_avg=np.mean(Pconts,axis=2)
+    # print("realizations averaged")
+    # np.save("Pcont_avg.npy",Pcont_avg)
+    # return Pcont_avg
+    # ### # end of old strategy
 
 def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):  
     """

@@ -101,19 +101,10 @@ b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                       kpar_surv,kperp_surv,
                       sig_LoS,Dc_ctr,beam_fwhm0,
                       pars_Planck18,
-                      epsLoS_test,epsbeam0_test,
+                    #   epsLoS_test,epsbeam0_test,
+                      0.,0.,
                       z_ctr,n_sph_pts_test,
                       cyl_sym_resp=False, 
-                      fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test ,n_realiz=n_asym_realiz_test)
+                    #   fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test ,n_realiz=n_asym_realiz_test)
+                      fwhmbeam1=beam_fwhm1, epsbeam1=0. ,n_realiz=n_asym_realiz_test)
 printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
-
-# bias(partials,unc, 
-#      kpar,kperp,
-#      sigLoS,r0,fwhmbeam0,
-#      pars,
-#      epsLoS,epsbeam0,
-#      z,n_sph_modes,
-#      beamtype="Gaussian",save=False,savename=None,
-#      cyl_sym_resp=True, 
-#      fwhmbeam1=1e-3,epsbeam1=0.1,n_realiz=10,ncubevox=100,
-#      recalc_sym_Pcont=False)
