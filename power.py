@@ -199,13 +199,8 @@ def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
         kpar_want_grid,kperp_want_grid=np.meshgrid(kpar_want,kperp_want,indexing="ij")
         P_want=interpn((kpar_have,kperp_have),P_have,(kpar_want_grid,kperp_want_grid),bounds_error=avoid_extrapolation,fill_value=None)
     else:
-        # P_want=interpn( k_have,               P_have, k_want,                         bounds_error=avoid_extrapolation,fill_value=None)
         P_interpolator=interp1d(k_have,P_have,bounds_error=avoid_extrapolation,fill_value="extrapolate")
         P_want=P_interpolator(k_want)
-        # ##
-        # f_interp=interp1d(x_have,f_have,bounds_error=False,fill_value="extrapolate")
-        # f_want=f_interp(x_want)
-        # ##
     return (k_want,P_want)
 
 def flip(n,nfvox):
@@ -260,7 +255,8 @@ def generate_box(P,k,Lsurvey,nfvox):
     
     # take appropriate draws from normal distributions to populate T-tilde
     sigmas=np.flip(np.sqrt(V*P/2)) # has Npix elements ... each element describes the T-tilde values in that k-bin ... flip to anticipate the fact that I'm working in r-space but calculated this vector in k-space
-    sigmas=np.reshape(sigmas,(sigmas.shape[0],)) # transition from the (1,npts) of the CAMB PS to (npts,) ... I think this became a problem in May because I got rid of some hard-coded reshaping in get_mps
+    nsigmas=np.max([len(sigmas),len(sigmas[0])])
+    sigmas=np.reshape(sigmas,(nsigmas,)) # transition from the (1,npts) of the CAMB PS to (npts,) ... I think this became a problem in May because I got rid of some hard-coded reshaping in get_mps
     Ttre=np.zeros((nfvox,nfvox,nfvox))
     Ttim=np.zeros((nfvox,nfvox,nfvox))
     bin_indices=np.digitize(rgrid,r,right=False) # must pass x,bins; rgrid is the big box and r has floors

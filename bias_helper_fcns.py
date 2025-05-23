@@ -137,7 +137,7 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     Pcont=higher_dim_conv(Wcont,P)
     return Pcont
 
-def calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500,recalc_Pcont=False):
+def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500,nkpar_box=12,nkperp_box=12):
     """
     calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
     (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -161,21 +161,32 @@ def calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamf
     nkpar=len(kpar)
     nkperp=len(kperp)
     Pconts=np.zeros((nkpar,nkperp,n_realiz)) # holder for the cylindrically binned power spectra (will make it easy to average later)
-    Lcube=int(2*sigLoS) # should be some multiple of 2*sigLoS?? 3x for 3sigma level?? or just 1x because that's how I motivated constructing it from Dchi and Dclo??
+    # Lcube=int(2*sigLoS) # should be some multiple of 2*sigLoS?? 3x for 3sigma level?? or just 1x because that's how I motivated constructing it from Dchi and Dclo??
+    Lcube=twopi/kmin
     sigLoS_instances=     np.random.normal(loc=sigLoS,     scale=epsLoS*sigLoS,    size=n_realiz) # np.random.normal(loc=0.0, scale=1.0, size=None),, loc~mu, scale~sigma
     beamfwhm_x_instances= np.random.normal(loc=beamfwhm_x, scale=eps_x*beamfwhm_x, size=n_realiz)
     beamfwhm_y_instances= np.random.normal(loc=beamfwhm_y, scale=eps_y*beamfwhm_y, size=n_realiz)
     for i in range(n_realiz):
-        rcube,Tcube,rmags = ips(Ptrue,ksph,Lcube,ncubevox) # rgrid,T=ips(P,k,Lsurvey,nfvox)
+        rcube,Tcube,rmags = generate_box(Ptrue,ksph,Lcube,ncubevox) # rgrid,T,rmags=generate_box(P,k,Lsurvey,nfvox)
         if (i==0): # initialize the instrument response
-            X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij") # I didn't specify ij indexing in the meshgridding internal to ips(), but I don't think it matters at the moment since everything in the cube is so statistically isotropic,, (could eventually circle back there to be really rigorous)
+            X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
         instrument_response=np.exp(-Z**2/(2*sigLoS_instances[i]**2)-ln2*((X/beamfwhm_x_instances[i])**2+(Y/beamfwhm_y_instances[i])**2)/r0**2) # mathematically equivalent to offsetting Z down the line of sight by r0 and then using the original functional form with the subtraction, but with fewer steps
+        print("instrument_response=",instrument_response)
         response_aware_cube=Tcube*instrument_response # configuration-space multiplication
-        # print("response_aware_cube instance=",response_aware_cube)
-        kcont,Pcont=ps_userbin(response_aware_cube,ksph,Lcube) # ps_userbin(T, kbins, Lsurvey) returns P() ... which returns [k,P]
-        # print("Pcont instance=",Pcont)
-        kpargrid,kperpgrid,Pcyl=unbin_to_Pcyl_custom(kpar,kperp,kcont,Pcont) # kpargrid,kperpgrid,Pcyl = unbin_to_Pcyl_custom(kpar,kperp,k,Psph)
-        Pconts[:,:,i]=Pcyl
+        print("response_aware_cube instance=",response_aware_cube)
+        print("attempting to generate P with\nLcube,nkpar_box,nkperp_box=",Lcube,nkpar_box,nkperp_box)
+        kcont_intrinsic_to_box,Pcont_intrinsic_to_box=generate_P(response_aware_cube,"lin",Lcube,nkpar_box,Nk1=nkperp_box) # bin directly to cyl // generate_P(T, mode, Lsurvey, Nk0, Nk1=0)
+        print("finished generating P")
+        kcont,Pcont=interpolate_P(Pcont_intrinsic_to_box,kcont_intrinsic_to_box,(kpar,kperp),avoid_extrapolation=False) # interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True)
+        print("finished interpolating P")
+        print("Pcont instance=",Pcont)
+        plt.figure()
+        kpargrid,kperpgrid=np.meshgrid(kcont[0],kcont[1],indexing="ij")
+        plt.pcolor(kpargrid,kperpgrid,Pcont)
+        plt.title("extremely preliminary Pcont visualization")
+        plt.show()
+        Pconts[:,:,i]=Pcont
+        assert(1==0), "stopping after one iteration to check the reasonableness of all the cube and PS pieces"
     Pcont_avg=np.mean(Pconts,axis=2)
     np.save("Pcont_avg.npy",Pcont_avg)
     return Pcont_avg
@@ -338,7 +349,7 @@ def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
         V[n,:,:]=cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
     return V
 
-def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,n_realiz=10,ncubevox=100,recalc_Pcont=False):
+def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,n_realiz=10,ncubevox=100,recalc_sym_Pcont=False):
     """
     args
     partials = ncp x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
@@ -359,13 +370,15 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
     V_completely_transposed=np.transpose(V,axes=(2,1,0)) # from the docs: "For an n-D array, if axes are given, their order indicates how the axes are permuted"
     F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
     if cyl_sym_resp:
-        Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,save=save,savename=savename,beamtype=beamtype)
+        if recalc_sym_Pcont:
+            Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,save=save,savename=savename,beamtype=beamtype)
+        else:
+            Pcont=np.load(savename) # not sure if this is even right ... but it might not even be of the utmost importance at the moment (focusing on the asym case atm)
     else: 
-        Pcont=calc_Pcont_cyl_asym_resp(pars,z,
-                                       kpar,kperp,
-                                       sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
-                                       n_realiz,ncubevox=ncubevox,n_sph_modes=n_sph_modes,
-                                       recalc_Pcont=recalc_Pcont) # calc_Pcont_cyl_asym_resp(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500,recalc_Pcont=False)
+        Pcont=calc_Pcont_asym(pars,z,
+                              kpar,kperp,
+                              sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
+                              n_realiz,ncubevox=ncubevox,n_sph_modes=n_sph_modes) # calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500)
     plt.figure()
     plt.imshow(Pcont, origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]]) # origin="lower",extent=[L_lo,R_hi,T_lo,B_hi]
     plt.xlabel("k$_{||}$ (Mpc$^{-1}$)")

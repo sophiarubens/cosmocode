@@ -93,7 +93,8 @@ b_cyl_sym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                      sig_LoS,Dc_ctr,beam_fwhm0,
                      pars_Planck18,
                      epsLoS_test,epsbeam0_test,
-                     z_ctr,n_sph_pts_test)
+                     z_ctr,n_sph_pts_test,
+                     recalc_sym_Pcont=True)
 printparswbiases(pars_Planck18,parnames,b_cyl_sym_resp )
 
 b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
@@ -103,8 +104,7 @@ b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                       epsLoS_test,epsbeam0_test,
                       z_ctr,n_sph_pts_test,
                       cyl_sym_resp=False, 
-                      fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test ,n_realiz=n_asym_realiz_test,
-                      recalc_Pcont=False) # REMEMBER TO CHANGE BACK TO "TRUE" IF I UPDATE MY PCONT CALCULATION STRATEGY
+                      fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test ,n_realiz=n_asym_realiz_test)
 printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
 
 # bias(partials,unc, 
@@ -116,4 +116,4 @@ printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
 #      beamtype="Gaussian",save=False,savename=None,
 #      cyl_sym_resp=True, 
 #      fwhmbeam1=1e-3,epsbeam1=0.1,n_realiz=10,ncubevox=100,
-#      recalc_Pcont=False)
+#      recalc_sym_Pcont=False)
