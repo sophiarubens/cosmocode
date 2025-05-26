@@ -124,7 +124,6 @@ def P_driver(T, k, Lsurvey):
 
 def get_bins(Npix,Lsurvey,Nk,mode):
     Delta=Lsurvey/Npix
-    twopi=2.*np.pi
     kmax=twopi/Delta
     kmin=twopi/Lsurvey
     if (mode=="log"):
@@ -136,6 +135,7 @@ def get_bins(Npix,Lsurvey,Nk,mode):
         limiting_spacing=twopi*(Npix-1)/(Nk*Lsurvey)
     else:
         assert(1==0), "only log and linear binning are currently supported"
+    print("get_bins: Lsurvey,kmin=",Lsurvey,kmin)
     return kbins,limiting_spacing
 
 def generate_P(T, mode, Lsurvey, Nk0, Nk1=0):
@@ -154,21 +154,24 @@ def generate_P(T, mode, Lsurvey, Nk0, Nk1=0):
     outputs:
     one copy of P_driver() output
     """
+    print("entering generate_P")
     Npix=T.shape[0]
     deltak_box=twopi/Lsurvey
 
-    k0bins,limiting_spacing_0=get_bins(Lsurvey,Npix,Nk0,mode)
+    print("generate_P, before get_bins call 0: Lsurvey=",Lsurvey)
+    k0bins,limiting_spacing_0=get_bins(Npix,Lsurvey,Nk0,mode) # get_bins(Npix,Lsurvey,Nk,mode)
     if (limiting_spacing_0<deltak_box):
         raise ResolutionError
     
     if (Nk1>0):
-        k1bins,limiting_spacing_1=get_bins(Lsurvey,Npix,Nk1,mode)
+        print("generate_P, before get_bins call 1: Lsurvey=",Lsurvey)
+        k1bins,limiting_spacing_1=get_bins(Npix,Lsurvey,Nk1,mode)
         if (limiting_spacing_1<deltak_box):
             raise ResolutionError
         kbins=[k0bins,k1bins]
     else:
         kbins=k0bins
-    
+    print("end of generate_P: Lsurvey,Nk0,Nk1=",Lsurvey,Nk0,Nk1)
     return P_driver(T,kbins,Lsurvey)
 
 def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
@@ -193,6 +196,7 @@ def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
     outputs: 
     same format as the output of generate_P (which itself returns one copy of P_driver output)
     """
+    print("entering interpolate_P")
     if (len(k_have)==2): # still relying on the same somewhat hacky litmus test for sph vs. cyl as in generate_P (hacky because it is contingent on shuffling around the k-modes the way I have been)
         kpar_have,kperp_have=k_have
         kpar_have_lo=kpar_have[0]
@@ -257,6 +261,9 @@ def generate_box(P,k,Lsurvey,nfvox):
     outputs:
     nfvox x nfvox x nfvox brightness temp box
     """
+    print("entering generate_box")
+    print("generate_box: Lsurvey,nfvox")
+
     # helper variable setup
     k=k.real # enforce what makes sense physically
     P=P.real
@@ -268,7 +275,7 @@ def generate_box(P,k,Lsurvey,nfvox):
     V=Lsurvey**3
     r=twopi/k # gives the right thing but not 100% sure why it breaks if I add back the /Lsurvey I thought belonged
     
-    # CORNER-origin r grid    
+    # CORNER-origin r grid
     rmags=Lsurvey*np.fft.fftfreq(nfvox)
     RX,RY,RZ=np.meshgrid(rmags,rmags,rmags)
     rgrid=np.sqrt(RX**2+RY**2+RZ**2)
