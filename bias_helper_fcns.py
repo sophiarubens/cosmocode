@@ -167,44 +167,20 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
     X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
     response_true=    np.exp(-Z**2/(2*sigLoS             **2) -ln2*((X/ beamfwhm_x           )**2+(Y/ beamfwhm_y           )**2)/r0**2)
     response_thought= np.exp(-Z**2/(2*(sigLoS*(1-epsLoS))**2) -ln2*((X/(beamfwhm_x*(1-eps_x)))**2+(Y/(beamfwhm_y*(1-eps_y)))**2)/r0**2)
-    print("response_true==response_thought:",response_true==response_thought)
+    # print("response_true==response_thought:",response_true==response_thought)
     T_x_true_resp=   Tbox* response_true
     T_x_thought_resp=Tbox* response_thought
-    print("T_x_true_resp==T_x_thought_resp:",T_x_true_resp==T_x_thought_resp)
+    # print("T_x_true_resp==T_x_thought_resp:",T_x_true_resp==T_x_thought_resp)
     ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box)
     kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lcube,nkpar_box,Nk1=nkperp_box)
-    print("Ptrue_intrinsic_to_box==Pthought_intrinsic_to_box:",Ptrue_intrinsic_to_box==Pthought_intrinsic_to_box)
+    # print("Ptrue_intrinsic_to_box==Pthought_intrinsic_to_box:",Ptrue_intrinsic_to_box==Pthought_intrinsic_to_box)
     k_survey=(kpar,kperp)
     ktrue,   Ptrue=    interpolate_P(Ptrue_intrinsic_to_box,    ktrue_intrinsic_to_box,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
     kthought,Pthought= interpolate_P(Pthought_intrinsic_to_box, kthought_intrinsic_to_box, k_survey, avoid_extrapolation=False)
     Pcont=Ptrue-Pthought
-    print("Pcont=",Pcont)
-    print("computed numerical Pcont")
+    # print("Pcont=",Pcont)
+    # print("computed numerical Pcont")
     return Pcont
-
-    # ### # start of old strategy
-    # sigLoS_instances=     np.random.normal(loc=sigLoS,     scale=epsLoS*sigLoS,    size=n_realiz) # np.random.normal(loc=0.0, scale=1.0, size=None),, loc~mu, scale~sigma
-    # beamfwhm_x_instances= np.random.normal(loc=beamfwhm_x, scale=eps_x*beamfwhm_x, size=n_realiz)
-    # beamfwhm_y_instances= np.random.normal(loc=beamfwhm_y, scale=eps_y*beamfwhm_y, size=n_realiz)
-    # for i in range(n_realiz):
-    #     rcube,Tcube,rmags = generate_box(Ptrue,ksph,Lcube,ncubevox) # rgrid,T,rmags=generate_box(P,k,Lsurvey,nfvox)
-    #     if (i==0): # initialize the instrument response
-    #         X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
-    #     instrument_response=np.exp(-Z**2/(2*sigLoS_instances[i]**2)-ln2*((X/beamfwhm_x_instances[i])**2+(Y/beamfwhm_y_instances[i])**2)/r0**2) # mathematically equivalent to offsetting Z down the line of sight by r0 and then using the original functional form with the subtraction, but with fewer steps
-    #     print("response computed")
-    #     response_aware_cube=Tcube*instrument_response # configuration-space multiplication
-    #     print("cube modulated")
-    #     kcont_intrinsic_to_box,Pcont_intrinsic_to_box=generate_P(response_aware_cube,"lin",Lcube,nkpar_box,Nk1=nkperp_box) # bin directly to cyl // generate_P(T, mode, Lsurvey, Nk0, Nk1=0)
-    #     print("intrinsic box PS computed")
-    #     kcont,Pcont=interpolate_P(Pcont_intrinsic_to_box,kcont_intrinsic_to_box,(kpar,kperp),avoid_extrapolation=False) # interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True)
-    #     print("PS interpolated")
-    #     Pconts[:,:,i]=Pcont
-    #     # assert(1==0), "stopping after one iteration to check the reasonableness of all the cube and PS pieces"
-    # Pcont_avg=np.mean(Pconts,axis=2)
-    # print("realizations averaged")
-    # np.save("Pcont_avg.npy",Pcont_avg)
-    # return Pcont_avg
-    # ### # end of old strategy
 
 def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):  
     """
@@ -340,17 +316,20 @@ def cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=200,ftol=1e-6,eps=1e-16,max
     _,_,Pcyl_minu=unbin_to_Pcyl(kpar,kperp,z,pars=pcopy,n_sph_modes=n_sph_modes)
     deriv2=(Pcyl_plus-Pcyl_minu)/(2*dpar[n])
 
-    if (np.all(Pcyl_plus-Pcyl_minu)<tol): # consider relaxing this to np.any if it ever seems like too strict a condition?!
-        print("current step size okay -> returning a derivative estimate")
-        return (4*deriv2-deriv1)/3 # higher-order estimate
-    else:
-        pnmean=np.mean(np.abs(pndispersed)) # the np.abs part should be redundant because, by this point, all the k-mode values and their corresponding dpns and Ps should be nonnegative, but anyway... numerical stability or something idk
-        Psecond=np.abs(2*Pcyl_base-Pcyl_minu-Pcyl_plus)/dx**2
-        dparn=np.sqrt(eps*pnmean*P0/Psecond)
-        iter+=1
-        if iter==maxiter:
-            print("failed to converge in {:d} iterations".format(maxiter))
-            return (4*deriv2-deriv1)/3
+    while (done==False):
+        if (np.any(Pcyl_plus-Pcyl_minu)<tol): # consider relaxing this to np.any if it ever seems like too strict a condition?!
+            estimate=(4*deriv2-deriv1)/3
+            return estimate # higher-order estimate
+        else:
+            pnmean=np.mean(np.abs(pndispersed)) # the np.abs part should be redundant because, by this point, all the k-mode values and their corresponding dpns and Ps should be nonnegative, but anyway... numerical stability or something idk
+            Psecond=np.abs(2*Pcyl_base-Pcyl_minu-Pcyl_plus)/dpar[n]**2
+            dparn=np.sqrt(eps*pnmean*P0/Psecond)
+            iter+=1
+            if iter==maxiter:
+                print("failed to converge in {:d} iterations".format(maxiter))
+                fallback=(4*deriv2-deriv1)/3
+                print("RETURNING fallback")
+                return fallback
 
 def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
     """
@@ -362,6 +341,7 @@ def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
     V=np.zeros((nprm,nkpar,nkperp))
     for n in range(nprm):
         V[n,:,:]=cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
+        print("trying to isolate nans... n=",n,", cyl_partial=",V[n,:,:],"\n\n")
     return V
 
 def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,n_realiz=10,ncubevox=100,recalc_sym_Pcont=False):
