@@ -88,6 +88,8 @@ if calc_P_cyl_partials:
     np.save("P_cyl_partials.npy",P_cyl_partials)
 else:
     P_cyl_partials=np.load("P_cyl_partials.npy")
+
+# assert(1==0), "re-debugging cyl partial deriv calc adaptive step size"
 b_cyl_sym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                      kpar_surv,kperp_surv,
                      sig_LoS,Dc_ctr,beam_fwhm0,
@@ -101,10 +103,10 @@ b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                       kpar_surv,kperp_surv,
                       sig_LoS,Dc_ctr,beam_fwhm0,
                       pars_Planck18,
-                    #   epsLoS_test,epsbeam0_test,
-                      0.,0.,
+                      epsLoS_test,epsbeam0_test,
+                    #   0.,0.,
                       z_ctr,n_sph_pts_test,
                       cyl_sym_resp=False, 
-                    #   fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test ,n_realiz=n_asym_realiz_test)
-                      fwhmbeam1=beam_fwhm1, epsbeam1=0. ,n_realiz=n_asym_realiz_test)
+                      fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test ,n_realiz=n_asym_realiz_test)
+                    #   fwhmbeam1=beam_fwhm1, epsbeam1=0. ,n_realiz=n_asym_realiz_test)
 printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)

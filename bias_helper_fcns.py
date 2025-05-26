@@ -378,9 +378,9 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
     plt.imshow(Pcont, origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]]) # origin="lower",extent=[L_lo,R_hi,T_lo,B_hi]
     plt.xlabel("k$_{||}$ (Mpc$^{-1}$)")
     plt.ylabel("k$_{\perp}$ (Mpc$^{-1}$)")
-    plt.title("Pcont")
+    plt.title("Pcont for cyl_sym_resp={:b}".format(cyl_sym_resp))
     plt.colorbar()
-    plt.savefig("Pcont.png")
+    plt.savefig("Pcont_cyl_sym_{:b}.png".format(cyl_sym_resp))
     plt.show()
     Pcont_div_sigma=Pcont/unc
     B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)

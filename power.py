@@ -195,13 +195,33 @@ def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
     """
     if (len(k_have)==2): # still relying on the same somewhat hacky litmus test for sph vs. cyl as in generate_P (hacky because it is contingent on shuffling around the k-modes the way I have been)
         kpar_have,kperp_have=k_have
+        kpar_have_lo=kpar_have[0]
+        kpar_have_hi=kpar_have[-1]
+        kperp_have_lo=kperp_have[0]
+        kperp_have_hi=kperp_have[-1]
         kpar_want,kperp_want=k_want
+        kpar_want_lo=kpar_want[0]
+        kpar_want_hi=kpar_want[-1]
+        kperp_want_lo=kperp_want[0]
+        kperp_want_hi=kperp_want[-1]
+        if (kpar_want_lo<kpar_have_lo):
+            extrapolation_warning("low kpar",   kpar_want_lo,  kpar_have_lo)
+        if (kpar_want_hi>kpar_have_hi):
+            extrapolation_warning("high kpar",  kpar_want_hi,  kpar_have_hi)
+        if (kperp_want_lo<kperp_have_lo):
+            extrapolation_warning("low kperp",  kperp_want_lo, kperp_have_lo)
+        if (kperp_want_hi>kperp_have_hi):
+            extrapolation_warning("high kperp", kperp_want_hi, kperp_have_hi)
         kpar_want_grid,kperp_want_grid=np.meshgrid(kpar_want,kperp_want,indexing="ij")
         P_want=interpn((kpar_have,kperp_have),P_have,(kpar_want_grid,kperp_want_grid),bounds_error=avoid_extrapolation,fill_value=None)
     else:
         P_interpolator=interp1d(k_have,P_have,bounds_error=avoid_extrapolation,fill_value="extrapolate")
         P_want=P_interpolator(k_want)
     return (k_want,P_want)
+
+def extrapolation_warning(regime,want,have):
+    print("WARNING: if extrapolation is permitted in interpolate_P call, it will be conducted for {:15s} (want {:9.4}, have{:9.4})".format(regime,want,have))
+    return None
 
 def flip(n,nfvox):
     """
