@@ -258,7 +258,6 @@ def generate_box(P,k,Lsurvey,Nvox):
     outputs:
     Nvox x Nvox x Nvox brightness temp box
     """
-    print("entering generate_box")
     t0=time.time()
     # helper variable setup
     k=k.real # enforce what makes sense physically
@@ -270,24 +269,19 @@ def generate_box(P,k,Lsurvey,Nvox):
     twopi = 2*np.pi
     V=Lsurvey**3
     r=twopi/k 
-    print("generate_box: Lsurvey,Nvox,k,P=",Lsurvey,Nvox,k,P)
     
     # CORNER-origin r grid
     rmags=Lsurvey*np.fft.fftfreq(Nvox)
     RX,RY,RZ=np.meshgrid(rmags,rmags,rmags)
     rgrid=np.sqrt(RX**2+RY**2+RZ**2)
-    print("generate_box: rgrid.shape=",rgrid.shape)
     
     # take appropriate draws from normal distributions to populate T-tilde
     sigmas=np.flip(np.sqrt(V*P/2)) # has Npix elements ... each element describes the T-tilde values in that k-bin ... flip to anticipate the fact that I'm working in r-space but calculated this vector in k-space
     sigmas=np.reshape(sigmas,(len(k),))
-    print("generate_box: sigmas=",sigmas)
     nsigmas=len(sigmas)
-    # nsigmas=np.max([len(sigmas),len(sigmas[0])])
     sigmas=np.reshape(sigmas,(nsigmas,)) # transition from the (1,npts) of the CAMB PS to (npts,) ... I think this became a problem in May because I got rid of some hard-coded reshaping in get_mps
     Ttre=np.zeros((Nvox,Nvox,Nvox))
     Ttim=np.zeros((Nvox,Nvox,Nvox))
-    ##
     bin_indices=np.digitize(rgrid,r,right=False) # must pass x,bins; rgrid is the big box and r has floors
     for i,binedge in enumerate(r):
         sig=sigmas[i]
@@ -298,42 +292,9 @@ def generate_box(P,k,Lsurvey,Nvox):
         if (numhere>0):
             Ttre[here]=sampsRe
             Ttim[here]=sampsIm
-    ##
 
-    # ##### START OF MANUAL APPROXIMATION TO IRFFTN
-    # # force the appropriate special cases to be real
-    # h=  Nvox//2
-    # H=h # upper lim of indexing -> if odd, overwrite (indexing needs to stop at N//2, not N//2-1, and for i in range(a,b) stops at b-1)
-    # odd=Nvox%2
-    # if(odd):
-    #     H+=1
-    # else:
-    #     Ttim[-h,-h,-h]=0.
-    #     Ttim[-h,-h, 0]=0.
-    #     Ttim[-h, 0,-h]=0.
-    #     Ttim[-h, 0, 0]=0.
-    #     Ttim[ 0,-h,-h]=0.
-    #     Ttim[ 0,-h, 0]=0.
-    #     Ttim[ 0, 0,-h]=0.
-    # Ttim[0, 0, 0]=0.
-    # Tt=Ttre+1j*Ttim 
-
-    # # apply the symmetries
-    # for kx in range(-h,H): 
-    #     kxf=flip(kx,Nvox)
-    #     for ky in range(-h,H):
-    #         kyf=flip(ky,Nvox)
-    #         for kz in range(-h,H):
-    #             kzf=flip(kz,Nvox)
-    #             Tt[kx,ky,kz]=np.conj(Tt[kxf,kyf,kzf]) # !!still in corner-based indices
-    
-    # T=np.fft.ifftn(Tt) # numpy needs array indexing to be corner-based to take FFTs
-    # T=(np.fft.fftshift(T)/dr3).real # send origin back to center (physics coordinates) and take T out of integral-land (it's real by this point [yes, I checked], but I do need to take the extra step of saving discarding the imag part [nonzero at roughly the machine precision level, O(1e-13)] to avoid future headaches)
-    # ##### END OF MANUAL APPROXIMATION TO IRFFTN
-
-    ##### START OF TRIAL CASE WHERE I USE IRFFTN TO AVOID HAVING TO APPLY THE SYMMETRIES MANUALLY
-    Tt=Ttre+1j*Ttim # still no symmetries 
-    T=np.fft.fftshift(np.fft.irfftn(Tt))/dr3
-    ##### END OF TRIAL CASE WHERE I USE IRFFTN TO AVOID HAVING TO APPLY THE SYMMETRIES MANUALLY
+    Tt=Ttre+1j*Ttim # no symmetries yet
+    T=np.fft.fftshift(np.fft.irfftn(Tt,s=(Nvox,Nvox,Nvox),axes=(0,1,2)))/dr3 # applies the symmetries automatically!
+    print("T.shape=",T.shape)
     print("Nvox=",Nvox,"box generated in",time.time()-t0,"s")
     return rgrid,T,rmags

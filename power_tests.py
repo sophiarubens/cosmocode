@@ -114,12 +114,8 @@ if test_bwd:
         kfl,P=np.genfromtxt(case,dtype='complex').T
         Npix=len(P)
 
-        # n_field_voxel_cases=[4,3]
-        # n_field_voxel_cases=[21,22]
-        # n_field_voxel_cases=[44,45] # 15 s
-        # n_field_voxel_cases=[65,66] # 24 s
-        # n_field_voxel_cases=[88,89] # 36 s
-        n_field_voxel_cases=[99,100] # 97 s
+        # n_field_voxel_cases=[99,100] # 4.8 s for the whole loop
+        n_field_voxel_cases=[199,200] # 22.2 s for the whole loop
         for j,n_field_voxels in enumerate(n_field_voxel_cases):
             tests=[0,n_field_voxels//2,n_field_voxels-3]
             rgen,Tgen,rmags=generate_box(P,kfl,Lsurvey,n_field_voxels)
