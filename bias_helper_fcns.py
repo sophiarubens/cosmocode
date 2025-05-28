@@ -137,7 +137,7 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     Pcont=higher_dim_conv(Wcont,P)
     return Pcont
 
-def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=200,n_sph_modes=500,nkpar_box=10,nkperp_box=12):
+def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,Nvox=200,n_sph_modes=500,nkpar_box=10,nkperp_box=12):
     """
     calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
     (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -148,46 +148,37 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
     eps_x      = fractional uncertainty in beamfwhm_x
     eps_y      = fractional uncertainty in beamfwhm_y
     n_realiz   = number of times to iterate the "generate a random realization of the Tb cube" -> "multiply by the beam in config space" -> "form PS with cylindrical bins of survey" step
-    ncubevox   = number of voxels per side to use when constructing random realization Tb cubes
+    Nvox   = number of voxels per side to use when constructing random realization Tb cubes
 
     returns
     contaminant power, calculated as an average over the "beam-modulated" PS resulting from the loop iterated n_realiz times 
     """
     print("entering calc_Pcont_asym")
-    h=pars[0]/100 # this relies on H0 being the first parameter in pars ... and more fundamentally, H0 being in the forecast at all
-    kmin_want=np.sqrt(kpar[0]**2+ kperp[0]**2)
-    kmax_want=np.sqrt(kpar[-1]**2+kperp[-1]**2)
-    print("calc_Pcont_asym: kmin_want,kmax_want=",kmin_want,kmax_want)
+    h=pars[0]/100 # typical disclaimer about cosmo param order being baked in...
+    kmin_want=np.min((kpar[0],kperp[0]))           # smallest scale we care to know about (the smallest mode on one of the cyl axes)
+    kmax_want=np.sqrt(kpar[-1]**2+kperp[-1]**2)    # largest scale we're interested in at any point (happens to be a spherical mode)
+    # print("calc_Pcont_asym: kmin_want,kmax_want=",kmin_want,kmax_want)
     ksph,Ptrue=get_mps(pars,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=500)
 
     nkpar=len(kpar)
     nkperp=len(kperp)
     Pconts=np.zeros((nkpar,nkperp,n_realiz)) # holder for the cylindrically binned power spectra (will make it easy to average later)
-    Lcube=twopi/(0.5*kmin_want) # prefac 1 is mathematically justified but prefac 0.5 builds in a buffer for avoiding extrap 
-    print("calc_Pcont_asym: Lcube calculated from conservative kmin_want:",Lcube)
+    Lcube=419 # new reasoning: Nvox~200 is a rough practicality ceiling for now, so how high can I go in k without sacrificing too much low k? Nvox=200,Lsurvey=419 reveals k~[0.015,1.5]
 
-    rbox,Tbox,rmags=generate_box(Ptrue,ksph,Lcube,ncubevox)
-    print("calc_Pcont_asym: from generate_box: rmags[0], rmags[ncubevox//2], rmags[-1]",rmags[0], rmags[ncubevox//2], rmags[-1])
+    rbox,Tbox,rmags=generate_box(Ptrue,ksph,Lcube,Nvox)
     X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
     response_true=    np.exp(-Z**2/(2*sigLoS             **2) -ln2*((X/ beamfwhm_x           )**2+(Y/ beamfwhm_y           )**2)/r0**2)
     response_thought= np.exp(-Z**2/(2*(sigLoS*(1-epsLoS))**2) -ln2*((X/(beamfwhm_x*(1-eps_x)))**2+(Y/(beamfwhm_y*(1-eps_y)))**2)/r0**2)
     T_x_true_resp=   Tbox* response_true
     T_x_thought_resp=Tbox* response_thought
-    print("calc_Pcont_asym: trying to triangulate the last moment before Lcube gets overwritten: Lcube=",Lcube)
     ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box)
-    print("calc_Pcont_asym: ktrue_intrinsic_to_box=",ktrue_intrinsic_to_box)
     kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lcube,nkpar_box,Nk1=nkperp_box)
-    print("calc_Pcont_asym: kthought_intrinsic_to_box=",kthought_intrinsic_to_box)
-    # print("Ptrue_intrinsic_to_box==Pthought_intrinsic_to_box:",Ptrue_intrinsic_to_box==Pthought_intrinsic_to_box)
     k_survey=(kpar,kperp)
-    print("...now devise more litmus tests in light of ^^ output")
     ktrue,   Ptrue=    interpolate_P(Ptrue_intrinsic_to_box,    ktrue_intrinsic_to_box,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
-    print("done interpolating Ptrue") # I think the problem is that I need to do a better job telling interpolate_P about which k-modes I want vs. have in these two calls
+    # print("done interpolating Ptrue") 
     kthought,Pthought= interpolate_P(Pthought_intrinsic_to_box, kthought_intrinsic_to_box, k_survey, avoid_extrapolation=False)
-    print("done interpolating Pthought")
+    # print("done interpolating Pthought")
     Pcont=Ptrue-Pthought
-    # print("Pcont=",Pcont)
-    # print("computed numerical Pcont")
     return Pcont
 
 def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):  
@@ -351,7 +342,7 @@ def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
         V[n,:,:]=cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
     return V
 
-def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,n_realiz=10,ncubevox=100,recalc_sym_Pcont=False):
+def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,n_realiz=10,Nvox=200,recalc_sym_Pcont=False):
     """
     args
     partials = ncp x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
@@ -380,7 +371,7 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
         Pcont=calc_Pcont_asym(pars,z,
                               kpar,kperp,
                               sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
-                              n_realiz,ncubevox=ncubevox,n_sph_modes=n_sph_modes) # calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,ncubevox=100,n_sph_modes=500)
+                              n_realiz,Nvox=Nvox,n_sph_modes=n_sph_modes) # calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,Nvox=200,n_sph_modes=500)
     plt.figure()
     plt.imshow(Pcont, origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]]) # origin="lower",extent=[L_lo,R_hi,T_lo,B_hi]
     plt.xlabel("k$_{||}$ (Mpc$^{-1}$)")

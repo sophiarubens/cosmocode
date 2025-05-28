@@ -156,7 +156,6 @@ def generate_P(T, mode, Lsurvey, Nk0, Nk1=0):
     """
     Nvox=T.shape[0]
     deltak_box=twopi/Lsurvey
-    print("generate_P: Lsurvey,Nvox,Nk0,Nk1=",Lsurvey,Nvox,Nk0,Nk1)
 
     k0bins,limiting_spacing_0=get_bins(Nvox,Lsurvey,Nk0,mode) # get_bins(Nvox,Lsurvey,Nk,mode)
     if (limiting_spacing_0<deltak_box):
@@ -193,7 +192,6 @@ def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
     outputs: 
     same format as the output of generate_P (which itself returns one copy of P_driver output)
     """
-    print("entering interpolate_P")
     if (len(k_have)==2): # still relying on the same somewhat hacky litmus test for sph vs. cyl as in generate_P (hacky because it is contingent on shuffling around the k-modes the way I have been)
         kpar_have,kperp_have=k_have
         kpar_have_lo=kpar_have[0]
@@ -222,27 +220,7 @@ def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
 
 def extrapolation_warning(regime,want,have):
     print("WARNING: if extrapolation is permitted in interpolate_P call, it will be conducted for {:15s} (want {:9.4}, have{:9.4})".format(regime,want,have))
-    return None
-
-def flip(n,Nvox):
-    """
-    philosophy:
-    if Nvox is even, send i=-Nvox//2 to -Nvox//2; for all other i, send i to -i
-
-    inputs:
-    n     = index you want to flip
-    odd   = flag (1/0, not actually boolean) for the number of voxels per side of the box
-    Nvox = number of voxels per box side
-
-    outputs:
-    index flipped according to the above philosophy
-    """
-    odd=Nvox%2
-    if ((not odd) and (n==-Nvox//2)):
-        pass
-    else:
-        n=-n
-    return n   
+    return None 
 
 def generate_box(P,k,Lsurvey,Nvox):
     """
@@ -295,6 +273,6 @@ def generate_box(P,k,Lsurvey,Nvox):
 
     Tt=Ttre+1j*Ttim # no symmetries yet
     T=np.fft.fftshift(np.fft.irfftn(Tt,s=(Nvox,Nvox,Nvox),axes=(0,1,2)))/dr3 # applies the symmetries automatically!
-    print("T.shape=",T.shape)
-    print("Nvox=",Nvox,"box generated in",time.time()-t0,"s")
+    # print("T.shape=",T.shape)
+    # print("Nvox=",Nvox,"box generated in",time.time()-t0,"s")
     return rgrid,T,rmags

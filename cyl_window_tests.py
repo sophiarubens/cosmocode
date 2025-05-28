@@ -45,23 +45,19 @@ beam_fwhm1=(1./8.)*pi/180.
 
 ############################## initializations related to cylindrically binned k-modes ########################################################################################################################
 kpar_surv=kpar(nu_ctr,channel_width,int(N_CHORDcosmo))
-floor=5 # how many low/high kpar channels to ignore at the edges, for forecasting purposes ... trying to circumvent extrap problems
-ceil=90
-# kpar_surv=kpar_surv[floor:-ceil] # CONSERVATIVE VERSION,, NOT RENAMING TO MINIMIZE THE NUMBER OF REQUIRED CALL UPDATES
+ceil=275 # set ceil=0 to recover the untruncated case without having to change any calls
+kpar_surv=kpar_surv[:-ceil] # CONSERVATIVE VERSION,, NOT RENAMING TO MINIMIZE THE NUMBER OF REQUIRED CALL UPDATES
 
-N_CHORDbaselines=1010 # upper bound from my formula is 1010 ... might be an overestimate if the gaps in the ultimate grid remove unique baselines instead of just redundancy (although I suspect they were careful to design CHORD so this does not happen)
+# N_CHORDbaselines=1010 # CHORD-512 (as long as receiver hut gaps remove redundancy only and not unique baselines, as I'm sure they planned)
+N_CHORDbaselines=123 # CHORD-64 (same caveat about the gaps)
 b_NS_CHORD=8.5 # m
 N_NS_CHORD=24
 b_EW_CHORD=6.3 # m
 N_EW_CHORD=22
 bminCHORD=6.3
-bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2) # fairly optimistic (this baseline only exists 2x in the whole array) # b_NS_CHORD*N_NS_CHORD # b_EW_CHORD*N_EW_CHORD # two options for a case where I'm interested in truncating a bit to avoid looking at such "rare" long baselines
+# bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2) # optimistic (includes low-redundancy baselines for CHORD-512) 
+bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2) # pathfinder (as per the CHORD-all telecon on May 26th, but without holes)
 kperp_surv=kperp(nu_ctr,N_CHORDbaselines,bminCHORD,bmaxCHORD) # kperp(nu_ctr,N_modes,bmin,bmax)
-# N_NS_CHORD_conservative=N_NS_CHORD-2 # if I'd even read my own warnings, I'd have realized that being overly granular with kperp is not one of my current problems
-# N_EW_CHORD_conservative=N_EW_CHORD-2
-# N_CHORDbaselines_conservative=2*(N_NS_CHORD_conservative)*(N_EW_CHORD_conservative)-N_NS_CHORD_conservative-N_EW_CHORD_conservative
-# bmaxCHORD_conservative=np.sqrt((b_NS_CHORD*N_NS_CHORD_conservative)**2+(b_EW_CHORD*N_EW_CHORD_conservative)**2)
-# kperp_surv_conservative=kperp(nu_ctr,N_CHORDbaselines_conservative,bminCHORD,bmaxCHORD_conservative)
 
 n_sph_pts_test=450 # this choice is not (yet) mathematically motivated; it's just a reasonable-seeming initial compromise between pedantry and the reality that, at the end of the day, this is an exercise in interpolation
 kpar_surv_grid,kperp_surv_grid,Pcyl=unbin_to_Pcyl(kpar_surv,kperp_surv,z_ctr,n_sph_modes=n_sph_pts_test)
@@ -90,12 +86,13 @@ if verbose_test_prints: # fans of well-formatted print statements look away now.
     print("cylindrically binned k-bin sensitivity..................................................\n    fraction of Pcyl amplitude = {:>7.4}".format(fractional_2d_sense))
 
 ############################## actual pipeline test ########################################################################################################################
-calc_P_cyl_partials=False
+calc_P_cyl_partials=True
 if calc_P_cyl_partials:
     P_cyl_partials=build_cyl_partials(pars_Planck18,z_ctr,n_sph_pts_test,kpar_surv,kperp_surv,dpar)
     np.save("P_cyl_partials.npy",P_cyl_partials)
 else:
     P_cyl_partials=np.load("P_cyl_partials.npy")
+    # P_cyl_partials=P_cyl_partials[:-ceil,:] # truncate manually to avoid having to recalculate every time I try a different k-mode subset case
 
 # assert(1==0), "re-debugging cyl partial deriv calc adaptive step size"
 b_cyl_sym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
@@ -115,6 +112,6 @@ b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                     #   0.,0.,
                       z_ctr,n_sph_pts_test,
                       cyl_sym_resp=False, 
-                      fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test ,n_realiz=n_asym_realiz_test, Nvox=100)
+                      fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test ,n_realiz=n_asym_realiz_test, Nvox=200)
                     #   fwhmbeam1=beam_fwhm1, epsbeam1=0. ,n_realiz=n_asym_realiz_test)
 printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
