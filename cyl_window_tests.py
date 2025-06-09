@@ -105,6 +105,7 @@ b_cyl_sym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                      savename="cyl_sym")
 printparswbiases(pars_Planck18,parnames,b_cyl_sym_resp )
 
+# assert(1==0), "checking cylindrically symmetric/ analytic sigmas"
 print("cyl asym case:")
 b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                       kpar_surv,kperp_surv,
@@ -124,6 +125,8 @@ Pcont_cyl_sym= np.load("Pcont_cyl_sym.npy")
 Pcont_cyl_asym=np.load("Pcont_cyl_asym.npy")
 fig,axs=plt.subplots(1,4,figsize=(20,5))
 im=axs[0].pcolor(kpar_surv_grid,kperp_surv_grid,Pcont_cyl_sym)
+
+# axs[0].axhline(epsbeam1_test, label="epsbeam1_test")
 plt.colorbar(im,ax=axs[0])
 axs[0].set_title("Pcont - cyl sym version")
 im=axs[1].pcolor(kpar_surv_grid,kperp_surv_grid,Pcont_cyl_asym)
@@ -135,9 +138,22 @@ axs[2].set_title("Pcont - ratio of sym/asym versions")
 im=axs[3].pcolor(kpar_surv_grid,kperp_surv_grid,Pcont_cyl_sym-Pcont_cyl_asym)
 plt.colorbar(im,ax=axs[3])
 axs[3].set_title("(Pcont - cyl sym) - (Pcont - cyl asym)")
+
+par_line=1./(np.sqrt(2)*sig_LoS)
+perp_line=np.sqrt(ln2)/(Dc_ctr*beam_fwhm1)
+
 for i in range(4):
+    # perp_line=ln2/(np.sqrt(2)*Dc_ctr*beam_fwhm1)
+    axs[i].axhline(perp_line, label="perp sigma for analytical Wtrue", c="C0")
+    # par_line=1./(np.sqrt(2)*sig_LoS)
+    axs[i].axvline(par_line,  label="par sigma for analytical Wtrue",  c="C1")
+    if i==0:
+        print("adding par_line and perp_line to plot 0:",par_line,perp_line)
+
     axs[i].set_xlabel("k$_{||}$ (Mpc$^{-1}$)")
     axs[i].set_ylabel("k$_\perp$ (Mpc$^{-1}$)")
+
+    axs[i].legend()
 plt.suptitle("inspection and comparison of Pcont calculation strategies")
 plt.tight_layout()
 plt.savefig("inspect_compare_Pcont_strats.png")

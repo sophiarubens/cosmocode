@@ -88,11 +88,32 @@ def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False,beamtype="Gaussian"):
     """
     wrapper to multiply the LoS and flat sky approximation sky plane terms of the cylindrically binned window function, for the grid described by the k-parallel and k-perp modes of the survey of interest
     """
-    # par_vec=calc_par_vec(kpar,sigLoS,r0)
-    # perp_vec=calc_perp_vec(kperp,r0,fwhmbeam,beamtype=beamtype)
-    par_vec=twopi*sigLoS**2*np.exp(-kpar**2*sigLoS**2)
-    alpha=ln2/(fwhmbeam*r0)**2
-    perp_vec=np.exp(-kperp**2/(2*alpha))
+
+    ##
+    deltakpar=kpar-kpar[0]
+    deltakperp=kperp-kperp[0]
+    par_vec= np.exp(-deltakpar**2*sigLoS**2)
+    perp_vec=np.exp(-(r0*fwhmbeam*deltakperp)**2/(2.*ln2))
+    _,axs=plt.subplots(1,2)
+    par_line=1./(np.sqrt(2)*sigLoS)
+    perp_line=np.sqrt(ln2)/(r0*fwhmbeam)
+    axs[0].plot(deltakpar,par_vec)
+    axs[0].axvline(par_line, label="expected", c="C1")
+    axs[0].set_title("par term")
+    axs[1].plot(deltakperp,perp_vec)
+    axs[1].axvline(perp_line,  label="expected",  c="C1")
+    axs[1].set_title("perp term")
+    for i in range(2):
+        axs[i].axhline(np.exp(-0.5), label="1sigma amplitude", c="C2")
+        axs[i].legend()
+        axs[i].set_ylabel("unnormalized windowing amplitude")
+        axs[i].set_xlabel("k-k[0] (1/Mpc) for cpt of interest")
+    plt.suptitle("check window sigmas for analytical Wtrue")
+    plt.tight_layout()    
+    plt.savefig("W_analytical_check.png")
+    plt.show()
+    ##
+
     par_arr,perp_arr=np.meshgrid(par_vec,perp_vec,indexing="ij")
     meshed=par_arr*perp_arr # I really do want elementwise multiplication
     rawsum=np.sum(meshed)
@@ -341,6 +362,7 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
         V[i,:,:]=partials[i,:,:]/unc # elementwise division for an nkpar x nkperp slice
     V_completely_transposed=np.transpose(V,axes=(2,1,0)) # from the docs: "For an n-D array, if axes are given, their order indicates how the axes are permuted"
     F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
+    print("computed F")
     if cyl_sym_resp:
         if recalc_sym_Pcont:
             Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,save=save,savename=savename,beamtype=beamtype)
@@ -351,18 +373,13 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
                               kpar,kperp,
                               sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
                               Nvox=Nvox,n_sph_modes=n_sph_modes) 
+    print("computed Pcont")
     np.save("Pcont_"+savename+".npy",Pcont)
-    # plt.figure()
-    # plt.imshow(Pcont, origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]]) # origin="lower",extent=[L_lo,R_hi,T_lo,B_hi]
-    # plt.xlabel("k$_{||}$ (Mpc$^{-1}$)")
-    # plt.ylabel("k$_{\perp}$ (Mpc$^{-1}$)")
-    # plt.title("Pcont for cyl_sym_resp={:b}".format(cyl_sym_resp))
-    # plt.colorbar()
-    # plt.savefig("Pcont_cyl_sym_{:b}.png".format(cyl_sym_resp))
-    # plt.show()
     Pcont_div_sigma=Pcont/unc
     B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)
+    print("computed B")
     bias=(np.linalg.inv(F)@B).reshape((F.shape[0],))
+    print("computed b")
     return bias
 
 def printparswbiases(pars,parnames,biases):
