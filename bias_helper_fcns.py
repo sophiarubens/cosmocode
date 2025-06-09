@@ -164,10 +164,8 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
 
     Lcube=419 # new reasoning: Nvox~200 is a rough practicality ceiling for now, so how high can I go in k without sacrificing too much low k? Nvox=200,Lsurvey=419 reveals k~[0.015,1.5]
 
-    rbox,Tbox,rmags=generate_box(Ptrue,ksph,Lcube,Nvox)
+    _,Tbox,rmags=generate_box(Ptrue,ksph,Lcube,Nvox)
     X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
-    # response_true=    np.exp(-Z**2/(2*sigLoS             **2) -ln2*((X/ beamfwhm_x           )**2+(Y/ beamfwhm_y           )**2)/r0**2)
-    # response_thought= np.exp(-Z**2/(2*(sigLoS*(1-epsLoS))**2) -ln2*((X/(beamfwhm_x*(1-eps_x)))**2+(Y/(beamfwhm_y*(1-eps_y)))**2)/r0**2)
     response_true=    custom_response(X,Y,Z, sigLoS,           beamfwhm_x,          beamfwhm_y,          r0)
     response_thought= custom_response(X,Y,Z, sigLoS*(1-epsLoS),beamfwhm_x*(1-eps_x),beamfwhm_y*(1-eps_y),r0)
     T_x_true_resp=   Tbox* response_true
@@ -176,8 +174,8 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
     ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
     kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
     k_survey=(kpar,kperp)
-    ktrue,   Ptrue=    interpolate_P(Ptrue_intrinsic_to_box,    ktrue_intrinsic_to_box,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
-    kthought,Pthought= interpolate_P(Pthought_intrinsic_to_box, kthought_intrinsic_to_box, k_survey, avoid_extrapolation=False)
+    _,   Ptrue= interpolate_P(Ptrue_intrinsic_to_box,    ktrue_intrinsic_to_box,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
+    _,Pthought= interpolate_P(Pthought_intrinsic_to_box, kthought_intrinsic_to_box, k_survey, avoid_extrapolation=False)
     Pcont=Ptrue-Pthought
     return Pcont
 
@@ -342,7 +340,7 @@ def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
         V[n,:,:]=cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
     return V
 
-def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,Nvox=200,recalc_sym_Pcont=False):
+def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,Nvox=200,recalc_Pcont=False):
     """
     args
     partials = ncp x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
@@ -363,16 +361,17 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
     V_completely_transposed=np.transpose(V,axes=(2,1,0)) # from the docs: "For an n-D array, if axes are given, their order indicates how the axes are permuted"
     F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
     print("computed F")
-    if cyl_sym_resp:
-        if recalc_sym_Pcont:
+    if recalc_Pcont:
+        if cyl_sym_resp:
             Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,save=save,savename=savename,beamtype=beamtype)
         else:
-            Pcont=np.load(savename) # not sure if this is even still viable ... but not of the utmost importance at the moment bc I end up recalculating bc no longer difficult
-    else: 
-        Pcont=calc_Pcont_asym(pars,z,
-                              kpar,kperp,
-                              sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
-                              Nvox=Nvox,n_sph_modes=n_sph_modes) 
+            Pcont=calc_Pcont_asym(pars,z,
+                                  kpar,kperp,
+                                  sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
+                                  Nvox=Nvox,n_sph_modes=n_sph_modes) 
+    else:
+        Pcont=np.load(savename)
+
     print("computed Pcont")
     np.save("Pcont_"+savename+".npy",Pcont)
     Pcont_div_sigma=Pcont/unc
