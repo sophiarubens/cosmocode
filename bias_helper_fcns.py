@@ -84,31 +84,15 @@ def higher_dim_conv(ff,gg):
     result=result_p[:a,:b]
     return result
 
-def calc_par_vec(kpar,sigLoS,r0): # this was initially separated into its own function because there was a lot more going on under the hood when my integral was wrong
-    """
-    LoS term of the cylindrically binned window function, calculated for the k-parallel modes in the survey
-    """
-    expterm=twopi*sigLoS**2*np.exp(-kpar**2*sigLoS**2)
-    return expterm
-
-def calc_perp_vec(kperp,r0,fwhmbeam,beamtype="Gaussian"):
-    """
-    flat sky approximation sky plane term of the cylindrically binned window function, calculated for the k-perp modes in the survey
-    """
-    beamtype=beamtype.lower()
-    if beamtype=="gaussian":
-        alpha=ln2/(fwhmbeam*r0)**2
-        vec=np.exp(-kperp**2/(2*alpha))
-    else: 
-        assert(1==0), "only a Gaussian beam is currently supported"
-    return vec
-
-def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False,savename="test",beamtype="Gaussian"):
+def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False,beamtype="Gaussian"):
     """
     wrapper to multiply the LoS and flat sky approximation sky plane terms of the cylindrically binned window function, for the grid described by the k-parallel and k-perp modes of the survey of interest
     """
-    par_vec=calc_par_vec(kpar,sigLoS,r0)
-    perp_vec=calc_perp_vec(kperp,r0,fwhmbeam,beamtype=beamtype)
+    # par_vec=calc_par_vec(kpar,sigLoS,r0)
+    # perp_vec=calc_perp_vec(kperp,r0,fwhmbeam,beamtype=beamtype)
+    par_vec=twopi*sigLoS**2*np.exp(-kpar**2*sigLoS**2)
+    alpha=ln2/(fwhmbeam*r0)**2
+    perp_vec=np.exp(-kperp**2/(2*alpha))
     par_arr,perp_arr=np.meshgrid(par_vec,perp_vec,indexing="ij")
     meshed=par_arr*perp_arr # I really do want elementwise multiplication
     rawsum=np.sum(meshed)
@@ -124,8 +108,8 @@ def calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam,save="False",savenam
     """
     calculate the "contaminant" windowing amplitude that will help give rise to the so-called "contaminant power"
     """
-    Wtrue=   W_cyl_binned(kpar,kperp,sigLoS,           r0,fwhmbeam,            save=save,savename=savename,beamtype=beamtype)
-    Wthought=W_cyl_binned(kpar,kperp,sigLoS*(1-epsLoS),r0,fwhmbeam*(1-epsbeam),save=save,savename=savename,beamtype=beamtype) # FOR NOW: BAKED IN THAT THE "THOUGHT" WIDTH RESPONSE PARAMS ARE UNDERESTIMATES FOR POSITIVE EPS
+    Wtrue=   W_cyl_binned(kpar,kperp,sigLoS,           r0,fwhmbeam,            save=save,beamtype=beamtype)
+    Wthought=W_cyl_binned(kpar,kperp,sigLoS*(1-epsLoS),r0,fwhmbeam*(1-epsbeam),save=save,beamtype=beamtype) # FOR NOW: BAKED IN THAT THE "THOUGHT" WIDTH RESPONSE PARAMS ARE UNDERESTIMATES FOR POSITIVE EPS
     return Wtrue-Wthought
 
 def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None): 
@@ -137,7 +121,7 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     Pcont=higher_dim_conv(Wcont,P)
     return Pcont
 
-def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,Nvox=200,n_sph_modes=500,nkpar_box=10,nkperp_box=12):
+def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=200,n_sph_modes=500,nkpar_box=10,nkperp_box=12):
     """
     calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
     (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -147,39 +131,37 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
     beamfwhm_y = "                 " the other "                    "
     eps_x      = fractional uncertainty in beamfwhm_x
     eps_y      = fractional uncertainty in beamfwhm_y
-    n_realiz   = number of times to iterate the "generate a random realization of the Tb cube" -> "multiply by the beam in config space" -> "form PS with cylindrical bins of survey" step
     Nvox   = number of voxels per side to use when constructing random realization Tb cubes
 
     returns
-    contaminant power, calculated as an average over the "beam-modulated" PS resulting from the loop iterated n_realiz times 
+    contaminant power, calculated as the difference of subtracted spectra with config space–multiplied "true" and "thought" instrument responses
     """
-    print("entering calc_Pcont_asym")
     h=pars[0]/100 # typical disclaimer about cosmo param order being baked in...
     kmin_want=np.min((kpar[0],kperp[0]))           # smallest scale we care to know about (the smallest mode on one of the cyl axes)
     kmax_want=np.sqrt(kpar[-1]**2+kperp[-1]**2)    # largest scale we're interested in at any point (happens to be a spherical mode)
-    # print("calc_Pcont_asym: kmin_want,kmax_want=",kmin_want,kmax_want)
     ksph,Ptrue=get_mps(pars,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=500)
 
-    nkpar=len(kpar)
-    nkperp=len(kperp)
-    Pconts=np.zeros((nkpar,nkperp,n_realiz)) # holder for the cylindrically binned power spectra (will make it easy to average later)
     Lcube=419 # new reasoning: Nvox~200 is a rough practicality ceiling for now, so how high can I go in k without sacrificing too much low k? Nvox=200,Lsurvey=419 reveals k~[0.015,1.5]
 
     rbox,Tbox,rmags=generate_box(Ptrue,ksph,Lcube,Nvox)
     X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
-    response_true=    np.exp(-Z**2/(2*sigLoS             **2) -ln2*((X/ beamfwhm_x           )**2+(Y/ beamfwhm_y           )**2)/r0**2)
-    response_thought= np.exp(-Z**2/(2*(sigLoS*(1-epsLoS))**2) -ln2*((X/(beamfwhm_x*(1-eps_x)))**2+(Y/(beamfwhm_y*(1-eps_y)))**2)/r0**2)
+    # response_true=    np.exp(-Z**2/(2*sigLoS             **2) -ln2*((X/ beamfwhm_x           )**2+(Y/ beamfwhm_y           )**2)/r0**2)
+    # response_thought= np.exp(-Z**2/(2*(sigLoS*(1-epsLoS))**2) -ln2*((X/(beamfwhm_x*(1-eps_x)))**2+(Y/(beamfwhm_y*(1-eps_y)))**2)/r0**2)
+    response_true=    custom_response(X,Y,Z, sigLoS,           beamfwhm_x,          beamfwhm_y,          r0)
+    response_thought= custom_response(X,Y,Z, sigLoS*(1-epsLoS),beamfwhm_x*(1-eps_x),beamfwhm_y*(1-eps_y),r0)
     T_x_true_resp=   Tbox* response_true
     T_x_thought_resp=Tbox* response_thought
-    ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box)
-    kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lcube,nkpar_box,Nk1=nkperp_box)
+    bundled_args=(sigLoS,beamfwhm_x,beamfwhm_y,r0,)
+    ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
+    kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
     k_survey=(kpar,kperp)
     ktrue,   Ptrue=    interpolate_P(Ptrue_intrinsic_to_box,    ktrue_intrinsic_to_box,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
-    # print("done interpolating Ptrue") 
     kthought,Pthought= interpolate_P(Pthought_intrinsic_to_box, kthought_intrinsic_to_box, k_survey, avoid_extrapolation=False)
-    # print("done interpolating Pthought")
     Pcont=Ptrue-Pthought
     return Pcont
+
+def custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0):
+    return np.exp(-Z**2/(2*sigLoS**2) -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
 
 def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):  
     """
@@ -271,7 +253,6 @@ def get_mps(pars,z,minkh=1e-4,maxkh=1,n_sph_modes=500):
     pars=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0)
     pars.InitPower.set_params(As=As,ns=ns,r=0)
     pars.set_matter_power(redshifts=z, kmax=maxkh*h)
-    lin=True
     results = camb.get_results(pars)
     pars.NonLinear = model.NonLinear_none
     kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=n_sph_modes)
@@ -290,8 +271,6 @@ def cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=200,ftol=1e-6,eps=1e-16,max
     """
     done=False
     iter=0
-    nkpar=len(kpar)
-    nkperp=len(kperp)
     dparn=dpar[n]
     pcopy=pars.copy()
     pndispersed=pcopy[n]+np.linspace(-2,2,5)*dparn
@@ -342,7 +321,7 @@ def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
         V[n,:,:]=cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
     return V
 
-def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,n_realiz=10,Nvox=200,recalc_sym_Pcont=False):
+def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,Nvox=200,recalc_sym_Pcont=False):
     """
     args
     partials = ncp x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
@@ -366,20 +345,21 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
         if recalc_sym_Pcont:
             Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,save=save,savename=savename,beamtype=beamtype)
         else:
-            Pcont=np.load(savename) # not sure if this is even right ... but it might not even be of the utmost importance at the moment (focusing on the asym case atm)
+            Pcont=np.load(savename) # not sure if this is even still viable ... but not of the utmost importance at the moment bc I end up recalculating bc no longer difficult
     else: 
         Pcont=calc_Pcont_asym(pars,z,
                               kpar,kperp,
                               sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
-                              n_realiz,Nvox=Nvox,n_sph_modes=n_sph_modes) # calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,n_realiz,Nvox=200,n_sph_modes=500)
-    plt.figure()
-    plt.imshow(Pcont, origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]]) # origin="lower",extent=[L_lo,R_hi,T_lo,B_hi]
-    plt.xlabel("k$_{||}$ (Mpc$^{-1}$)")
-    plt.ylabel("k$_{\perp}$ (Mpc$^{-1}$)")
-    plt.title("Pcont for cyl_sym_resp={:b}".format(cyl_sym_resp))
-    plt.colorbar()
-    plt.savefig("Pcont_cyl_sym_{:b}.png".format(cyl_sym_resp))
-    plt.show()
+                              Nvox=Nvox,n_sph_modes=n_sph_modes) 
+    np.save("Pcont_"+savename+".npy",Pcont)
+    # plt.figure()
+    # plt.imshow(Pcont, origin="lower",extent=[kpar[0],kpar[-1],kperp[0],kperp[-1]]) # origin="lower",extent=[L_lo,R_hi,T_lo,B_hi]
+    # plt.xlabel("k$_{||}$ (Mpc$^{-1}$)")
+    # plt.ylabel("k$_{\perp}$ (Mpc$^{-1}$)")
+    # plt.title("Pcont for cyl_sym_resp={:b}".format(cyl_sym_resp))
+    # plt.colorbar()
+    # plt.savefig("Pcont_cyl_sym_{:b}.png".format(cyl_sym_resp))
+    # plt.show()
     Pcont_div_sigma=Pcont/unc
     B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)
     bias=(np.linalg.inv(F)@B).reshape((F.shape[0],))

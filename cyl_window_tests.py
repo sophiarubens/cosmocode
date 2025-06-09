@@ -17,9 +17,9 @@ nu_rest_21=1420.405751768 # MHz
 
 ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
 scale=1e-9
-pars_Planck18=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  AS_Planck18,  ns_Planck18])
-parnames=                ['H_0',       'Omega_b h**2',      'Omega_c h**2',      'A_S',        'n_s'       ]
-# parnames_LaTeX=          ['$H_0$',     '$\Omega_b h^2$',   '$\Omega_c h^2$',   '$A_S$',      '$n_s$'     ]
+pars_Planck18=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  AS_Planck18,           ns_Planck18])
+parnames=                ['H_0',       'Omega_b h**2',      'Omega_c h**2',      '10**9 * A_S',        'n_s'       ]
+# parnames_LaTeX=          ['$H_0$',     '$\Omega_b h^2$',   '$\Omega_c h^2$',   '$10**9 * A_S$',      '$n_s$'     ]
 pars_Planck18[3]/=scale
 nprm=len(pars_Planck18)
 dpar=1e-3*np.ones(nprm) # gets overwritten by the adaptive stepper in my numerical differentiator if ill-suited to any case I care to test (although it seems to do okay for my tests so far!)
@@ -41,7 +41,8 @@ deltaz=z_hi-z_lo
 surv_channels=np.arange(nu_lo,nu_hi,channel_width)
 sig_LoS=0.25*(Dc_ctr-Dc_lo)/10 # dialing in the bound set by condition following from linearization...
 beam_fwhm0=(1./12.)*pi/180. # CHORD pathfinder spec page
-beam_fwhm1=(1./8.)*pi/180.
+beam_fwhm1=(1./12.)*pi/180.
+# beam_fwhm1=(1./8.)*pi/180.
 
 ############################## initializations related to cylindrically binned k-modes ########################################################################################################################
 kpar_surv=kpar(nu_ctr,channel_width,int(N_CHORDcosmo))
@@ -69,8 +70,7 @@ sigma_kpar_kperp=fractional_2d_sense*Pcyl
 epsLoS_test= 0.1 # the epsilons are fractional uncertainties in each epsilon
 epsbeam0_test=0.1
 epsbeam1_test=0.1
-n_asym_realiz_test=5
-# epsLoS_test=0. # the limit works on paper... but does it work in my code? YES! (leave commented as a reminder to check again after any potential future paradigm shifts in my code)
+# epsLoS_test=0. # limit works on paper...and in my code as of 15:25 28.05.25 (!!REMEMBER TO RE-CHECK AFTER ANY CODE PARADIGM SHIFTS)
 # epsbeam_test=0.
 
 ############################## one-stop shop for printed verification of survey characteristics ########################################################################################################################
@@ -86,24 +86,26 @@ if verbose_test_prints: # fans of well-formatted print statements look away now.
     print("cylindrically binned k-bin sensitivity..................................................\n    fraction of Pcyl amplitude = {:>7.4}".format(fractional_2d_sense))
 
 ############################## actual pipeline test ########################################################################################################################
-calc_P_cyl_partials=True
+calc_P_cyl_partials=False
 if calc_P_cyl_partials:
     P_cyl_partials=build_cyl_partials(pars_Planck18,z_ctr,n_sph_pts_test,kpar_surv,kperp_surv,dpar)
     np.save("P_cyl_partials.npy",P_cyl_partials)
 else:
     P_cyl_partials=np.load("P_cyl_partials.npy")
-    # P_cyl_partials=P_cyl_partials[:-ceil,:] # truncate manually to avoid having to recalculate every time I try a different k-mode subset case
 
-# assert(1==0), "re-debugging cyl partial deriv calc adaptive step size"
+print("cyl sym case:")
 b_cyl_sym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                      kpar_surv,kperp_surv,
                      sig_LoS,Dc_ctr,beam_fwhm0,
                      pars_Planck18,
                      epsLoS_test,epsbeam0_test,
+                    # 0.,0.,
                      z_ctr,n_sph_pts_test,
-                     recalc_sym_Pcont=True)
+                     recalc_sym_Pcont=True, 
+                     savename="cyl_sym")
 printparswbiases(pars_Planck18,parnames,b_cyl_sym_resp )
 
+print("cyl asym case:")
 b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                       kpar_surv,kperp_surv,
                       sig_LoS,Dc_ctr,beam_fwhm0,
@@ -112,6 +114,31 @@ b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                     #   0.,0.,
                       z_ctr,n_sph_pts_test,
                       cyl_sym_resp=False, 
-                      fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test ,n_realiz=n_asym_realiz_test, Nvox=200)
-                    #   fwhmbeam1=beam_fwhm1, epsbeam1=0. ,n_realiz=n_asym_realiz_test)
+                      fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test,
+                    #   fwhmbeam1=beam_fwhm1, epsbeam1=0.,
+                      savename="cyl_asym")
 printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
+
+## debug zone to inspect the Pconts more closely for the two cases (this term is responsible for all the differences in the results between the two bias calc strategies at the moment)
+Pcont_cyl_sym= np.load("Pcont_cyl_sym.npy")
+Pcont_cyl_asym=np.load("Pcont_cyl_asym.npy")
+fig,axs=plt.subplots(1,4,figsize=(20,5))
+im=axs[0].pcolor(kpar_surv_grid,kperp_surv_grid,Pcont_cyl_sym)
+plt.colorbar(im,ax=axs[0])
+axs[0].set_title("Pcont - cyl sym version")
+im=axs[1].pcolor(kpar_surv_grid,kperp_surv_grid,Pcont_cyl_asym)
+plt.colorbar(im,ax=axs[1])
+axs[1].set_title("Pcont - cyl asym version")
+im=axs[2].pcolor(kpar_surv_grid,kperp_surv_grid,Pcont_cyl_sym/Pcont_cyl_asym)
+plt.colorbar(im,ax=axs[2])
+axs[2].set_title("Pcont - ratio of sym/asym versions")
+im=axs[3].pcolor(kpar_surv_grid,kperp_surv_grid,Pcont_cyl_sym-Pcont_cyl_asym)
+plt.colorbar(im,ax=axs[3])
+axs[3].set_title("(Pcont - cyl sym) - (Pcont - cyl asym)")
+for i in range(4):
+    axs[i].set_xlabel("k$_{||}$ (Mpc$^{-1}$)")
+    axs[i].set_ylabel("k$_\perp$ (Mpc$^{-1}$)")
+plt.suptitle("inspection and comparison of Pcont calculation strategies")
+plt.tight_layout()
+plt.savefig("inspect_compare_Pcont_strats.png")
+plt.show()

@@ -1,6 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.interpolate import interpn,interp1d
+from scipy.integrate import tplquad
 import time
 
 pi=np.pi
@@ -24,7 +25,7 @@ call structure:
 class ResolutionError(Exception):
     pass
 
-def P_driver(T, k, Lsurvey):
+def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
     """
     philosophy:
     * generate a power spectrum consistent with a brightness temperature box for which you already know the k-bins
@@ -32,11 +33,13 @@ def P_driver(T, k, Lsurvey):
       If instrument considerations (channel width and baseline distribution) lead you to be interested in the power spectrum at some other k-modes, you should interpolate the output of generate_P
 
     inputs:
-    T       = Nvox x Nvox x Nvox data box for which you wish to create the power spectrum
-    k       = k-bins for power spectrum indexing ... designed to be provided by one of two wrapper functions: user-created (custom) bins or automatically generated (linear- or log-spaced) bins
-                 - shape (Nk,) or similar (e.g. (Nk,1) or (1,Nk)) for spherical binning
-                 - shape [(Nkpar,),(Nkperp,)] or similar for cylindrical binning
-    Lsurvey = side length of the cosmological box (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
+    T                = Nvox x Nvox x Nvox data box for which you wish to create the power spectrum
+    k                = k-bins for power spectrum indexing ... designed to be provided by one of two wrapper functions: user-created (custom) bins or automatically generated (linear- or log-spaced) bins
+                         - shape (Nk,) or similar (e.g. (Nk,1) or (1,Nk)) for spherical binning
+                         - shape [(Nkpar,),(Nkperp,)] or similar for cylindrical binning
+    Lsurvey          = side length of the cosmological box (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
+    custom_estimator = if not False, a callable defined in CARTESIAN coordinates to integrate from -Lsurvey/2 to Lsurvey/2 along all three axes to get the estimator denominator for the case of a nontrivial instrument response
+    custom_estimator_args = if not None, the "parameters" (i.e. not variables) in custom_estimator; realistically, (sigLoS,beamfwhm1,beamfwhm2,)
 
     outputs:
     k-modes and powers of the power spectrum
@@ -62,8 +65,8 @@ def P_driver(T, k, Lsurvey):
     mTt = mTt.real                # I checked, and there aren't even any machine precision issues in the imag part
 
     # establish Cartesian Fourier duals to box coordinates
-    k_vec_for_box= twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta))
-    kx_box_grid,ky_box_grid,kz_box_grid=      np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier duals to config space coords (ofc !not !yet !binned)
+    k_vec_for_box=                       twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta))
+    kx_box_grid,ky_box_grid,kz_box_grid= np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier duals to config space coords (ofc !not !yet !binned)
 
     if (binto=="sph"):
         Nk=lenk # number of k-modes to put in the power spectrum
@@ -120,7 +123,12 @@ def P_driver(T, k, Lsurvey):
     # translate to power spectrum terms
     nonemptybins=np.nonzero(NmTt)
     amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
-    P=np.array(amTt/V)
+    if (not custom_estimator):
+        denom=V
+    else:
+        bound=Lsurvey/2
+        denom,_=tplquad(custom_estimator,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
+    P=np.array(amTt/denom)
     return [k,P]
 
 def get_bins(Nvox,Lsurvey,Nk,mode):
@@ -138,19 +146,20 @@ def get_bins(Nvox,Lsurvey,Nk,mode):
         assert(1==0), "only log and linear binning are currently supported"
     return kbins,limiting_spacing
 
-def generate_P(T, mode, Lsurvey, Nk0, Nk1=0):
+def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, custom_estimator=False,custom_estimator_args=None):
     """
     philosophy:
     * generate a spherically binned power spectrum with lin- or log-spaced bins, consistent with a given brightness temperature box
     * wrapper function for the power spectrum function P_driver(T, k, Lsurvey, Nvox) 
 
     inputs:
-    T       = Nvox x Nvox x Nvox data box for which you wish to create the power spectrum
-    mode    = binning mode (linear or logarithmic)
-    Lsurvey = side length of the cosmological box (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
-    Nk0      = number of k-bins to include in the power spectrum (if this is the only nonzero Nk, the power spectrum will be binned spherically)
-    Nk1     = number of k-bins to include along axis=1 of the power spectrum (if nonzero, the power spectrum will be binned cylindrically)
-
+    T                = Nvox x Nvox x Nvox data box for which you wish to create the power spectrum
+    mode             = binning mode (linear or logarithmic)
+    Lsurvey          = side length of the cosmological box (Mpc)
+    Nk0              = number of k-bins to include in the power spectrum (if this is the only nonzero Nk, the power spectrum will be binned spherically)
+    Nk1              = number of k-bins to include along axis=1 of the power spectrum (if nonzero, the power spectrum will be binned cylindrically)
+    custom_estimator = if not False, a callable defined in CARTESIAN coordinates to integrate from -Lsurvey/2 to Lsurvey/2 along all three axes to get the estimator denominator for the case of a nontrivial instrument response
+    
     outputs:
     one copy of P_driver() output
     """
@@ -168,7 +177,7 @@ def generate_P(T, mode, Lsurvey, Nk0, Nk1=0):
         kbins=[k0bins,k1bins]
     else:
         kbins=k0bins
-    return P_driver(T,kbins,Lsurvey)
+    return P_driver(T,kbins,Lsurvey,custom_estimator=custom_estimator,custom_estimator_args=custom_estimator_args)
 
 def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
     """
