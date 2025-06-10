@@ -58,61 +58,36 @@ def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
     N=NDeltanu/Deltanu
     return NDeltanu,N
 
-def higher_dim_conv(ff,gg):
-    """
-    args
-    ff, gg = two 2D arrays you want to convolve (should have the same shape)
+def get_padding(n):
+    padding=n-1
+    padding_lo=int(np.ceil(padding / 2))
+    padding_hi=padding-padding_lo
+    return padding_lo,padding_hi
 
-    returns
-    wraparound-protected scipy.signal.convolve(ff[a-c,b-d],gg[a,b]) conditioned to mimic the tensor multiplication np.einsum(ff[a,b,c,d],gg[a,b]) **intermediate math-code notation for clarity
-    """
-    f=np.asarray(ff)
-    g=np.asarray(gg)
-    if (f.shape!=g.shape):
-        if(f.shape!=(g.T).shape):
-            assert(1==0), "incompatible array shapes"
-        else: # need to transpose g for things to work as expected (fcn relies on f and g having the same shape)
-            g=g.T
-    a,b=f.shape # if eval makes it to this point, f.shape==g.shape is True
+def higher_dim_conv(P,Wcont):
+    Pshape=P.shape
+    Wcontshape=Wcont.shape
+    if (Pshape!=Wcontshape):
+        if(Pshape.T!=Wcontshape):
+            assert(1==0), "window and pspec shapes must match"
+        Wcont=Wcont.T # force P and Wcont to have the same shapes
+    # by now, P and Wcont have the same shapes
+    s0,s1=Pshape
+    pad0lo,pad0hi=get_padding(s0)
+    pad1lo,pad1hi=get_padding(s1)
+    Pp=np.pad(P,((pad0lo,pad0hi),(pad1lo,pad1hi)),"constant",constant_values=((0,0),(0,0)))
+    conv=convolve(Wcont,-Pp,mode="valid")
+    return conv
 
-    fp=np.zeros((2*a,2*b)) # holders for padded versions (wraparound-safe...)
-    gp=np.zeros((2*a,2*b))
-    fp[:a,:b]=f # populate the zero-padded versions
-    gp[:a,:b]=g
-
-    result_p=convolve(fp,gp)
-    result=result_p[:a,:b]
-    return result
-
-def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False,beamtype="Gaussian"):
+# def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False,beamtype="Gaussian"):
+def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False):
     """
     wrapper to multiply the LoS and flat sky approximation sky plane terms of the cylindrically binned window function, for the grid described by the k-parallel and k-perp modes of the survey of interest
     """
-
-    ##
     deltakpar=kpar-kpar[0]
     deltakperp=kperp-kperp[0]
     par_vec= np.exp(-deltakpar**2*sigLoS**2)
     perp_vec=np.exp(-(r0*fwhmbeam*deltakperp)**2/(2.*ln2))
-    _,axs=plt.subplots(1,2)
-    par_line=1./(np.sqrt(2)*sigLoS)
-    perp_line=np.sqrt(ln2)/(r0*fwhmbeam)
-    axs[0].plot(deltakpar,par_vec)
-    axs[0].axvline(par_line, label="expected", c="C1")
-    axs[0].set_title("par term")
-    axs[1].plot(deltakperp,perp_vec)
-    axs[1].axvline(perp_line,  label="expected",  c="C1")
-    axs[1].set_title("perp term")
-    for i in range(2):
-        axs[i].axhline(np.exp(-0.5), label="1sigma amplitude", c="C2")
-        axs[i].legend()
-        axs[i].set_ylabel("unnormalized windowing amplitude")
-        axs[i].set_xlabel("k-k[0] (1/Mpc) for cpt of interest")
-    plt.suptitle("check window sigmas for analytical Wtrue")
-    plt.tight_layout()    
-    plt.savefig("W_analytical_check.png")
-    plt.show()
-    ##
 
     par_arr,perp_arr=np.meshgrid(par_vec,perp_vec,indexing="ij")
     meshed=par_arr*perp_arr # I really do want elementwise multiplication
@@ -125,21 +100,27 @@ def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False,beamtype="Gaussian"):
         np.save('W_cyl_binned_2D_proxy'+str(time.time())+'.txt',normed)
     return normed
 
-def calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam,save="False",savename=None,beamtype="Gaussian"): 
+def calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam,save="False",savename=None): 
     """
     calculate the "contaminant" windowing amplitude that will help give rise to the so-called "contaminant power"
     """
-    Wtrue=   W_cyl_binned(kpar,kperp,sigLoS,           r0,fwhmbeam,            save=save,beamtype=beamtype)
-    Wthought=W_cyl_binned(kpar,kperp,sigLoS*(1-epsLoS),r0,fwhmbeam*(1-epsbeam),save=save,beamtype=beamtype) # FOR NOW: BAKED IN THAT THE "THOUGHT" WIDTH RESPONSE PARAMS ARE UNDERESTIMATES FOR POSITIVE EPS
+    Wtrue=   W_cyl_binned(kpar,kperp,sigLoS,           r0,fwhmbeam,            save=save)
+    Wthought=W_cyl_binned(kpar,kperp,sigLoS*(1-epsLoS),r0,fwhmbeam*(1-epsbeam),save=save) # FOR NOW: BAKED IN THAT THE "THOUGHT" WIDTH RESPONSE PARAMS ARE UNDERESTIMATES FOR POSITIVE EPS
     return Wtrue-Wthought
 
-def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None): 
+def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_modes,save=False,savename=None): 
     """
     calculate the cylindrically binned "contaminant power," following from the true and perceived window functions
     """
-    Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam,save=save,savename=savename,beamtype=beamtype)
-    _,_,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,n_sph_modes=n_sph_modes)
-    Pcont=higher_dim_conv(Wcont,P)
+    Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam,save=save,savename=savename)
+    kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,n_sph_modes=n_sph_modes)
+    ###
+    np.save("cyl_Wcont.npy",Wcont)
+    np.save("cyl_P.npy",P)
+    np.save("cyl_kpargrid.npy",kpargrid)
+    np.save("cyl_kperpgrid.npy",kperpgrid)
+    ###
+    Pcont=higher_dim_conv(P,Wcont) # new prototype, not symmetric under exchange of args: higher_dim_conv(P,Wcont)
     return Pcont
 
 def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=200,n_sph_modes=500,nkpar_box=10,nkperp_box=12):
@@ -363,7 +344,7 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
     print("computed F")
     if recalc_Pcont:
         if cyl_sym_resp:
-            Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,save=save,savename=savename,beamtype=beamtype)
+            Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,save=save,savename=savename)
         else:
             Pcont=calc_Pcont_asym(pars,z,
                                   kpar,kperp,
