@@ -113,7 +113,9 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     calculate the cylindrically binned "contaminant power," following from the true and perceived window functions
     """
     Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam)
+    print(">> Pcont calc: calculated Wcont")
     kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,n_sph_modes=n_sph_modes)
+    print(">> Pcont calc: unbinned CAMB pspec to cyl")
     ###
     np.save("cyl_Wcont.npy",Wcont)
     np.save("cyl_P.npy",P)
@@ -121,6 +123,7 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     np.save("cyl_kperpgrid.npy",kperpgrid)
     ###
     Pcont=higher_dim_conv(P,Wcont) # new prototype, not symmetric under exchange of args: higher_dim_conv(P,Wcont)
+    print(">> Pcont calc: convolved P and Wcont")
     return Pcont
 
 def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=200,n_sph_modes=500,nkpar_box=10,nkperp_box=12):
@@ -142,22 +145,28 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
     kmin_want=np.min((kpar[0],kperp[0]))           # smallest scale we care to know about (the smallest mode on one of the cyl axes)
     kmax_want=np.sqrt(kpar[-1]**2+kperp[-1]**2)    # largest scale we're interested in at any point (happens to be a spherical mode)
     ksph,Ptrue=get_mps(pars,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=n_sph_modes)
+    print(">> Pcont calc: sourced pspec from CAMB")
 
     Lcube=419 # new reasoning: Nvox~200 is a rough practicality ceiling for now, so how high can I go in k without sacrificing too much low k? Nvox=200,Lsurvey=419 reveals k~[0.015,1.5]
 
     _,Tbox,rmags=generate_box(Ptrue,ksph,Lcube,Nvox)
+    print(">> Pcont calc: generated box from pspec")
     X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
     response_true=    custom_response(X,Y,Z, sigLoS,           beamfwhm_x,          beamfwhm_y,          r0)
     response_thought= custom_response(X,Y,Z, sigLoS*(1-epsLoS),beamfwhm_x*(1-eps_x),beamfwhm_y*(1-eps_y),r0)
     T_x_true_resp=   Tbox* response_true
     T_x_thought_resp=Tbox* response_thought
+    print(">> Pcont calc: multiplied box and instrument response")
     bundled_args=(sigLoS,beamfwhm_x,beamfwhm_y,r0,)
     ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
     kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
     k_survey=(kpar,kperp)
+    print(">> Pcont calc: generated pspecs from modulated boxes")
     _,   Ptrue= interpolate_P(Ptrue_intrinsic_to_box,    ktrue_intrinsic_to_box,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
     _,Pthought= interpolate_P(Pthought_intrinsic_to_box, kthought_intrinsic_to_box, k_survey, avoid_extrapolation=False)
+    print(">> Pcont calc: re-binned pspecs to k-modes of interest")
     Pcont=Ptrue-Pthought
+    print(">> Pcont calc: subtracted Pthought from Ptrue")
     return Pcont
 
 def custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0):
