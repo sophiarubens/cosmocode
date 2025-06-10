@@ -100,19 +100,19 @@ def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False):
         np.save('W_cyl_binned_2D_proxy'+str(time.time())+'.txt',normed)
     return normed
 
-def calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam,save="False",savename=None): 
+def calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam): 
     """
     calculate the "contaminant" windowing amplitude that will help give rise to the so-called "contaminant power"
     """
-    Wtrue=   W_cyl_binned(kpar,kperp,sigLoS,           r0,fwhmbeam,            save=save)
-    Wthought=W_cyl_binned(kpar,kperp,sigLoS*(1-epsLoS),r0,fwhmbeam*(1-epsbeam),save=save) # FOR NOW: BAKED IN THAT THE "THOUGHT" WIDTH RESPONSE PARAMS ARE UNDERESTIMATES FOR POSITIVE EPS
+    Wtrue=   W_cyl_binned(kpar,kperp,sigLoS,           r0,fwhmbeam            )
+    Wthought=W_cyl_binned(kpar,kperp,sigLoS*(1-epsLoS),r0,fwhmbeam*(1-epsbeam)) # FOR NOW: BAKED IN THAT THE "THOUGHT" WIDTH RESPONSE PARAMS ARE UNDERESTIMATES FOR POSITIVE EPS
     return Wtrue-Wthought
 
-def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_modes,save=False,savename=None): 
+def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_modes): 
     """
     calculate the cylindrically binned "contaminant power," following from the true and perceived window functions
     """
-    Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam,save=save,savename=savename)
+    Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam)
     kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,n_sph_modes=n_sph_modes)
     ###
     np.save("cyl_Wcont.npy",Wcont)
@@ -141,7 +141,7 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
     h=pars[0]/100 # typical disclaimer about cosmo param order being baked in...
     kmin_want=np.min((kpar[0],kperp[0]))           # smallest scale we care to know about (the smallest mode on one of the cyl axes)
     kmax_want=np.sqrt(kpar[-1]**2+kperp[-1]**2)    # largest scale we're interested in at any point (happens to be a spherical mode)
-    ksph,Ptrue=get_mps(pars,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=500)
+    ksph,Ptrue=get_mps(pars,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=n_sph_modes)
 
     Lcube=419 # new reasoning: Nvox~200 is a rough practicality ceiling for now, so how high can I go in k without sacrificing too much low k? Nvox=200,Lsurvey=419 reveals k~[0.015,1.5]
 
@@ -161,6 +161,19 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
     return Pcont
 
 def custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0):
+    """
+    "custom" response function using the approximation where there is a Gaussian along the LoS and another in the sky plane
+
+    args
+    X,Y,Z      = meshgridded (indexing="ij") (Nvox,Nvox,Nvox) boxes 
+    sigLoS     = characteristic width of the instrument response function along the line of sight
+    beamfwhm_x = x-pol power beam fwhm
+    beamfwhm_y = y-pol power beam fwhm
+    r0         = central comoving distance of the survey volume 
+
+    returns
+    (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
+    """
     return np.exp(-Z**2/(2*sigLoS**2) -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
 
 def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):  
@@ -195,52 +208,14 @@ def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):
             Pcyl[i,j]=interp_slope*(k_of_interest-k_closest)
     return kpargrid,kperpgrid,Pcyl
 
-
-def unbin_to_Pcyl_custom(kpar,kperp,k,Psph): 
-    """
-    same logic as the version not called _custom, but BYO power spectrum
-
-    args
-    k    = scalar (i.e. spherically binned) k-modes at which your 1D power spectrum is sampled
-    Psph = 1D power spectrum to de-bin to cylindrical
-
-    returns
-    interpolation-fuelled de-binning of a user-provided spherically binned power spectrum to a set of cylindrical bins of interest
-    """
-    if (Psph.shape[0]==1): # if transposed compared to what I want,
-        Psph=Psph.reshape((Psph.shape[1],)) # transpose it
-    n_sph_modes=len(Psph) # now, backing out the length is unambiguous
-    kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
-    Pcyl=np.zeros((len(kpar),len(kperp)))
-    for i,kpar_val in enumerate(kpar):
-        for j,kperp_val in enumerate(kperp):
-            k_of_interest=np.sqrt(kpar_val**2+kperp_val**2)
-            idx_closest_k=np.argmin(np.abs(k-k_of_interest)) # k-scalar in the CAMB MPS closest to the k-magnitude indicated by the kpar-kperp combination for that point in cylindrically binned Fourier space
-            if (idx_closest_k==0): # start of array
-                idx_2nd_closest_k=1 # use hi
-            elif (idx_closest_k==n_sph_modes-1): # end of array
-                idx_2nd_closest_k=n_sph_modes-2 # use lo
-            else: # middle of array -> check if hi or lo is closer
-                k_neighb_lo=k[idx_closest_k-1]
-                k_neighb_hi=k[idx_closest_k+1]
-                if (np.abs(k_neighb_lo-k_of_interest)<np.abs(k_neighb_hi-k_of_interest)): # use k_neighb_lo
-                    idx_2nd_closest_k=idx_closest_k-1
-                else:
-                    idx_2nd_closest_k=idx_closest_k+1
-            k_closest=k[idx_closest_k]
-            k_2nd_closest=k[idx_2nd_closest_k]
-            interp_slope=(Psph[idx_2nd_closest_k]-Psph[idx_closest_k])/(k_2nd_closest-k_closest)
-            Pcyl[i,j]=interp_slope*(k_of_interest-k_closest)
-    return kpargrid,kperpgrid,Pcyl
-
 scale=1e-9
 def get_mps(pars,z,minkh=1e-4,maxkh=1,n_sph_modes=500):
     """
     get matter power spectrum from CAMB
 
     args
-    minkh  = min value of k/h at which to calculate the MPS
-    maxkh  = max value of k/h at which to calculate the MPS 
+    minkh = min value of k/h at which to calculate the MPS
+    maxkh = max value of k/h at which to calculate the MPS 
     """
     z=[z]
     H0=pars[0]
@@ -258,13 +233,13 @@ def get_mps(pars,z,minkh=1e-4,maxkh=1,n_sph_modes=500):
     kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=n_sph_modes)
     return kh,pk
 
-def cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=200,ftol=1e-6,eps=1e-16,maxiter=5):  
+def cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=500,ftol=1e-6,eps=1e-16,maxiter=5):  
     """
     args
-    n           = take the partial derivative WRT the nth parameter in p
-    ftol        = fractional tolerance relating to the scale of the function (defined for points of interest)
-    eps         = tiny offset factor to protect against numerical division-by-zero errors
-    maxiter     = maximum number of times to let the step size optimization attempt recurse before "giving up" and using the most recent guess
+    n       = take the partial derivative WRT the nth parameter in p
+    ftol    = fractional tolerance relating to the scale of the function (defined for points of interest)
+    eps     = tiny offset factor to protect against numerical division-by-zero errors
+    maxiter = maximum number of times to let the step size optimization attempt recurse before "giving up" and using the most recent guess
 
     returns
     cylindrically binned matter power spectrum partial WRT one cosmo parameter (nkpar x nkperp)
@@ -311,7 +286,7 @@ def cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=200,ftol=1e-6,eps=1e-16,max
 
 def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
     """
-    builds a ncp x nkpar x nkperp array of the partials of the cylindrically binned MPS WRT each cosmo param in the forecast
+    builds a (ncp,nkpar,nkperp) array of the partials of the cylindrically binned MPS WRT each cosmo param in the forecast
     """
     nkpar=len(kpar)
     nkperp=len(kperp)
@@ -321,7 +296,7 @@ def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
         V[n,:,:]=cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
     return V
 
-def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,beamtype="Gaussian",save=False,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,Nvox=200,recalc_Pcont=False):
+def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,Nvox=200,recalc_Pcont=False):
     """
     args
     partials = ncp x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
@@ -344,7 +319,7 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
     print("computed F")
     if recalc_Pcont:
         if cyl_sym_resp:
-            Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,save=save,savename=savename)
+            Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes)
         else:
             Pcont=calc_Pcont_asym(pars,z,
                                   kpar,kperp,

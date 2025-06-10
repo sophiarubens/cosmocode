@@ -101,7 +101,7 @@ b_cyl_sym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                      epsLoS_test,epsbeam0_test,
                     # 0.,0.,
                      z_ctr,n_sph_pts_test,
-                     recalc_sym_Pcont=True, 
+                     recalc_Pcont=True, 
                      savename="cyl_sym")
 printparswbiases(pars_Planck18,parnames,b_cyl_sym_resp )
 
@@ -117,6 +117,7 @@ b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                       cyl_sym_resp=False, 
                       fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test,
                     #   fwhmbeam1=beam_fwhm1, epsbeam1=0.,
+                      recalc_Pcont=True,
                       savename="cyl_asym")
 printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
 
@@ -143,9 +144,7 @@ par_line=1./(np.sqrt(2)*sig_LoS)
 perp_line=np.sqrt(ln2)/(Dc_ctr*beam_fwhm1)
 
 for i in range(4):
-    # perp_line=ln2/(np.sqrt(2)*Dc_ctr*beam_fwhm1)
     axs[i].axhline(perp_line, label="perp sigma for analytical Wtrue", c="C0")
-    # par_line=1./(np.sqrt(2)*sig_LoS)
     axs[i].axvline(par_line,  label="par sigma for analytical Wtrue",  c="C1")
     if i==0:
         print("adding par_line and perp_line to plot 0:",par_line,perp_line)
