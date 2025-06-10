@@ -71,15 +71,13 @@ def higher_dim_conv(P,Wcont):
         if(Pshape.T!=Wcontshape):
             assert(1==0), "window and pspec shapes must match"
         Wcont=Wcont.T # force P and Wcont to have the same shapes
-    # by now, P and Wcont have the same shapes
-    s0,s1=Pshape
+    s0,s1=Pshape # by now, P and Wcont have the same shapes
     pad0lo,pad0hi=get_padding(s0)
     pad1lo,pad1hi=get_padding(s1)
     Pp=np.pad(P,((pad0lo,pad0hi),(pad1lo,pad1hi)),"constant",constant_values=((0,0),(0,0)))
-    conv=convolve(Wcont,-Pp,mode="valid")
+    conv=convolve(Wcont,-Pp,mode="valid") # soon: mathematically motivate why I need the negative in order to not get the negative everywhere ... probably somehow comes down to my choie to zero-pad the pspec instead of the kernel...?
     return conv
 
-# def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False,beamtype="Gaussian"):
 def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False):
     """
     wrapper to multiply the LoS and flat sky approximation sky plane terms of the cylindrically binned window function, for the grid described by the k-parallel and k-perp modes of the survey of interest
@@ -126,7 +124,7 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     print(">> Pcont calc: convolved P and Wcont")
     return Pcont
 
-def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=200,n_sph_modes=500,nkpar_box=10,nkperp_box=12):
+def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=200,n_sph_modes=500,nkpar_box=10,nkperp_box=12,n_realiz=5):
     """
     calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
     (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -144,27 +142,37 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
     h=pars[0]/100 # typical disclaimer about cosmo param order being baked in...
     kmin_want=np.min((kpar[0],kperp[0]))           # smallest scale we care to know about (the smallest mode on one of the cyl axes)
     kmax_want=np.sqrt(kpar[-1]**2+kperp[-1]**2)    # largest scale we're interested in at any point (happens to be a spherical mode)
-    ksph,Ptrue=get_mps(pars,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=n_sph_modes)
+    ksph,Ptruesph=get_mps(pars,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=n_sph_modes)
     print(">> Pcont calc: sourced pspec from CAMB")
 
     Lcube=419 # new reasoning: Nvox~200 is a rough practicality ceiling for now, so how high can I go in k without sacrificing too much low k? Nvox=200,Lsurvey=419 reveals k~[0.015,1.5]
-
-    _,Tbox,rmags=generate_box(Ptrue,ksph,Lcube,Nvox)
-    print(">> Pcont calc: generated box from pspec")
-    X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
-    response_true=    custom_response(X,Y,Z, sigLoS,           beamfwhm_x,          beamfwhm_y,          r0)
-    response_thought= custom_response(X,Y,Z, sigLoS*(1-epsLoS),beamfwhm_x*(1-eps_x),beamfwhm_y*(1-eps_y),r0)
-    T_x_true_resp=   Tbox* response_true
-    T_x_thought_resp=Tbox* response_thought
-    print(">> Pcont calc: multiplied box and instrument response")
-    bundled_args=(sigLoS,beamfwhm_x,beamfwhm_y,r0,)
-    ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
-    kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
-    k_survey=(kpar,kperp)
-    print(">> Pcont calc: generated pspecs from modulated boxes")
-    _,   Ptrue= interpolate_P(Ptrue_intrinsic_to_box,    ktrue_intrinsic_to_box,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
-    _,Pthought= interpolate_P(Pthought_intrinsic_to_box, kthought_intrinsic_to_box, k_survey, avoid_extrapolation=False)
-    print(">> Pcont calc: re-binned pspecs to k-modes of interest")
+    nkpar=len(kpar)
+    nkperp=len(kperp)
+    Ptrue_realizations=   np.zeros((nkpar,nkperp,n_realiz))
+    Pthought_realizations=np.zeros((nkpar,nkperp,n_realiz))
+    for i in range(n_realiz):
+        _,Tbox,rmags=generate_box(Ptruesph,ksph,Lcube,Nvox) # I think it was an issue where the cyl and sph versions of Ptrue had the same name so hopefully eval can progress farther now that the names are different
+        print(">> Pcont calc: generated box from pspec - realization",i)
+        if (i==0):
+            X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
+            response_true=    custom_response(X,Y,Z, sigLoS,           beamfwhm_x,          beamfwhm_y,          r0)
+            response_thought= custom_response(X,Y,Z, sigLoS*(1-epsLoS),beamfwhm_x*(1-eps_x),beamfwhm_y*(1-eps_y),r0)
+        T_x_true_resp=   Tbox* response_true
+        T_x_thought_resp=Tbox* response_thought
+        print(">> Pcont calc: multiplied box and instrument response - realization",i)
+        bundled_args=(sigLoS,beamfwhm_x,beamfwhm_y,r0,)
+        ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
+        kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
+        k_survey=(kpar,kperp)
+        print(">> Pcont calc: generated pspecs from modulated boxes - realization",i)
+        _,   Ptrue= interpolate_P(Ptrue_intrinsic_to_box,    ktrue_intrinsic_to_box,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
+        _,Pthought= interpolate_P(Pthought_intrinsic_to_box, kthought_intrinsic_to_box, k_survey, avoid_extrapolation=False)
+        print(">> Pcont calc: re-binned pspecs to k-modes of interest - realization",i)
+        Ptrue_realizations[:,:,i]=    Ptrue
+        Pthought_realizations[:,:,i]= Pthought
+    Ptrue=    np.mean(Ptrue_realizations,    axis=-1)
+    Pthought= np.mean(Pthought_realizations, axis=-1)
+    print(">> Pcont calc: averaged over statistical realizations to obtain Ptrue and Pthought")
     Pcont=Ptrue-Pthought
     print(">> Pcont calc: subtracted Pthought from Ptrue")
     return Pcont
@@ -305,7 +313,7 @@ def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
         V[n,:,:]=cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
     return V
 
-def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,Nvox=200,recalc_Pcont=False):
+def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,Nvox=200,recalc_Pcont=False,n_realiz=5):
     """
     args
     partials = ncp x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
@@ -333,7 +341,7 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
             Pcont=calc_Pcont_asym(pars,z,
                                   kpar,kperp,
                                   sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
-                                  Nvox=Nvox,n_sph_modes=n_sph_modes) 
+                                  Nvox=Nvox,n_sph_modes=n_sph_modes,n_realiz=n_realiz) 
     else:
         Pcont=np.load(savename)
 

@@ -118,7 +118,7 @@ b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                       fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test,
                     #   fwhmbeam1=beam_fwhm1, epsbeam1=0.,
                       recalc_Pcont=True,
-                      savename="cyl_asym")
+                      savename="cyl_asym", n_realiz=1) # n_realiz=1 recovers the previous case where I do not average over realizations
 printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
 
 ## debug zone to inspect the Pconts more closely for the two cases (this term is responsible for all the differences in the results between the two bias calc strategies at the moment)
