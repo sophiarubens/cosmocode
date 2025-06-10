@@ -86,7 +86,7 @@ if verbose_test_prints: # fans of well-formatted print statements look away now.
     print("cylindrically binned k-bin sensitivity..................................................\n    fraction of Pcyl amplitude = {:>7.4}".format(fractional_2d_sense))
 
 ############################## actual pipeline test ########################################################################################################################
-calc_P_cyl_partials=False
+calc_P_cyl_partials=True
 if calc_P_cyl_partials:
     P_cyl_partials=build_cyl_partials(pars_Planck18,z_ctr,n_sph_pts_test,kpar_surv,kperp_surv,dpar)
     np.save("P_cyl_partials.npy",P_cyl_partials)
@@ -153,7 +153,7 @@ for i in range(4):
     axs[i].set_ylabel("k$_\perp$ (Mpc$^{-1}$)")
 
     axs[i].legend()
-plt.suptitle("inspection and comparison of Pcont calculation strategies")
+plt.suptitle("inspection and comparison of Ptrue calculation strategies")
 plt.tight_layout()
-plt.savefig("inspect_compare_Pcont_strats.png")
+plt.savefig("inspect_compare_Ptrue_strats.png")
 plt.show()

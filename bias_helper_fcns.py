@@ -104,6 +104,7 @@ def calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam):
     """
     Wtrue=   W_cyl_binned(kpar,kperp,sigLoS,           r0,fwhmbeam            )
     Wthought=W_cyl_binned(kpar,kperp,sigLoS*(1-epsLoS),r0,fwhmbeam*(1-epsbeam)) # FOR NOW: BAKED IN THAT THE "THOUGHT" WIDTH RESPONSE PARAMS ARE UNDERESTIMATES FOR POSITIVE EPS
+    Wthought=0 # FOR DIAGNOSTIC PURPOSES WHILE AVOIDING RESTRUCTURING MY CODE: CALL IT PCONT BUT REALLY HAVE IT REFLECT PTRUE
     return Wtrue-Wthought
 
 def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_modes): 
@@ -172,6 +173,7 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
         Pthought_realizations[:,:,i]= Pthought
     Ptrue=    np.mean(Ptrue_realizations,    axis=-1)
     Pthought= np.mean(Pthought_realizations, axis=-1)
+    Pthought=0 # FOR DIAGNOSTIC PURPOSES WHILE AVOIDING RESTRUCTURING MY CODE: CALL IT PCONT BUT REALLY HAVE IT REFLECT PTRUE
     print(">> Pcont calc: averaged over statistical realizations to obtain Ptrue and Pthought")
     Pcont=Ptrue-Pthought
     print(">> Pcont calc: subtracted Pthought from Ptrue")
