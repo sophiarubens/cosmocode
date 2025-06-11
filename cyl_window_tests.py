@@ -60,7 +60,7 @@ bminCHORD=6.3
 bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2) # pathfinder (as per the CHORD-all telecon on May 26th, but without holes)
 kperp_surv=kperp(nu_ctr,N_CHORDbaselines,bminCHORD,bmaxCHORD) # kperp(nu_ctr,N_modes,bmin,bmax)
 
-n_sph_pts_test=450 # this choice is not (yet) mathematically motivated; it's just a reasonable-seeming initial compromise between pedantry and the reality that, at the end of the day, this is an exercise in interpolation
+n_sph_pts_test=1000 # this choice is not (yet) mathematically motivated; it's just a reasonable-seeming initial compromise between pedantry and the reality that, at the end of the day, this is an exercise in interpolation
 kpar_surv_grid,kperp_surv_grid,Pcyl=unbin_to_Pcyl(kpar_surv,kperp_surv,z_ctr,n_sph_modes=n_sph_pts_test)
 
 fractional_2d_sense=0.1 # Adrian's recommendation: flat 10% uncertainty everywhere as a placeholder
@@ -86,74 +86,131 @@ if verbose_test_prints: # fans of well-formatted print statements look away now.
     print("cylindrically binned k-bin sensitivity..................................................\n    fraction of Pcyl amplitude = {:>7.4}".format(fractional_2d_sense))
 
 ############################## actual pipeline test ########################################################################################################################
-calc_P_cyl_partials=True
-if calc_P_cyl_partials:
-    P_cyl_partials=build_cyl_partials(pars_Planck18,z_ctr,n_sph_pts_test,kpar_surv,kperp_surv,dpar)
-    np.save("P_cyl_partials.npy",P_cyl_partials)
-else:
-    P_cyl_partials=np.load("P_cyl_partials.npy")
+recalc_biases=True
+if recalc_biases:
+    calc_P_cyl_partials=True
+    if calc_P_cyl_partials:
+        P_cyl_partials=build_cyl_partials(pars_Planck18,z_ctr,n_sph_pts_test,kpar_surv,kperp_surv,dpar)
+        np.save("P_cyl_partials.npy",P_cyl_partials)
+    else:
+        P_cyl_partials=np.load("P_cyl_partials.npy")
 
-print("cyl sym case:")
-b_cyl_sym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
-                     kpar_surv,kperp_surv,
-                     sig_LoS,Dc_ctr,beam_fwhm0,
-                     pars_Planck18,
-                     epsLoS_test,epsbeam0_test,
-                    # 0.,0.,
-                     z_ctr,n_sph_pts_test,
-                     recalc_Pcont=True, 
-                     savename="cyl_sym")
-printparswbiases(pars_Planck18,parnames,b_cyl_sym_resp )
+    print("cyl sym case:")
+    n_sph_an=1000
+    b_cyl_sym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
+                        kpar_surv,kperp_surv,
+                        sig_LoS,Dc_ctr,beam_fwhm0,
+                        pars_Planck18,
+                        epsLoS_test,epsbeam0_test,
+                        # 0.,0.,
+                        z_ctr,n_sph_an,
+                        recalc_Pcont=True, 
+                        savename="cyl_sym")
+    printparswbiases(pars_Planck18,parnames,b_cyl_sym_resp )
 
-# assert(1==0), "checking cylindrically symmetric/ analytic sigmas"
-print("cyl asym case:")
-b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
-                      kpar_surv,kperp_surv,
-                      sig_LoS,Dc_ctr,beam_fwhm0,
-                      pars_Planck18,
-                      epsLoS_test,epsbeam0_test,
-                    #   0.,0.,
-                      z_ctr,n_sph_pts_test,
-                      cyl_sym_resp=False, 
-                      fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test,
-                    #   fwhmbeam1=beam_fwhm1, epsbeam1=0.,
-                      recalc_Pcont=True,
-                      savename="cyl_asym", n_realiz=1) # n_realiz=1 recovers the previous case where I do not average over realizations
-printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
+    # assert(1==0), "checking cylindrically symmetric/ analytic sigmas"
+    print("cyl asym case:")
+    n_sph_nu=250
+    b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
+                        kpar_surv,kperp_surv,
+                        sig_LoS,Dc_ctr,beam_fwhm0,
+                        pars_Planck18,
+                        epsLoS_test,epsbeam0_test,
+                        #   0.,0.,
+                        z_ctr,n_sph_nu,
+                        cyl_sym_resp=False, 
+                        fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test,
+                        #   fwhmbeam1=beam_fwhm1, epsbeam1=0.,
+                        recalc_Pcont=True,
+                        savename="cyl_asym", n_realiz=1) # n_realiz=1 recovers the previous case where I do not average over realizations
+    printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
 
 ## debug zone to inspect the Pconts more closely for the two cases (this term is responsible for all the differences in the results between the two bias calc strategies at the moment)
 Pcont_cyl_sym= np.load("Pcont_cyl_sym.npy")
 Pcont_cyl_asym=np.load("Pcont_cyl_asym.npy")
-fig,axs=plt.subplots(1,4,figsize=(20,5))
-im=axs[0].pcolor(kpar_surv_grid,kperp_surv_grid,Pcont_cyl_sym)
+Pcont_cyl_sym_horiz=  Pcont_cyl_sym[0,:]
+Pcont_cyl_sym_verti=  Pcont_cyl_sym[:,0]
+Pcont_cyl_asym_horiz= Pcont_cyl_asym[0,:]
+Pcont_cyl_asym_verti= Pcont_cyl_asym[:,0]
 
-# axs[0].axhline(epsbeam1_test, label="epsbeam1_test")
-plt.colorbar(im,ax=axs[0])
-axs[0].set_title("Pcont - cyl sym version")
-im=axs[1].pcolor(kpar_surv_grid,kperp_surv_grid,Pcont_cyl_asym)
-plt.colorbar(im,ax=axs[1])
-axs[1].set_title("Pcont - cyl asym version")
-im=axs[2].pcolor(kpar_surv_grid,kperp_surv_grid,Pcont_cyl_sym/Pcont_cyl_asym)
-plt.colorbar(im,ax=axs[2])
-axs[2].set_title("Pcont - ratio of sym/asym versions")
-im=axs[3].pcolor(kpar_surv_grid,kperp_surv_grid,Pcont_cyl_sym-Pcont_cyl_asym)
-plt.colorbar(im,ax=axs[3])
-axs[3].set_title("(Pcont - cyl sym) - (Pcont - cyl asym)")
+cyl_P_saved=         np.load("cyl_P.npy")
+cyl_Wcont_saved=     np.load("cyl_Wcont.npy")
 
 par_line=1./(np.sqrt(2)*sig_LoS)
 perp_line=np.sqrt(ln2)/(Dc_ctr*beam_fwhm1)
 
-for i in range(4):
-    axs[i].axhline(perp_line, label="perp sigma for analytical Wtrue", c="C0")
-    axs[i].axvline(par_line,  label="par sigma for analytical Wtrue",  c="C1")
-    if i==0:
-        print("adding par_line and perp_line to plot 0:",par_line,perp_line)
+fig,axs=plt.subplots(3,5,figsize=(20,10))
+par_line_colour="C1"
+perp_line_colour="C2"
+exp_minus_half_colour="C3"
+exp_minus_half=np.exp(-1./2.)
 
-    axs[i].set_xlabel("k$_{||}$ (Mpc$^{-1}$)")
-    axs[i].set_ylabel("k$_\perp$ (Mpc$^{-1}$)")
+# ROW 0: ANALYTIC / CYLINDRICAL                 (ALL PLOTS POPULATED)
+im=axs[0,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved)
+cbar=plt.colorbar(im,ax=axs[0,0])
+cbar.ax.set_xlabel("power")
+im=axs[0,1].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_Wcont_saved)
+cbar=plt.colorbar(im,ax=axs[0,1])
+cbar.ax.set_xlabel("power")
+im=axs[0,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym)
+cbar=plt.colorbar(im,ax=axs[0,2])
+cbar.ax.set_xlabel("power")
+axs[0,3].plot(kpar_surv,  Pcont_cyl_sym_verti)
+axs[0,3].axhline(Pcont_cyl_sym_verti[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
+axs[0,4].plot(kperp_surv, Pcont_cyl_sym_horiz)
+axs[0,4].axhline(Pcont_cyl_sym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
 
-    axs[i].legend()
-plt.suptitle("inspection and comparison of Ptrue calculation strategies")
+
+# ROW 1: NUMERICAL / CYLINDRICALLY ASYMMETRIC   (PLOTS 0, 1 EMPTY)
+im=axs[1,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym)
+cbar=plt.colorbar(im,ax=axs[1,2])
+cbar.ax.set_xlabel("power")
+axs[1,3].plot(kpar_surv,  Pcont_cyl_asym_verti)
+axs[1,3].axhline(Pcont_cyl_asym_verti[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
+axs[1,4].plot(kperp_surv, Pcont_cyl_asym_horiz)
+axs[1,4].axhline(Pcont_cyl_asym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
+
+# ROW 2: RATIOS                                 (PLOTS 0, 1 EMPTY)
+im=axs[2,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym/Pcont_cyl_asym)
+cbar=plt.colorbar(im,ax=axs[2,2])
+cbar.ax.set_xlabel("power")
+axs[2,3].plot(kpar_surv,  Pcont_cyl_sym_verti/Pcont_cyl_asym_verti)
+axs[2,4].plot(kperp_surv, Pcont_cyl_sym_horiz/Pcont_cyl_asym_horiz)
+
+# COSMETIC FEATURES
+for i in range(3):
+    if (i==0):
+        case="an / cyl sym:"
+    if (i==1):
+        case="nu / cyl asym:"
+    if (i==2):
+        case="an/nu ratio:"
+    for j in range(5):
+        if (j==0):
+            qty=" Wtrue" 
+        if (j==1):
+            qty=" P"
+        if (j==2):
+            qty=" Ptrue"
+            axs[i,2].axhline(perp_line,c=perp_line_colour,label="expected 1sigma")
+            axs[i,2].axvline(par_line,c=par_line_colour,label="expected 1sigma")
+        if (j==3):
+            qty=" k$_{||}$ idx = 0 slice of Ptrue"
+            axs[i,3].axvline(par_line,c=par_line_colour,label="expected 1sigma")
+        if (j==4):
+            qty=" k$_\perp$ idx = 0 slice of Ptrue"
+            axs[i,4].axvline(perp_line,c=perp_line_colour,label="expected 1sigma")
+        axs[i,j].set_title(case+qty)
+        if (j<3):
+            axs[i,j].set_xlabel("k$_{||}$ (1/Mpc)")
+            axs[i,j].set_ylabel("k$_\perp$ (1/Mpc)")
+        else:
+            axs[i,3].set_xlabel("k$_{||}$ (1/Mpc)")
+            axs[i,4].set_xlabel("k$_\perp$ (1/Mpc)")
+            axs[i,j].set_ylabel("power")
+        axs[i,j].legend()
+
+plt.suptitle("mega diagnostic plot")
 plt.tight_layout()
-plt.savefig("inspect_compare_Ptrue_strats.png")
+plt.savefig("mega_diagnostic_plot.png")
 plt.show()

@@ -231,7 +231,7 @@ def extrapolation_warning(regime,want,have):
     print("WARNING: if extrapolation is permitted in interpolate_P call, it will be conducted for {:15s} (want {:9.4}, have{:9.4})".format(regime,want,have))
     return None 
 
-def generate_box(P,k,Lsurvey,Nvox):
+def generate_box(P,k,Lsurvey,Nvox,verbose=False):
     """
     philosophy:
     generate a brightness temperature box consistent with a given matter power spectrum
@@ -256,11 +256,13 @@ def generate_box(P,k,Lsurvey,Nvox):
     twopi = 2*np.pi
     V=Lsurvey**3
     r=twopi/k 
+    t1=time.time()
     
     # CORNER-origin r grid
     rmags=Lsurvey*np.fft.fftfreq(Nvox)
     RX,RY,RZ=np.meshgrid(rmags,rmags,rmags)
     rgrid=np.sqrt(RX**2+RY**2+RZ**2)
+    t2=time.time()
     
     # take appropriate draws from normal distributions to populate T-tilde
     sigmas=np.flip(np.sqrt(V*P/2)) # has Npix elements ... each element describes the T-tilde values in that k-bin ... flip to anticipate the fact that I'm working in r-space but calculated this vector in k-space
@@ -270,6 +272,7 @@ def generate_box(P,k,Lsurvey,Nvox):
     Ttre=np.zeros((Nvox,Nvox,Nvox))
     Ttim=np.zeros((Nvox,Nvox,Nvox))
     bin_indices=np.digitize(rgrid,r,right=False) # must pass x,bins; rgrid is the big box and r has floors
+    t3=time.time()
     for i,binedge in enumerate(r):
         sig=sigmas[i]
         here=np.nonzero(i==bin_indices) # all box indices where the corresp bin index is the ith binedge (iterable)
@@ -279,9 +282,15 @@ def generate_box(P,k,Lsurvey,Nvox):
         if (numhere>0):
             Ttre[here]=sampsRe
             Ttim[here]=sampsIm
+    t4=time.time()
 
     Tt=Ttre+1j*Ttim # no symmetries yet
     T=np.fft.fftshift(np.fft.irfftn(Tt,s=(Nvox,Nvox,Nvox),axes=(0,1,2)))/dr3 # applies the symmetries automatically!
-    # print("T.shape=",T.shape)
-    # print("Nvox=",Nvox,"box generated in",time.time()-t0,"s")
+    t5=time.time()
+    if verbose:
+        print("generate_box: prelim arithmetic",t1-t0)
+        print("generate_box: r-grid",t2-t1)
+        print("generate_box: format sigmas and establish bin indices",t3-t2)
+        print("generate_box: iterate over bins to populate box w/ values",t4-t3)
+        print("generate_box: stitching, symmetries, and volume element",t5-t4)
     return rgrid,T,rmags

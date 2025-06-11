@@ -43,11 +43,13 @@ if test_sph_interp:
     plt.axvline(kfloors[-1],label="bounds of generated P(k)")
     plt.show()
 
-test_cyl_fwd=False
+test_cyl_fwd=True
 if test_cyl_fwd:
     # ############## TEST CYL FWD
     Nkpar=9 # 327
     Nkperp=12 # 1010
+    Npix=200
+    Lsurvey=103
 
     nsubrow=3
     nsubcol=3
@@ -100,7 +102,7 @@ if test_cyl_interp:
     plt.suptitle("power spectrum interpolation tests")
     plt.show()
 
-test_bwd=True
+test_bwd=False
 if test_bwd:
     ############# TESTS BWD
     Lsurvey=100 # Mpc
@@ -115,8 +117,8 @@ if test_bwd:
         Npix=len(P)
 
         # n_field_voxel_cases=[99,100] # 4.8 s for the whole loop
-        # n_field_voxel_cases=[199,200] # 22.2 s for the whole loop
-        n_field_voxel_cases=[399,400] # 172.5 s for the whole loop
+        n_field_voxel_cases=[199,200] # 22.2 s for the whole loop
+        # n_field_voxel_cases=[399,400] # 172.5 s for the whole loop
         for j,n_field_voxels in enumerate(n_field_voxel_cases):
             tests=[0,n_field_voxels//2,n_field_voxels-3]
             rgen,Tgen,rmags=generate_box(P,kfl,Lsurvey,n_field_voxels)
