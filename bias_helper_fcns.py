@@ -1,7 +1,7 @@
 import numpy as np
 import camb
 from camb import model
-from scipy.signal import convolve
+from scipy.signal import convolve2d
 from power import *
 
 Omegam_Planck18=0.3158
@@ -58,12 +58,6 @@ def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
     N=NDeltanu/Deltanu
     return NDeltanu,N
 
-def get_padding(n):
-    padding=n-1
-    padding_lo=int(np.ceil(padding / 2))
-    padding_hi=padding-padding_lo
-    return padding_lo,padding_hi
-
 def higher_dim_conv(P,Wcont):
     Pshape=P.shape
     Wcontshape=Wcont.shape
@@ -72,11 +66,14 @@ def higher_dim_conv(P,Wcont):
             assert(1==0), "window and pspec shapes must match"
         Wcont=Wcont.T # force P and Wcont to have the same shapes
     s0,s1=Pshape # by now, P and Wcont have the same shapes
-    pad0lo,pad0hi=get_padding(s0)
-    pad1lo,pad1hi=get_padding(s1)
-    Pp=np.pad(P,((pad0lo,pad0hi),(pad1lo,pad1hi)),"constant",constant_values=((0,0),(0,0)))
-    conv=convolve(Wcont,-Pp,mode="valid") # soon: mathematically motivate why I need the negative in order to not get the negative everywhere ... probably somehow comes down to my choie to zero-pad the pspec instead of the kernel...?
-    return conv
+
+    Pcont=convolve2d(P,Wcont)
+    peak0,peak1=np.unravel_index(np.argmax(Pcont, axis=None), Pcont.shape)
+    print("peak0,peak1=",peak0,peak1)
+    Pcont_sliced=Pcont[peak0:peak0+s0:,peak1:peak1+s1]
+    print("Pcont_sliced.shape=",Pcont_sliced.shape)
+    
+    return Pcont_sliced
 
 def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False):
     """
