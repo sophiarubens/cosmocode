@@ -2,12 +2,12 @@ from power import *
 import time
 import numpy as np
 from matplotlib import pyplot as plt
+Lsurvey=103
+Npix=200
 
-test_sph_fwd=False
+test_sph_fwd=True
 if test_sph_fwd:
     ############## TEST SPH FWD
-    Lsurvey = 103
-    Npix = 200 # 150 looks ok for spherical (if a little stripy for cylindrical), but turning up to 200 means the lowest-k bin is always empty (for spherical and along both axes for cylindrical ... I think it's just b/c the log-spaced bins are so close together)
     Nk = 14
 
     plt.figure()
@@ -26,7 +26,7 @@ if test_sph_fwd:
     plt.savefig("wn_sph.png",dpi=500)
     plt.show()
 
-test_sph_interp=False
+test_sph_interp=True
 if test_sph_interp:
     ## TEST SPH INTERPOLATION
     k_want=np.linspace(0.01,4.,50)
@@ -46,10 +46,8 @@ if test_sph_interp:
 test_cyl_fwd=True
 if test_cyl_fwd:
     # ############## TEST CYL FWD
-    Nkpar=9 # 327
+    Nkpar=11 # 327
     Nkperp=12 # 1010
-    Npix=200
-    Lsurvey=103
 
     nsubrow=3
     nsubcol=3
@@ -63,8 +61,8 @@ if test_cyl_fwd:
             kpar,kperp=k
             kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
             im=axs[i,j].pcolor(kpargrid,kperpgrid,vals)
-            axs[i,j].set_ylabel("$k_{||}$")
-            axs[i,j].set_xlabel("$k_\perp$")
+            axs[i,j].set_ylabel("$k_\perp$")
+            axs[i,j].set_xlabel("$k_{||}")
             axs[i,j].set_title("Realization {:2}".format(i*nsubrow+j))
             axs[i,j].set_aspect("equal")
             minval=np.min(vals)
@@ -79,7 +77,7 @@ if test_cyl_fwd:
     plt.savefig("wn_cyl.png",dpi=500)
     plt.show()
 
-test_cyl_interp=False
+test_cyl_interp=True
 if test_cyl_interp:
     ## TEST CYL INTERPOLATION
     kpar_want=np.linspace(0.01,4.,100)
@@ -105,7 +103,7 @@ if test_cyl_interp:
 test_bwd=False
 if test_bwd:
     ############# TESTS BWD
-    Lsurvey=100 # Mpc
+    Lsurvey=103 # Mpc
     plot=True
     cases=['ps_wn_2px.txt','z5spec.txt','ps_wn_20px.txt']
     ncases=len(cases)
