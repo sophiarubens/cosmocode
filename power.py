@@ -1,5 +1,4 @@
 import numpy as np
-from matplotlib import pyplot as plt
 from scipy.interpolate import interpn,interp1d
 from scipy.integrate import tplquad
 import time
@@ -66,7 +65,6 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
 
     # establish Cartesian Fourier duals to box coordinates
     k_vec_for_box=                       twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta))
-    print("P_driver: k_vec_for_box[0],k_vec_for_box[-1]=",k_vec_for_box[0],k_vec_for_box[-1])
     kx_box_grid,ky_box_grid,kz_box_grid= np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier duals to config space coords (ofc !not !yet !binned)
 
     if (binto=="sph"):
@@ -97,7 +95,6 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
         perpbin_indices_slice=    np.digitize(kperpmags_slice,kperp,right=False) # each representative slice has the same bull's-eye pattern of bin indices... no need to calculate for each slice, not to mention how it would be overkill to reshape the whole box down to 1D and digitize and bincount that
         perpbin_indices_slice_1d= np.reshape(perpbin_indices_slice,(Nvox**2,))   # even though I've chosen a representative slice, I still need to flatten down to 1D in anticipation of bincounting
         parbin_indices_column=    np.digitize(k_vec_for_box,kpar, right=False)   # vector with entries indexing which kpar bin each voxel belongs in (pending slight postprocessing in the loop) ... just as I could look at a representative slice for the kperp direction, I can look at a representative chunk for the LoS direction (though, naturally, in this case it is a "column") ... no need to reshape, b/c (1). it's already 1D and (2). I don't have an explicit bincount call along this axis because I iterate over kpar slices
-        print("P_driver: Nkpar,parbin_indices_column.shape,np.max(parbin_indices_column),np.min(parbin_indices_column)=",Nkpar,parbin_indices_column.shape,np.max(parbin_indices_column),np.min(parbin_indices_column)) # figure out why the last LoS bin gets ignored: is it by construction (would need to construct differently...) or bc of poor numerical choices?
 
         # binning 
         summTt= np.zeros((Nkpar,Nkperp)) # for the ensemble average: sum    of mTt values in each bin  ... each time I access it, I'll access the kparBIN row of interest, but update all NkperpBIN columns
@@ -131,29 +128,13 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
         denom,_=tplquad(custom_estimator,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
     P=np.array(amTt/denom)
 
-    # trim the sacrificial bin
-    
-    # if binto=="sph":
-    #     k_return=k[:-1]
-    #     P_return=P[:-1]
-    # elif binto=="cyl":
-    #     kpar,kperp=k
-    #     k_return=[kpar[:-1],kperp[:-1]]
-    #     P_return=P[:-1,:-1]
-    k_return=k # not trimming any sacrificial bins at the moment...
-    P_return=P
-    return [k_return,P_return] # truncate the sacrificial bin
+    return [k,P]
 
 def get_bins(Nvox,Lsurvey,Nk,mode):
     Nk_internal=Nk
-    # Nk_internal=Nk+1 # IN ANTICIPATION OF HOW, IN P_driver, I HANDLE SOME INDEXING THINGS MANUALLY AND END UP NEEDING AN EXTRA TOP BIN TO STAY EMPTY AND THEN IGNORE
-    print("get_bins: Nvox,Lsurvey,Nk=",Nvox,Lsurvey,Nk)
     Delta=Lsurvey/Nvox
-    kmax=twopi/Delta # possibly "too optimistic"
-    kmax=pi/Delta # try manually overriding the fftshift incompatibility...
+    kmax=pi/Delta # manually override the fftshift incompatibility
     kmin=twopi/Lsurvey
-    # kmin=-twopi/(2*Delta) # no... think about any pspec I've ever seen...
-    print("get_bins: kmax,kmin=",kmax,kmin)
     if (mode=="log"):
         kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk_internal)
         arg=np.log(Nvox)/Nk_internal
@@ -163,7 +144,6 @@ def get_bins(Nvox,Lsurvey,Nk,mode):
         limiting_spacing=twopi*(Nvox-1)/(Nk_internal*Lsurvey)
     else:
         assert(1==0), "only log and linear binning are currently supported"
-    # print("get_bins:\nkbins=",kbins,"\nlimiting_spacing=",limiting_spacing)
     return kbins,limiting_spacing
 
 def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, custom_estimator=False,custom_estimator_args=None):
@@ -186,15 +166,12 @@ def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, custom_estimator=False,custom_estim
     Nvox=T.shape[0]
     deltak_box=twopi/Lsurvey
 
-    print("generate_P: Nvox,Lsurvey,Nk0,Nk1,deltak_box=",Nvox,Lsurvey,Nk0,Nk1,deltak_box)
-    # k0bins,limiting_spacing_0=get_bins(Lsurvey,Nvox,Nk0,mode) # PHYSICALLY UNMOTIVATED BUT "LOOKS OKAY," the way things were on Wednesday evening
-    k0bins,limiting_spacing_0=get_bins(Nvox,Lsurvey,Nk0,mode) # PHYSICALLY MOTIVATED BUT "LOOKS WRONG," the way things were on Wednesday evening
+    k0bins,limiting_spacing_0=get_bins(Nvox,Lsurvey,Nk0,mode)
     if (limiting_spacing_0<deltak_box):
         raise ResolutionError
     
     if (Nk1>0):
-        # k1bins,limiting_spacing_1=get_bins(Lsurvey,Nvox,Nk0,mode) # PHYSICALLY UNMOTIVATED BUT "LOOKS OKAY," the way things were on Wednesday evening
-        k1bins,limiting_spacing_1=get_bins(Nvox,Lsurvey,Nk1,mode) # PHYSICALLY MOTIVATED BUT "LOOKS WRONG," the way things were on Wednesday evening
+        k1bins,limiting_spacing_1=get_bins(Nvox,Lsurvey,Nk1,mode)
         if (limiting_spacing_1<deltak_box):
             raise ResolutionError
         kbins=[k0bins,k1bins]

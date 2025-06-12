@@ -4,6 +4,8 @@ import numpy as np
 from matplotlib import pyplot as plt
 Lsurvey=103
 Npix=200
+# mode="lin"
+mode="log"
 
 test_sph_fwd=True
 if test_sph_fwd:
@@ -13,7 +15,7 @@ if test_sph_fwd:
     maxvals=0.0
     for i in range(5):
         T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-        kfloors,vals=generate_P(T,"lin",Lsurvey,Nk)
+        kfloors,vals=generate_P(T,mode,Lsurvey,Nk)
         plt.scatter(kfloors,vals)
         maxvalshere=np.max(vals)
         if (maxvalshere>maxvals):
@@ -39,6 +41,7 @@ if test_sph_interp:
     plt.title("spherical P(k) comparison")
     plt.axvline(kfloors[0])
     plt.axvline(kfloors[-1],label="bounds of generated P(k)")
+    plt.legend()
     plt.show()
 
 test_cyl_fwd=True
@@ -54,7 +57,7 @@ if test_cyl_fwd:
     for i in range(nsubrow):
         for j in range(nsubcol):
             T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-            k,vals=generate_P(T,"log",Lsurvey,Nkpar,Nk1=Nkperp) 
+            k,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp) 
             kpar,kperp=k
             kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
             im=axs[i,j].pcolor(kpargrid,kperpgrid,vals)
@@ -89,10 +92,11 @@ if test_cyl_interp:
     axs[1].axvline(kpar[0])
     axs[1].axvline(kpar[-1])
     axs[1].axhline(kperp[0])
-    axs[1].axhline(kperp[-1])
+    axs[1].axhline(kperp[-1],label="bounds of generated P(kpar,kperp)")
     for i in range(2):
         axs[i].set_xlabel("kpar")
         axs[i].set_ylabel("kperp")
+    plt.legend()
     plt.suptitle("power spectrum interpolation tests")
     plt.show()
 
