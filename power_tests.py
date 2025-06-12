@@ -6,11 +6,12 @@ Lsurvey=103
 Npix=200
 # mode="lin"
 mode="log"
+Nkpar=8 # 327
+Nkperp=12 # 1010
+Nk = 14
 
-test_sph_fwd=True
+test_sph_fwd=False
 if test_sph_fwd:
-    Nk = 14
-
     plt.figure()
     maxvals=0.0
     for i in range(5):
@@ -29,7 +30,9 @@ if test_sph_fwd:
 
 test_sph_interp=True
 if test_sph_interp:
-    k_want=np.linspace(0.01,4.,50)
+    T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+    kfloors,vals=generate_P(T,mode,Lsurvey,Nk)
+    k_want=np.linspace(0.01,4.,3*Nk)
     k_have=np.reshape(kfloors,(Nk,))
     P_have=np.reshape(vals,(Nk,))
     k_want_returned,P_want=interpolate_P(P_have,k_have,k_want,avoid_extrapolation=False) # use the most recent output of the fwd direction test loop
@@ -44,11 +47,8 @@ if test_sph_interp:
     plt.legend()
     plt.show()
 
-test_cyl_fwd=True
+test_cyl_fwd=False
 if test_cyl_fwd:
-    Nkpar=8 # 327
-    Nkperp=12 # 1010
-
     nsubrow=3
     nsubcol=3
     vmin=np.infty
@@ -79,20 +79,30 @@ if test_cyl_fwd:
 
 test_cyl_interp=True
 if test_cyl_interp:
-    kpar_want=np.linspace(0.01,4.,100)
-    kperp_want=np.linspace(0.03,2.,100)
+    print("CYL INTERP")
+    T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+    k,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp)
+    kpar_have,kperp_have=k
+    kpar_have_grid,kperp_have_grid=np.meshgrid(kpar_have,kperp_have,indexing="ij")
+    kpar_want=np.linspace(0.01,4.,3*Nkpar)
+    kperp_want=np.linspace(0.03,2.,3*Nkperp)
     k_want=(kpar_want,kperp_want)
     k_want_returned,P_want=interpolate_P(vals,k,k_want,avoid_extrapolation=False) # use the most recent output of the fwd direction test loop
     kpar_want_returned,kperp_want_returned=k_want_returned
+    print("np.all(kpar_want_returned==kpar_want),np.all(kperp_want_returned==kperp_want)=",np.all(kpar_want_returned==kpar_want),np.all(kperp_want_returned==kperp_want))
     kpar_want_grid,kperp_want_grid=np.meshgrid(kpar_want_returned,kperp_want_returned,indexing="ij")
     fig,axs=plt.subplots(1,2,figsize=(10,5))
-    axs[0].pcolor(kpargrid,kperpgrid,vals)
+    print("kpar_have_grid.shape,kperp_have_grid.shape,vals.shape=",kpar_have_grid.shape,kperp_have_grid.shape,vals.shape)
+    axs[0].pcolor(kpar_have_grid,kperp_have_grid,vals)
+    print("successfully pcolor-plotted the 'have' case")
     axs[0].set_title("P from generate_P")
+    print("kpar_want_grid.shape,kperp_want_grid.shape,P_want.shape=",kpar_want_grid.shape,kperp_want_grid.shape,P_want.shape)
     axs[1].pcolor(kpar_want_grid,kperp_want_grid,P_want)
-    axs[1].axvline(kpar[0])
-    axs[1].axvline(kpar[-1])
-    axs[1].axhline(kperp[0])
-    axs[1].axhline(kperp[-1],label="bounds of generated P(kpar,kperp)")
+    print("sucessfully pcolor-plotted the 'want' case")
+    axs[1].axvline(kpar_have[0])
+    axs[1].axvline(kpar_have[-1])
+    axs[1].axhline(kperp_have[0])
+    axs[1].axhline(kperp_have[-1],label="bounds of generated P(kpar,kperp)")
     for i in range(2):
         axs[i].set_xlabel("kpar")
         axs[i].set_ylabel("kperp")
@@ -100,7 +110,7 @@ if test_cyl_interp:
     plt.suptitle("power spectrum interpolation tests")
     plt.show()
 
-test_bwd=True
+test_bwd=False
 if test_bwd:
     Lsurvey=103 # Mpc
     plot=True
