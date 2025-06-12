@@ -1,4 +1,5 @@
 import numpy as np
+from matplotlib import pyplot as plt
 from cosmo_distances import *
 from bias_helper_fcns import *
 
@@ -171,8 +172,9 @@ axs[1,4].plot(kperp_surv, Pcont_cyl_asym_horiz)
 axs[1,4].axhline(Pcont_cyl_asym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
 
 # ROW 2: RATIOS                                 (PLOTS 0, 1 EMPTY)
-im=axs[2,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym/Pcont_cyl_asym)
-cbar=plt.colorbar(im,ax=axs[2,2])
+Pcontratio=Pcont_cyl_sym/Pcont_cyl_asym
+im=axs[2,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcontratio, vmin=np.percentile(Pcontratio,1), vmax=np.percentile(Pcontratio,99))
+cbar=plt.colorbar(im,ax=axs[2,2],extend="both")
 cbar.ax.set_xlabel("power")
 axs[2,3].plot(kpar_surv,  Pcont_cyl_sym_verti/Pcont_cyl_asym_verti)
 axs[2,4].plot(kperp_surv, Pcont_cyl_sym_horiz/Pcont_cyl_asym_horiz)
@@ -187,9 +189,9 @@ for i in range(3):
         case="an/nu ratio:"
     for j in range(5):
         if (j==0):
-            qty=" Wtrue" 
+            qty=" P" 
         if (j==1):
-            qty=" P"
+            qty=" Wtrue"
         if (j==2):
             qty=" Ptrue"
             axs[i,2].axhline(perp_line,c=perp_line_colour,label="expected 1sigma")
@@ -210,6 +212,11 @@ for i in range(3):
             axs[i,j].set_ylabel("power")
         axs[i,j].legend()
 
+xtext,ytext=0.07,0.5
+axs[1,0].text(xtext,ytext,"DNE as a discrete object", fontsize=9)
+axs[1,1].text(xtext,ytext,"not part of my process—I jump straight\nfrom a CAMB sph pspec to a cosmo box", fontsize=9)
+axs[2,0].text(xtext,ytext,"no ratio possible (see above)", fontsize=9)
+axs[2,1].text(xtext,ytext,"no ratio possible (see above)", fontsize=9)
 plt.suptitle("mega diagnostic plot")
 plt.tight_layout()
 plt.savefig("mega_diagnostic_plot.png")

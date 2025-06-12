@@ -1,8 +1,10 @@
 import numpy as np
 import camb
 from camb import model
-from scipy.signal import convolve2d
+from scipy.signal import convolve2d,convolve
+from matplotlib import pyplot as plt
 from power import *
+import time
 
 Omegam_Planck18=0.3158
 Omegabh2_Planck18=0.022383
@@ -58,6 +60,12 @@ def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
     N=NDeltanu/Deltanu
     return NDeltanu,N
 
+def get_padding(n):
+    padding=n-1
+    padding_lo=int(np.ceil(padding / 2))
+    padding_hi=padding-padding_lo
+    return padding_lo,padding_hi
+
 def higher_dim_conv(P,Wcont):
     Pshape=P.shape
     Wcontshape=Wcont.shape
@@ -66,21 +74,41 @@ def higher_dim_conv(P,Wcont):
             assert(1==0), "window and pspec shapes must match"
         Wcont=Wcont.T # force P and Wcont to have the same shapes
     s0,s1=Pshape # by now, P and Wcont have the same shapes
+    pad0lo,pad0hi=get_padding(s0)
+    pad1lo,pad1hi=get_padding(s1)
+    Pp=np.pad(P,((pad0lo,pad0hi),(pad1lo,pad1hi)),"constant",constant_values=((0,0),(0,0)))
+    # conv=convolve(Wcont,Pp)
+    conv=convolve(Wcont,Pp,mode="valid") # NOW THAT I'M CENTRING MY WINDOW FUNCTION DIFFERENTLY, TRY THIS AGAIN BECAUSE NOW THE CORNER SLICE SHOULD WORK??! # CAN'T USE THIS ANYMORE BECAUSE IT GIVES ME THE WEIRD SIDELOBE THING/ SLICES THE MIDDLE WHEN I WANT THE CORNER (would've expected different padding or something)
+    return conv
+    # return conv[pad0lo:pad0lo+s0,pad1lo:pad1lo+s1]
 
-    Pcont=convolve2d(P,Wcont)
-    peak0,peak1=np.unravel_index(np.argmax(Pcont, axis=None), Pcont.shape)
-    print("peak0,peak1=",peak0,peak1)
-    Pcont_sliced=Pcont[peak0:peak0+s0:,peak1:peak1+s1]
-    print("Pcont_sliced.shape=",Pcont_sliced.shape)
+# def higher_dim_conv(P,Wcont):
+#     Pshape=P.shape
+#     Wcontshape=Wcont.shape
+#     if (Pshape!=Wcontshape):
+#         if(Pshape.T!=Wcontshape):
+#             assert(1==0), "window and pspec shapes must match"
+#         Wcont=Wcont.T # force P and Wcont to have the same shapes
+#     s0,s1=Pshape # by now, P and Wcont have the same shapes
+
+#     Pcont=convolve2d(P,Wcont) # established as of 13:08 Th 12 Jun
+#     peak0,peak1=np.unravel_index(np.argmax(Pcont, axis=None), Pcont.shape)
+#     print("peak0,peak1=",peak0,peak1)
+#     Pcont_sliced=Pcont[peak0:peak0+s0:,peak1:peak1+s1]
+#     print("Pcont_sliced.shape=",Pcont_sliced.shape)
     
-    return Pcont_sliced
+#     return Pcont_sliced
 
 def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False):
     """
     wrapper to multiply the LoS and flat sky approximation sky plane terms of the cylindrically binned window function, for the grid described by the k-parallel and k-perp modes of the survey of interest
     """
-    deltakpar=kpar-kpar[0]
-    deltakperp=kperp-kperp[0]
+    nkpar=len(kpar) # try centring things to see if that mitigates edge effects at all...
+    nkperp=len(kperp)
+    deltakpar=kpar-kpar[nkpar//2] 
+    deltakperp=kperp-kperp[nkperp//2]
+    # deltakpar=kpar-kpar[0] # had been using this as of 16:00 Th 12 Jun
+    # deltakperp=kperp-kperp[0]
     par_vec= np.exp(-deltakpar**2*sigLoS**2)
     perp_vec=np.exp(-(r0*fwhmbeam*deltakperp)**2/(2.*ln2))
 
@@ -108,6 +136,7 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     """
     calculate the cylindrically binned "contaminant power," following from the true and perceived window functions
     """
+    print("calc_Pcont_cyl: n_sph_modes=",n_sph_modes)
     Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam)
     print(">> Pcont calc: calculated Wcont")
     kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,n_sph_modes=n_sph_modes)
@@ -122,7 +151,7 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     print(">> Pcont calc: convolved P and Wcont")
     return Pcont
 
-def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=200,n_sph_modes=500,nkpar_box=10,nkperp_box=12,n_realiz=5):
+def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=10,nkperp_box=12,n_realiz=5):
     """
     calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
     (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -137,43 +166,93 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
     returns
     contaminant power, calculated as the difference of subtracted spectra with config space–multiplied "true" and "thought" instrument responses
     """
+    t0=time.time()
     h=pars[0]/100 # typical disclaimer about cosmo param order being baked in...
     kmin_want=np.min((kpar[0],kperp[0]))           # smallest scale we care to know about (the smallest mode on one of the cyl axes)
     kmax_want=np.sqrt(kpar[-1]**2+kperp[-1]**2)    # largest scale we're interested in at any point (happens to be a spherical mode)
     ksph,Ptruesph=get_mps(pars,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=n_sph_modes)
-    print(">> Pcont calc: sourced pspec from CAMB")
+    t1=time.time()
+    print(">> Pcont calc: sourced pspec from CAMB",t1-t0)
 
-    Lcube=419 # new reasoning: Nvox~200 is a rough practicality ceiling for now, so how high can I go in k without sacrificing too much low k? Nvox=200,Lsurvey=419 reveals k~[0.015,1.5]
+    Lcube=628 # new reasoning: Nvox~200 is a rough practicality ceiling for now, so how high can I go in k without sacrificing too much low k? Nvox=150,Lsurvey=419 reveals k~[0.015,1.5], but Nvox=150,Lsurvey=628 reveals k~[0.01,0.75] which is ok bc it doubles to ~1.5 bc of fftshift things
     nkpar=len(kpar)
     nkperp=len(kperp)
     Ptrue_realizations=   np.zeros((nkpar,nkperp,n_realiz))
     Pthought_realizations=np.zeros((nkpar,nkperp,n_realiz))
     for i in range(n_realiz):
-        _,Tbox,rmags=generate_box(Ptruesph,ksph,Lcube,Nvox) # I think it was an issue where the cyl and sph versions of Ptrue had the same name so hopefully eval can progress farther now that the names are different
-        print(">> Pcont calc: generated box from pspec - realization",i)
+        t2=time.time()
+        _,Tbox,rmags=generate_box(Ptruesph,ksph,Lcube,Nvox) 
+        t3=time.time()
+        print(">> Pcont calc: generated box from pspec - realization",i,t3-t2)
         if (i==0):
+            t4=time.time()
             X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
             response_true=    custom_response(X,Y,Z, sigLoS,           beamfwhm_x,          beamfwhm_y,          r0)
             response_thought= custom_response(X,Y,Z, sigLoS*(1-epsLoS),beamfwhm_x*(1-eps_x),beamfwhm_y*(1-eps_y),r0)
+            t5=time.time()
+            print(">> Pcont calc: generated responses",t5-t4)
+        t6=time.time()
         T_x_true_resp=   Tbox* response_true
         T_x_thought_resp=Tbox* response_thought
-        print(">> Pcont calc: multiplied box and instrument response - realization",i)
+        ###
+        rgridx,rgridy=np.meshgrid(rmags,rmags,indexing="ij")
+        fig,axs=plt.subplots(3,9,figsize=(22,5))
+        cubes=[Tbox,response_true,T_x_true_resp]
+        cubenames=["T","resp","T x resp"]
+        places=[2,Nvox//2,-2]
+        for ii,cube in enumerate(cubes):
+            for jj,place in enumerate(places):
+                # im=axs[ii,ij].pcolor(  rgridx,rgridy,cube[place,:,:])
+                im=axs[ii,jj].imshow(cube[place,:,:])
+                plt.colorbar(im,ax=axs[ii,jj],fraction=0.05)
+                axs[ii,jj].set_title(cubenames[ii]+" "+str(place)+" axis 0")
+                # im=axs[ii,j+3].pcolor(rgridx,rgridy,cube[:,place,:])
+                im=axs[ii,jj+3].imshow(cube[:,place,:])
+                plt.colorbar(im,ax=axs[ii,jj+3],fraction=0.05)
+                axs[ii,jj+3].set_title(cubenames[ii]+" "+str(place)+" axis 1")
+                # im=axs[ii,j+6].pcolor(rgridx,rgridy,cube[:,:,place])
+                im=axs[ii,jj+6].imshow(cube[:,:,place])
+                plt.colorbar(im,ax=axs[ii,jj+6],fraction=0.05)
+                axs[ii,jj+6].set_title(cubenames[ii]+" "+str(place)+" axis 2")
+        plt.suptitle("cube diagnostic plot")
+        plt.tight_layout()
+        plt.savefig("cube_diagnostic_plot.png",dpi=500)
+        plt.show()
+        # assert(1==0), "cutting off at the cube diagnostic plot for now"
+        ###
+        t7=time.time()
+        print(">> Pcont calc: multiplied box and instrument response - realization",i,t7-t6)
         bundled_args=(sigLoS,beamfwhm_x,beamfwhm_y,r0,)
-        ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
+        ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args) # WAS LIN BUT NUMERICS WERE BAD
+        # ##
+        # kbox0,kbox1=ktrue_intrinsic_to_box
+        # kbox0grid,kbox1grid=np.meshgrid(kbox0,kbox1,indexing="ij")
+        # plt.figure()
+        # plt.pcolor(kbox0grid,kbox1grid,Ptrue_intrinsic_to_box)
+        # plt.title("cyl binned box-intrinsic pspec")
+        # plt.savefig("box_intrinsic_pspec.png")
+        # plt.show()
+        # ##
+        t8=time.time()
         kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
         k_survey=(kpar,kperp)
-        print(">> Pcont calc: generated pspecs from modulated boxes - realization",i)
+        t9=time.time()
+        print(">> Pcont calc: generated pspecs from modulated boxes - realization",i,t9-t7)
         _,   Ptrue= interpolate_P(Ptrue_intrinsic_to_box,    ktrue_intrinsic_to_box,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
         _,Pthought= interpolate_P(Pthought_intrinsic_to_box, kthought_intrinsic_to_box, k_survey, avoid_extrapolation=False)
-        print(">> Pcont calc: re-binned pspecs to k-modes of interest - realization",i)
+        t10=time.time()
+        print(">> Pcont calc: re-binned pspecs to k-modes of interest - realization",i,t10-t9)
         Ptrue_realizations[:,:,i]=    Ptrue
         Pthought_realizations[:,:,i]= Pthought
+        t11=time.time()
     Ptrue=    np.mean(Ptrue_realizations,    axis=-1)
     Pthought= np.mean(Pthought_realizations, axis=-1)
     Pthought=0 # FOR DIAGNOSTIC PURPOSES WHILE AVOIDING RESTRUCTURING MY CODE: CALL IT PCONT BUT REALLY HAVE IT REFLECT PTRUE
-    print(">> Pcont calc: averaged over statistical realizations to obtain Ptrue and Pthought")
+    t12=time.time()
+    print(">> Pcont calc: averaged over statistical realizations to obtain Ptrue and Pthought",t12-t11)
     Pcont=Ptrue-Pthought
-    print(">> Pcont calc: subtracted Pthought from Ptrue")
+    t13=time.time()
+    print(">> Pcont calc: subtracted Pthought from Ptrue",t13-t12)
     return Pcont
 
 def custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0):
@@ -190,7 +269,8 @@ def custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0):
     returns
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
-    return np.exp(-Z**2/(2*sigLoS**2) -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
+    # return np.exp(-Z**2/(2*sigLoS**2) -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2) # established version as of 13:03 on Th 12 Jun
+    return np.exp(-X**2/(2*sigLoS**2) -ln2*((Z/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2) # super quick test before looking at slices
 
 def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):  
     """
@@ -312,7 +392,7 @@ def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
         V[n,:,:]=cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
     return V
 
-def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,Nvox=200,recalc_Pcont=False,n_realiz=5):
+def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,Nvox=150,recalc_Pcont=False,n_realiz=5):
     """
     args
     partials = ncp x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
