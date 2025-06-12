@@ -123,7 +123,7 @@ if recalc_biases:
                         fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test,
                         #   fwhmbeam1=beam_fwhm1, epsbeam1=0.,
                         recalc_Pcont=True,
-                        savename="cyl_asym", n_realiz=1) # n_realiz=1 recovers the previous case where I do not average over realizations
+                        savename="cyl_asym", n_realiz=5) # n_realiz=1 recovers the previous case where I do not average over realizations
     printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
 
 ## debug zone to inspect the Pconts more closely for the two cases (this term is responsible for all the differences in the results between the two bias calc strategies at the moment)
@@ -212,9 +212,9 @@ for i in range(3):
             axs[i,j].set_ylabel("power")
         axs[i,j].legend()
 
-xtext,ytext=0.07,0.5
-axs[1,0].text(xtext,ytext,"DNE as a discrete object", fontsize=9)
-axs[1,1].text(xtext,ytext,"not part of my process—I jump straight\nfrom a CAMB sph pspec to a cosmo box", fontsize=9)
+xtext,ytext=0.035,0.5
+axs[1,0].text(xtext,ytext,"not part of my process—I jump straight\nfrom a CAMB sph pspec to a cosmo box", fontsize=9)
+axs[1,1].text(xtext,ytext,"DNE as a discrete object in my pipeline", fontsize=9)
 axs[2,0].text(xtext,ytext,"no ratio possible (see above)", fontsize=9)
 axs[2,1].text(xtext,ytext,"no ratio possible (see above)", fontsize=9)
 plt.suptitle("mega diagnostic plot")

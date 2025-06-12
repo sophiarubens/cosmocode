@@ -77,27 +77,8 @@ def higher_dim_conv(P,Wcont):
     pad0lo,pad0hi=get_padding(s0)
     pad1lo,pad1hi=get_padding(s1)
     Pp=np.pad(P,((pad0lo,pad0hi),(pad1lo,pad1hi)),"constant",constant_values=((0,0),(0,0)))
-    # conv=convolve(Wcont,Pp)
     conv=convolve(Wcont,Pp,mode="valid") # NOW THAT I'M CENTRING MY WINDOW FUNCTION DIFFERENTLY, TRY THIS AGAIN BECAUSE NOW THE CORNER SLICE SHOULD WORK??! # CAN'T USE THIS ANYMORE BECAUSE IT GIVES ME THE WEIRD SIDELOBE THING/ SLICES THE MIDDLE WHEN I WANT THE CORNER (would've expected different padding or something)
     return conv
-    # return conv[pad0lo:pad0lo+s0,pad1lo:pad1lo+s1]
-
-# def higher_dim_conv(P,Wcont):
-#     Pshape=P.shape
-#     Wcontshape=Wcont.shape
-#     if (Pshape!=Wcontshape):
-#         if(Pshape.T!=Wcontshape):
-#             assert(1==0), "window and pspec shapes must match"
-#         Wcont=Wcont.T # force P and Wcont to have the same shapes
-#     s0,s1=Pshape # by now, P and Wcont have the same shapes
-
-#     Pcont=convolve2d(P,Wcont) # established as of 13:08 Th 12 Jun
-#     peak0,peak1=np.unravel_index(np.argmax(Pcont, axis=None), Pcont.shape)
-#     print("peak0,peak1=",peak0,peak1)
-#     Pcont_sliced=Pcont[peak0:peak0+s0:,peak1:peak1+s1]
-#     print("Pcont_sliced.shape=",Pcont_sliced.shape)
-    
-#     return Pcont_sliced
 
 def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False):
     """
@@ -107,8 +88,6 @@ def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False):
     nkperp=len(kperp)
     deltakpar=kpar-kpar[nkpar//2] 
     deltakperp=kperp-kperp[nkperp//2]
-    # deltakpar=kpar-kpar[0] # had been using this as of 16:00 Th 12 Jun
-    # deltakperp=kperp-kperp[0]
     par_vec= np.exp(-deltakpar**2*sigLoS**2)
     perp_vec=np.exp(-(r0*fwhmbeam*deltakperp)**2/(2.*ln2))
 
@@ -151,7 +130,8 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     print(">> Pcont calc: convolved P and Wcont")
     return Pcont
 
-def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=10,nkperp_box=12,n_realiz=5):
+def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=15,nkperp_box=18,n_realiz=5):
+# def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=10,nkperp_box=12,n_realiz=5):
     """
     calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
     (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -269,8 +249,8 @@ def custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0):
     returns
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
-    # return np.exp(-Z**2/(2*sigLoS**2) -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2) # established version as of 13:03 on Th 12 Jun
-    return np.exp(-X**2/(2*sigLoS**2) -ln2*((Z/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2) # super quick test before looking at slices
+    return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
+    # return np.exp(-(Z/sigLoS)**2/2. -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
 
 def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):  
     """
