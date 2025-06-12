@@ -207,11 +207,13 @@ def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
         kpar_have_hi=kpar_have[-1]
         kperp_have_lo=kperp_have[0]
         kperp_have_hi=kperp_have[-1]
+
         kpar_want,kperp_want=k_want
         kpar_want_lo=kpar_want[0]
         kpar_want_hi=kpar_want[-1]
         kperp_want_lo=kperp_want[0]
         kperp_want_hi=kperp_want[-1]
+
         if (kpar_want_lo<kpar_have_lo):
             extrapolation_warning("low kpar",   kpar_want_lo,  kpar_have_lo)
         if (kpar_want_hi>kpar_have_hi):
