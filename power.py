@@ -113,10 +113,9 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
             if (len(current_binsums)==(Nkperp+1)): # prune central voxel "below the floor of the lowest bin" extension bin
                 current_binsums=current_binsums[1:]
             current_par_bin= parbin_indices_column[i]
-            if (current_par_bin!=0):                         # digitize philosophy is to use index 0 for values below the lowest bin floor (the origin voxel has kx,ky,kz=0,0,0, which yields a kpar and kperp smaller than the lowest bin floor, because a survey can never probe k=0 unless Lsurvey->infinity), so discard this point and move on
-                current_par_bin-=           1                # other indices need to be shifted down by one because of how I treat bin floors
-                summTt[current_par_bin,:]+= current_binsums  # update the numerator of the ensemble average
-                NmTt[current_par_bin,:]+=   slice_bin_counts # update the denominator of the ensemble average
+
+            summTt[current_par_bin,:]+= current_binsums  # update the numerator of the ensemble average
+            NmTt[current_par_bin,:]+=   slice_bin_counts # update the denominator of the ensemble average
         amTt=np.zeros((Nkpar,Nkperp)) # template to store the ensemble average (same philosophy as for the spherical case—see above)
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"

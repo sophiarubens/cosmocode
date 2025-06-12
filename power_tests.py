@@ -7,7 +7,6 @@ Npix=200
 
 test_sph_fwd=True
 if test_sph_fwd:
-    ############## TEST SPH FWD
     Nk = 14
 
     plt.figure()
@@ -28,7 +27,6 @@ if test_sph_fwd:
 
 test_sph_interp=True
 if test_sph_interp:
-    ## TEST SPH INTERPOLATION
     k_want=np.linspace(0.01,4.,50)
     k_have=np.reshape(kfloors,(Nk,))
     P_have=np.reshape(vals,(Nk,))
@@ -45,8 +43,7 @@ if test_sph_interp:
 
 test_cyl_fwd=True
 if test_cyl_fwd:
-    # ############## TEST CYL FWD
-    Nkpar=11 # 327
+    Nkpar=8 # 327
     Nkperp=12 # 1010
 
     nsubrow=3
@@ -57,7 +54,7 @@ if test_cyl_fwd:
     for i in range(nsubrow):
         for j in range(nsubcol):
             T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-            k,vals=generate_P(T,"lin",Lsurvey,Nkpar,Nk1=Nkperp) 
+            k,vals=generate_P(T,"log",Lsurvey,Nkpar,Nk1=Nkperp) 
             kpar,kperp=k
             kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
             im=axs[i,j].pcolor(kpargrid,kperpgrid,vals)
@@ -79,7 +76,6 @@ if test_cyl_fwd:
 
 test_cyl_interp=True
 if test_cyl_interp:
-    ## TEST CYL INTERPOLATION
     kpar_want=np.linspace(0.01,4.,100)
     kperp_want=np.linspace(0.03,2.,100)
     k_want=(kpar_want,kperp_want)
@@ -100,9 +96,8 @@ if test_cyl_interp:
     plt.suptitle("power spectrum interpolation tests")
     plt.show()
 
-test_bwd=False
+test_bwd=True
 if test_bwd:
-    ############# TESTS BWD
     Lsurvey=103 # Mpc
     plot=True
     cases=['ps_wn_2px.txt','z5spec.txt','ps_wn_20px.txt']
