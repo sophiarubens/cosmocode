@@ -23,24 +23,25 @@ nu_rest_21=1420.405751768 # MHz
 
 h_Planck18=H0_Planck18/100.
 Omegamh2_Planck18=Omegam_Planck18*h_Planck18**2
-pars_Planck18=[H0_Planck18,Omegabh2_Planck18,Omegamh2_Planck18,AS_Planck18,ns_Planck18] # suitable for get_mps
+pars_set_cosmo_Planck18=[H0_Planck18,Omegabh2_Planck18,Omegamh2_Planck18,AS_Planck18,ns_Planck18] # suitable for get_mps
 
 """
 "universal docstring" of args common to functions in this module
-kpar        = k-parallel      modes of interest for a cylindrically binned power spectrum (assumed to be monotonic-increasing) (1/Mpc)
-kperp       = k-perpendicular modes of interest for a cylindrically binned power spectrum (assumed to be monotonic-increasing) (1/Mpc)
-sigLoS      = figure of merit for the width (standard deviation) of the LoS response (Mpc), modelled for now as a Gaussian
-fwhmbeam    = figure of merit for the width (FWHM) of the beam response (rad), modelled for now as a Gaussian
-r0          = peak comoving distance of the LoS response (Mpc)
-beamtype    = Gaussian (the only one currently supported) ... in the future, might generalize to an Airy beam or something more sophisticated
-save        = whether or not to save a copy of the cylindrically binned window function
-savename    = distinctive tail of the name of the saved copy of the cylindrically binned window function
-epsLoS      = fractional uncertainty in the width of the LoS response (positive/negative means you under/overestimate the width)
-epsbeam     = fractional uncertainty in the width of the beam response (positive/negative means you under/overestimate the width)
-pars        = cosmo params of interest for the current forecast (ncp,)
-z           = redshift for which you want the cylindically binned power spectrum (probably the central redshift of a hypothetical survey)
-n_sph_modes = number of (scalar) k-modes at which the spherically binned CAMB MPS should be sampled
-dpar        = vector of initial step size guesses to be used in numerical differentiation (ncp,)
+kpar           = k-parallel      modes of interest for a cylindrically binned power spectrum (assumed to be monotonic-increasing) (1/Mpc)
+kperp          = k-perpendicular modes of interest for a cylindrically binned power spectrum (assumed to be monotonic-increasing) (1/Mpc)
+sigLoS         = figure of merit for the width (standard deviation) of the LoS response (Mpc), modelled for now as a Gaussian
+fwhmbeam       = figure of merit for the width (FWHM) of the beam response (rad), modelled for now as a Gaussian
+r0             = peak comoving distance of the LoS response (Mpc)
+beamtype       = Gaussian (the only one currently supported) ... in the future, might generalize to an Airy beam or something more sophisticated
+save           = whether or not to save a copy of the cylindrically binned window function
+savename       = distinctive tail of the name of the saved copy of the cylindrically binned window function
+epsLoS         = fractional uncertainty in the width of the LoS response (positive/negative means you under/overestimate the width)
+epsbeam        = fractional uncertainty in the width of the beam response (positive/negative means you under/overestimate the width)
+pars_set_cosmo = fiducial cosmo params (send to CAMB, perform comoving calculations, etc.) (npset,)
+pars_forecast  = cosmo params of interest for the current forecast (npfore,)
+z              = redshift for which you want the cylindically binned power spectrum (probably the central redshift of a hypothetical survey)
+n_sph_modes    = number of (scalar) k-modes at which the spherically binned CAMB MPS should be sampled
+dpar           = vector of initial step size guesses to be used in numerical differentiation (npfore,)
 
 args not explained here will be documented in the single function in which they appear
 """
@@ -111,14 +112,14 @@ def calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam):
     Wthought=0 # FOR DIAGNOSTIC PURPOSES WHILE AVOIDING RESTRUCTURING MY CODE: CALL IT PCONT BUT REALLY HAVE IT REFLECT PTRUE
     return Wtrue-Wthought
 
-def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_modes): 
+def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars_set_cosmo,epsLoS,epsbeam,z,n_sph_modes): 
     """
     calculate the cylindrically binned "contaminant power," following from the true and perceived window functions
     """
     print("calc_Pcont_cyl: n_sph_modes=",n_sph_modes)
     Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam)
     print(">> Pcont calc: calculated Wcont")
-    kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars=pars,n_sph_modes=n_sph_modes)
+    kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars_set_cosmo=pars_set_cosmo,n_sph_modes=n_sph_modes)
     print(">> Pcont calc: unbinned CAMB pspec to cyl")
     ###
     np.save("cyl_Wcont.npy",Wcont)
@@ -130,8 +131,8 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars,epsLoS,epsbeam,z,n_sph_mod
     print(">> Pcont calc: convolved P and Wcont")
     return Pcont
 
-def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=15,nkperp_box=18,n_realiz=5):
-# def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=10,nkperp_box=12,n_realiz=5):
+def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=15,nkperp_box=18,n_realiz=5):
+# def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=10,nkperp_box=12,n_realiz=5):
     """
     calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
     (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -147,10 +148,10 @@ def calc_Pcont_asym(pars,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps
     contaminant power, calculated as the difference of subtracted spectra with config space–multiplied "true" and "thought" instrument responses
     """
     t0=time.time()
-    h=pars[0]/100 # typical disclaimer about cosmo param order being baked in...
+    h=pars_set_cosmo[0]/100 # typical disclaimer about cosmo param order being baked in...
     kmin_want=np.min((kpar[0],kperp[0]))           # smallest scale we care to know about (the smallest mode on one of the cyl axes)
     kmax_want=np.sqrt(kpar[-1]**2+kperp[-1]**2)    # largest scale we're interested in at any point (happens to be a spherical mode)
-    ksph,Ptruesph=get_mps(pars,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=n_sph_modes)
+    ksph,Ptruesph=get_mps(pars_set_cosmo,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=n_sph_modes)
     t1=time.time()
     print(">> Pcont calc: sourced pspec from CAMB",t1-t0)
 
@@ -252,14 +253,14 @@ def custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0):
     return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
     # return np.exp(-(Z/sigLoS)**2/2. -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
 
-def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):  
+def unbin_to_Pcyl(kpar,kperp,z,pars_set_cosmo=pars_set_cosmo_Planck18,n_sph_modes=500):  
     """
     interpolate a spherically binned CAMB MPS to provide MPS values for a cylindrically binned k-grid of interest (nkpar x nkperp)
     """
-    h=pars[0]/100.
+    h=pars_set_cosmo[0]/100.
     kmin=np.sqrt(kpar[0]**2+kperp[0]**2)
     kmax=np.sqrt(kpar[-1]**2+kperp[-1]**2)
-    k,Psph=get_mps(pars,z,minkh=kmin/h,maxkh=kmax/h,n_sph_modes=n_sph_modes)
+    k,Psph=get_mps(pars_set_cosmo,z,minkh=kmin/h,maxkh=kmax/h,n_sph_modes=n_sph_modes)
     Psph=Psph.reshape((Psph.shape[1],))
     kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
     Pcyl=np.zeros((len(kpar),len(kperp)))
@@ -285,7 +286,7 @@ def unbin_to_Pcyl(kpar,kperp,z,pars=pars_Planck18,n_sph_modes=500):
     return kpargrid,kperpgrid,Pcyl
 
 scale=1e-9
-def get_mps(pars,z,minkh=1e-4,maxkh=1,n_sph_modes=500):
+def get_mps(pars_set_cosmo,z,minkh=1e-4,maxkh=1,n_sph_modes=500):
     """
     get matter power spectrum from CAMB
 
@@ -294,22 +295,22 @@ def get_mps(pars,z,minkh=1e-4,maxkh=1,n_sph_modes=500):
     maxkh = max value of k/h at which to calculate the MPS 
     """
     z=[z]
-    H0=pars[0]
+    H0=pars_set_cosmo[0]
     h=H0/100.
-    ombh2=pars[1]
-    omch2=pars[2]
-    As=pars[3]*scale
-    ns=pars[4]
+    ombh2=pars_set_cosmo[1]
+    omch2=pars_set_cosmo[2]
+    As=pars_set_cosmo[3]*scale
+    ns=pars_set_cosmo[4]
 
-    pars=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0)
-    pars.InitPower.set_params(As=As,ns=ns,r=0)
-    pars.set_matter_power(redshifts=z, kmax=maxkh*h)
-    results = camb.get_results(pars)
-    pars.NonLinear = model.NonLinear_none
+    pars_set_cosmo=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0)
+    pars_set_cosmo.InitPower.set_params(As=As,ns=ns,r=0)
+    pars_set_cosmo.set_matter_power(redshifts=z, kmax=maxkh*h)
+    results = camb.get_results(pars_set_cosmo)
+    pars_set_cosmo.NonLinear = model.NonLinear_none
     kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=n_sph_modes)
     return kh,pk
 
-def cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=500,ftol=1e-6,eps=1e-16,maxiter=5):  
+def cyl_partial(pars_set_cosmo,z,n,dpar,kpar,kperp,n_sph_modes=500,ftol=1e-6,eps=1e-16,maxiter=5):  
     """
     args
     n       = take the partial derivative WRT the nth parameter in p
@@ -323,26 +324,26 @@ def cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=500,ftol=1e-6,eps=1e-16,max
     done=False
     iter=0
     dparn=dpar[n]
-    pcopy=pars.copy()
+    pcopy=pars_set_cosmo.copy()
     pndispersed=pcopy[n]+np.linspace(-2,2,5)*dparn
 
-    pcopy=pars.copy()
-    _,_,Pcyl_base=unbin_to_Pcyl(kpar,kperp,z,pars=pcopy,n_sph_modes=n_sph_modes)
+    pcopy=pars_set_cosmo.copy()
+    _,_,Pcyl_base=unbin_to_Pcyl(kpar,kperp,z,pars_set_cosmo=pcopy,n_sph_modes=n_sph_modes)
     P0=np.mean(np.abs(Pcyl_base))+eps
     tol=ftol*P0 # generalizes tol=ftol*f0 from 512
 
     pcopy[n]=pcopy[n]+2*dparn
-    _,_,Pcyl_2plus=unbin_to_Pcyl(kpar,kperp,z,pars=pcopy,n_sph_modes=n_sph_modes)
-    pcopy=pars.copy()
+    _,_,Pcyl_2plus=unbin_to_Pcyl(kpar,kperp,z,pars_set_cosmo=pcopy,n_sph_modes=n_sph_modes)
+    pcopy=pars_set_cosmo.copy()
     pcopy[n]=pcopy[n]-2*dparn
-    _,_,Pcyl_2minu=unbin_to_Pcyl(kpar,kperp,z,pars=pcopy,n_sph_modes=n_sph_modes)
+    _,_,Pcyl_2minu=unbin_to_Pcyl(kpar,kperp,z,pars_set_cosmo=pcopy,n_sph_modes=n_sph_modes)
     deriv1=(Pcyl_2plus-Pcyl_2minu)/(4*dpar[n])
 
     pcopy[n]=pcopy[n]+dparn
-    _,_,Pcyl_plus=unbin_to_Pcyl(kpar,kperp,z,pars=pcopy,n_sph_modes=n_sph_modes)
-    pcopy=pars.copy()
+    _,_,Pcyl_plus=unbin_to_Pcyl(kpar,kperp,z,pars_set_cosmo=pcopy,n_sph_modes=n_sph_modes)
+    pcopy=pars_set_cosmo.copy()
     pcopy[n]=pcopy[n]-dparn
-    _,_,Pcyl_minu=unbin_to_Pcyl(kpar,kperp,z,pars=pcopy,n_sph_modes=n_sph_modes)
+    _,_,Pcyl_minu=unbin_to_Pcyl(kpar,kperp,z,pars_set_cosmo=pcopy,n_sph_modes=n_sph_modes)
     deriv2=(Pcyl_plus-Pcyl_minu)/(2*dpar[n])
 
     while (done==False):
@@ -360,26 +361,26 @@ def cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=500,ftol=1e-6,eps=1e-16,max
                 print("RETURNING fallback")
                 return fallback
 
-def build_cyl_partials(pars,z,n_sph_modes,kpar,kperp,dpar):
+def build_cyl_partials(pars_set_cosmo,z,n_sph_modes,kpar,kperp,dpar):
     """
-    builds a (ncp,nkpar,nkperp) array of the partials of the cylindrically binned MPS WRT each cosmo param in the forecast
+    builds a (npfore,nkpar,nkperp) array of the partials of the cylindrically binned MPS WRT each cosmo param in the forecast
     """
     nkpar=len(kpar)
     nkperp=len(kperp)
-    nprm=len(pars)
+    nprm=len(pars_set_cosmo)
     V=np.zeros((nprm,nkpar,nkperp))
     for n in range(nprm):
-        V[n,:,:]=cyl_partial(pars,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
+        V[n,:,:]=cyl_partial(pars_set_cosmo,z,n,dpar,kpar,kperp,n_sph_modes=n_sph_modes)
     return V
 
-def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,Nvox=150,recalc_Pcont=False,n_realiz=5):
+def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars_set_cosmo,epsLoS,epsbeam0,z,n_sph_modes,savename=None,cyl_sym_resp=True, fwhmbeam1=1e-3,epsbeam1=0.1,Nvox=150,recalc_Pcont=False,n_realiz=5):
     """
     args
-    partials = ncp x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
+    partials = npfore x nkpar x nkperp array where each slice of constant 0th (nprm) index is an nkpar x nkperp array of the MPS's partial WRT a particular parameter in the forecast
     unc      = nkpar x nkperp array describing the standard deviations at each cylindrically binned k-mode
 
     returns
-    (ncp,) vector of biases resulting from beam mismodelling for the parameters of interest in the forecast
+    (npfore,) vector of biases resulting from beam mismodelling for the parameters of interest in the forecast
     """
     V=0.0*partials # still want the same shape as the vector of partials, even though this is different than for the spherical case
     nprm=partials.shape[0]
@@ -395,9 +396,9 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
     print("computed F")
     if recalc_Pcont:
         if cyl_sym_resp:
-            Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_sph_modes)
+            Pcont=calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam0,pars_set_cosmo,epsLoS,epsbeam0,z,n_sph_modes)
         else:
-            Pcont=calc_Pcont_asym(pars,z,
+            Pcont=calc_Pcont_asym(pars_set_cosmo,z,
                                   kpar,kperp,
                                   sigLoS,epsLoS,r0,fwhmbeam0,fwhmbeam1,epsbeam0,epsbeam1,
                                   Nvox=Nvox,n_sph_modes=n_sph_modes,n_realiz=n_realiz) 
@@ -413,17 +414,17 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars,epsLoS,epsbeam0,z,n_s
     print("computed b")
     return bias
 
-def printparswbiases(pars,parnames,biases):
+def printpars_set_cosmowbiases(pars_set_cosmo,parnames,biases):
     """
     args
-    parnames = (ncp,) vector of strings: names of the parameters in the forecast (assumed to be in the same order as pars)
-    biases   = (ncp,) vector: biases in estimating the cosmo params in the forecast resulting from inadvertent beam mismodelling (in the same order as pars and parnames)
+    parnames = (npfore,) vector of strings: names of the parameters in the forecast (assumed to be in the same order as pars_set_cosmo)
+    biases   = (npfore,) vector: biases in estimating the cosmo params in the forecast resulting from inadvertent beam mismodelling (in the same order as pars_set_cosmo and parnames)
 
     returns
     None (fcn prints a formatted summary of the forecasting pipeline calculation)
     """
     print("\n\nbias calculation results for the survey described above.................................")
     print("........................................................................................")
-    for p,par in enumerate(pars):
+    for p,par in enumerate(pars_set_cosmo):
         print('{:12} = {:-10.3e} with bias {:-12.5e} (fraction = {:-10.3e})'.format(parnames[p], par, biases[p], biases[p]/par))
     return None

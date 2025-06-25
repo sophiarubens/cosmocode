@@ -123,7 +123,7 @@ if recalc_biases:
                         fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test,
                         #   fwhmbeam1=beam_fwhm1, epsbeam1=0.,
                         recalc_Pcont=True,
-                        savename="cyl_asym", n_realiz=5) # n_realiz=1 recovers the previous case where I do not average over realizations
+                        savename="cyl_asym", n_realiz=1) # n_realiz=1 recovers the previous case where I do not average over realizations
     printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
 
 ## debug zone to inspect the Pconts more closely for the two cases (this term is responsible for all the differences in the results between the two bias calc strategies at the moment)
@@ -136,6 +136,8 @@ Pcont_cyl_asym_verti= Pcont_cyl_asym[:,0]
 
 cyl_P_saved=         np.load("cyl_P.npy")
 cyl_Wcont_saved=     np.load("cyl_Wcont.npy")
+cyl_Wtrue_verti=1/(np.sqrt(2)*sig_LoS)
+cyl_Wtrue_horiz=np.sqrt(np.log(2))/(Dc_ctr*beam_fwhm0)
 
 par_line=1./(np.sqrt(2)*sig_LoS)
 perp_line=np.sqrt(ln2)/(Dc_ctr*beam_fwhm1)
@@ -156,9 +158,11 @@ cbar.ax.set_xlabel("power")
 im=axs[0,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym)
 cbar=plt.colorbar(im,ax=axs[0,2])
 cbar.ax.set_xlabel("power")
-axs[0,3].plot(kpar_surv,  Pcont_cyl_sym_verti)
+axs[0,3].plot(kpar_surv,  Pcont_cyl_sym_verti,  label="Ptrue")
+axs[0,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma",c=par_line_colour)
 axs[0,3].axhline(Pcont_cyl_sym_verti[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
-axs[0,4].plot(kperp_surv, Pcont_cyl_sym_horiz)
+axs[0,4].plot(kperp_surv, Pcont_cyl_sym_horiz, label="Ptrue")
+axs[0,4].axvline(cyl_Wtrue_horiz, label="W 1isgma", c=perp_line_colour)
 axs[0,4].axhline(Pcont_cyl_sym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
 
 
@@ -166,9 +170,11 @@ axs[0,4].axhline(Pcont_cyl_sym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,l
 im=axs[1,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym)
 cbar=plt.colorbar(im,ax=axs[1,2])
 cbar.ax.set_xlabel("power")
-axs[1,3].plot(kpar_surv,  Pcont_cyl_asym_verti)
+axs[1,3].plot(kpar_surv,  Pcont_cyl_asym_verti, label="Ptrue")
+axs[1,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=par_line_colour)
 axs[1,3].axhline(Pcont_cyl_asym_verti[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
-axs[1,4].plot(kperp_surv, Pcont_cyl_asym_horiz)
+axs[1,4].plot(kperp_surv, Pcont_cyl_asym_horiz, label="Ptrue")
+axs[1,4].axvline(cyl_Wtrue_horiz, label="Wtrue 1sigma", c=perp_line_colour)
 axs[1,4].axhline(Pcont_cyl_asym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
 
 # ROW 2: RATIOS                                 (PLOTS 0, 1 EMPTY)
@@ -176,8 +182,10 @@ Pcontratio=Pcont_cyl_sym/Pcont_cyl_asym
 im=axs[2,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcontratio, vmin=np.percentile(Pcontratio,1), vmax=np.percentile(Pcontratio,99))
 cbar=plt.colorbar(im,ax=axs[2,2],extend="both")
 cbar.ax.set_xlabel("power")
-axs[2,3].plot(kpar_surv,  Pcont_cyl_sym_verti/Pcont_cyl_asym_verti)
-axs[2,4].plot(kperp_surv, Pcont_cyl_sym_horiz/Pcont_cyl_asym_horiz)
+axs[2,3].plot(kpar_surv,  Pcont_cyl_sym_verti/Pcont_cyl_asym_verti, label="Ptrue")
+axs[2,4].plot(kperp_surv, Pcont_cyl_sym_horiz/Pcont_cyl_asym_horiz, label="Ptrue")
+axs[2,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=perp_line_colour)
+axs[2,4].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=par_line_colour)
 
 # COSMETIC FEATURES
 for i in range(3):
@@ -194,14 +202,10 @@ for i in range(3):
             qty=" Wtrue"
         if (j==2):
             qty=" Ptrue"
-            axs[i,2].axhline(perp_line,c=perp_line_colour,label="expected 1sigma")
-            axs[i,2].axvline(par_line,c=par_line_colour,label="expected 1sigma")
         if (j==3):
-            qty=" k$_{||}$ idx = 0 slice of Ptrue"
-            axs[i,3].axvline(par_line,c=par_line_colour,label="expected 1sigma")
+            qty=" slices with constant min k$_{||}$"
         if (j==4):
-            qty=" k$_\perp$ idx = 0 slice of Ptrue"
-            axs[i,4].axvline(perp_line,c=perp_line_colour,label="expected 1sigma")
+            qty=" slices with constant min k$_\perp$"
         axs[i,j].set_title(case+qty)
         if (j<3):
             axs[i,j].set_xlabel("k$_{||}$ (1/Mpc)")
