@@ -38,7 +38,7 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
                          - shape [(Nkpar,),(Nkperp,)] or similar for cylindrical binning
     Lsurvey          = side length of the cosmological box (Mpc) (just sets the volume element scaling... nothing to do with pixelization)
     custom_estimator = if not False, a callable defined in CARTESIAN coordinates to integrate from -Lsurvey/2 to Lsurvey/2 along all three axes to get the estimator denominator for the case of a nontrivial instrument response
-    custom_estimator_args = if not None, the "parameters" (i.e. not variables) in custom_estimator; realistically, (sigLoS,beamfwhm1,beamfwhm2,)
+    custom_estimator_args = if not None, the "parameters" (i.e. not variables) in custom_estimator; realistically, (sigLoS,beamfwhm1,beamfwhm2,r0,)
 
     outputs:
     k-modes and powers of the power spectrum
@@ -124,8 +124,18 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
     if (not custom_estimator):
         denom=V
     else:
-        if (np.all(custom_estimator_args)==0): # if the response is a delta function, skip numerical integration
-            denom=1                            # and apply the delta function integral identity manually
+        sigLoS,beamfwhm_x,beamfwhm_y,r0=custom_estimator_args
+        # Fourier_LoS_sigma=1./(np.sqrt(2)*sigLoS)
+        # Fourier_skypl_sigma=np.sqrt(np.log(2.))/(r0*np.min((beamfwhm_x,beamfwhm_y)))
+        # kpar,kperp=k # not strictly robust because I haven't formally checked that I'm in the cylindrical case, but so far I don't envision using a custom estimator for a non-cylindrical case
+        # dkpar=kpar[1]-kpar[0]
+        # dkperp=kperp[1]-kperp[0]
+        # print("Fourier_LoS_sigma,dkpar, Fourier_skypl_sigma,dkperp=",Fourier_LoS_sigma,dkpar, Fourier_skypl_sigma,dkperp)
+        sky_sigmas=r0*np.array([beamfwhm_x,beamfwhm_y])/np.sqrt(2.*np.log(2))
+        print("sky_sigmas,sigLoS,Delta=",sky_sigmas,sigLoS,Delta)
+        if ((np.any(sky_sigmas)<Delta) or (sigLoS<Delta)): # if the response is close enough to being a delta function,
+        # if ((Fourier_LoS_sigma<dkpar) or (Fourier_skypl_sigma<dkperp)): # if the response is "close enough" to a delta function, 
+            denom=1                                                     # skip numerical integration and apply the delta function integral identity manually
         else:
             bound=Lsurvey/2
             denom,_=tplquad(custom_estimator,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)

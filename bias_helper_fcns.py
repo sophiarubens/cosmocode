@@ -46,6 +46,9 @@ dpar           = vector of initial step size guesses to be used in numerical dif
 args not explained here will be documented in the single function in which they appear
 """
 
+class NvoxPracticalityError(Exception):
+    pass
+
 def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
     """
     args
@@ -60,6 +63,18 @@ def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
     NDeltanu=nu_ctr*evol_restriction_threshold
     N=NDeltanu/Deltanu
     return NDeltanu,N
+
+def ceilflex(x,roundto=0.05):
+    multceil=np.ceil(x/roundto)
+    result=multceil*roundto
+    print("ceilflex: x,multceil,result=",x,multceil,result)
+    return result
+
+def floorflex(x,roundto=0.005):
+    multfloor=np.floor(x/roundto)
+    result=multfloor*roundto
+    print("floorflex: x,multfloor,result=",x,multfloor,result)
+    return result
 
 def get_padding(n):
     padding=n-1
@@ -77,8 +92,10 @@ def higher_dim_conv(P,Wcont):
     s0,s1=Pshape # by now, P and Wcont have the same shapes
     pad0lo,pad0hi=get_padding(s0)
     pad1lo,pad1hi=get_padding(s1)
-    Pp=np.pad(P,((pad0lo,pad0hi),(pad1lo,pad1hi)),"constant",constant_values=((0,0),(0,0)))
-    conv=convolve(Wcont,Pp,mode="valid") # NOW THAT I'M CENTRING MY WINDOW FUNCTION DIFFERENTLY, TRY THIS AGAIN BECAUSE NOW THE CORNER SLICE SHOULD WORK??! # CAN'T USE THIS ANYMORE BECAUSE IT GIVES ME THE WEIRD SIDELOBE THING/ SLICES THE MIDDLE WHEN I WANT THE CORNER (would've expected different padding or something)
+    # Pp=np.pad(P,((pad0lo,pad0hi),(pad1lo,pad1hi)),"constant",constant_values=((0,0),(0,0))) # OLD OLD OLD
+    # conv=convolve(Wcont,Pp,mode="valid") # NOW THAT I'M CENTRING MY WINDOW FUNCTION DIFFERENTLY, TRY THIS AGAIN BECAUSE NOW THE CORNER SLICE SHOULD WORK??! # CAN'T USE THIS ANYMORE BECAUSE IT GIVES ME THE WEIRD SIDELOBE THING/ SLICES THE MIDDLE WHEN I WANT THE CORNER (would've expected different padding or something)
+    Wcontp=np.pad(Wcont,((pad0lo,pad0hi),(pad1lo,pad1hi)),"edge") # NEW NEW NEW
+    conv=convolve(Wcontp,P,mode="valid")
     return conv
 
 def W_cyl_binned(kpar,kperp,sigLoS,r0,fwhmbeam,save=False):
@@ -131,8 +148,30 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars_set_cosmo,epsLoS,epsbeam,z
     print(">> Pcont calc: convolved P and Wcont")
     return Pcont
 
+def NvoxPracticalityWarning(Nvox):
+    print("WARNING: the specified survey requires Nvox={:4}, which will probably lead to slow eval".format(Nvox))
+    return None 
+
+def get_L_N_for_box(kpar,kperp):
+    # print("ENTERING get_L_N_for_box")
+    # print("kpar[0],kperp[0],kpar[-1],kperp[-1]=",kpar[0],kperp[0],kpar[-1],kperp[-1])
+    klow=np.min((kpar[0],kperp[0])) 
+    # print("klow=",klow)
+    khigh=np.max((kpar[-1],kperp[-1]))
+    # print("khigh=",khigh)
+    kmin=floorflex(klow)
+    kmax=ceilflex(khigh)
+    # print("kmin,kmax=",kmin,kmax)
+    Lsurvbox=twopi/kmin
+    Nvoxbox=int(Lsurvbox*kmax/pi)
+    # print("Lsurvbox,Nvoxbox=",Lsurvbox,Nvoxbox)
+    if (Nvoxbox>200):
+        NvoxPracticalityWarning(Nvoxbox)
+        # raise NvoxPracticalityError
+    # print("EXITING get_L_N_for_box")
+    return Lsurvbox,Nvoxbox
+
 def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=15,nkperp_box=18,n_realiz=5):
-# def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=10,nkperp_box=12,n_realiz=5):
     """
     calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
     (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -154,15 +193,16 @@ def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beam
     ksph,Ptruesph=get_mps(pars_set_cosmo,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=n_sph_modes)
     t1=time.time()
     print(">> Pcont calc: sourced pspec from CAMB",t1-t0)
-
-    Lcube=628 # new reasoning: Nvox~200 is a rough practicality ceiling for now, so how high can I go in k without sacrificing too much low k? Nvox=150,Lsurvey=419 reveals k~[0.015,1.5], but Nvox=150,Lsurvey=628 reveals k~[0.01,0.75] which is ok bc it doubles to ~1.5 bc of fftshift things
+    Lsurvbox,Nvoxbox=get_L_N_for_box(kpar,kperp)
+    print("Lsurvbox,Nvoxbox=",Lsurvbox,Nvoxbox)
     nkpar=len(kpar)
     nkperp=len(kperp)
     Ptrue_realizations=   np.zeros((nkpar,nkperp,n_realiz))
     Pthought_realizations=np.zeros((nkpar,nkperp,n_realiz))
     for i in range(n_realiz):
         t2=time.time()
-        _,Tbox,rmags=generate_box(Ptruesph,ksph,Lcube,Nvox) 
+        # Lsurvbox,Nvoxbox=get_L_N_for_box(kpar,kperp)
+        _,Tbox,rmags=generate_box(Ptruesph,ksph,Lsurvbox,Nvoxbox) 
         t3=time.time()
         print(">> Pcont calc: generated box from pspec - realization",i,t3-t2)
         if (i==0):
@@ -204,7 +244,7 @@ def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beam
         t7=time.time()
         print(">> Pcont calc: multiplied box and instrument response - realization",i,t7-t6)
         bundled_args=(sigLoS,beamfwhm_x,beamfwhm_y,r0,)
-        ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args) # WAS LIN BUT NUMERICS WERE BAD
+        ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lsurvbox,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args) # WAS LIN BUT NUMERICS WERE BAD
         # ##
         # kbox0,kbox1=ktrue_intrinsic_to_box
         # kbox0grid,kbox1grid=np.meshgrid(kbox0,kbox1,indexing="ij")
@@ -215,7 +255,7 @@ def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beam
         # plt.show()
         # ##
         t8=time.time()
-        kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lcube,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
+        kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lsurvbox,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
         k_survey=(kpar,kperp)
         t9=time.time()
         print(">> Pcont calc: generated pspecs from modulated boxes - realization",i,t9-t7)
@@ -250,8 +290,11 @@ def custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0):
     returns
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
-    return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
-    # return np.exp(-(Z/sigLoS)**2/2. -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
+    return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2) # LoS direction is z-like! everything is compatible here! see the comments in the elif (binto=="cyl") branch of P_driver in power.py to remind myself!!
+    # if (np.any(np.array([sigLoS,beamfwhm_x,beamfwhm_y]))==0):
+    #     return 0.*X
+    # else:
+    #     return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2) # LoS direction is z-like! everything is compatible here! see the comments in the elif (binto=="cyl") branch of P_driver in power.py to remind myself!!
 
 def unbin_to_Pcyl(kpar,kperp,z,pars_set_cosmo=pars_set_cosmo_Planck18,n_sph_modes=500):  
     """
@@ -303,6 +346,7 @@ def get_mps(pars_set_cosmo,z,minkh=1e-4,maxkh=1,n_sph_modes=500):
     ns=pars_set_cosmo[4]
 
     pars_set_cosmo=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0)
+    # camb.dark_energy.DarkEnergyEqnOfState.set_params(w=, wa=)
     pars_set_cosmo.InitPower.set_params(As=As,ns=ns,r=0)
     pars_set_cosmo.set_matter_power(redshifts=z, kmax=maxkh*h)
     results = camb.get_results(pars_set_cosmo)
@@ -414,7 +458,7 @@ def bias(partials,unc, kpar,kperp,sigLoS,r0,fwhmbeam0,pars_set_cosmo,epsLoS,epsb
     print("computed b")
     return bias
 
-def printpars_set_cosmowbiases(pars_set_cosmo,parnames,biases):
+def printparswbiases(pars_set_cosmo,parnames,biases):
     """
     args
     parnames = (npfore,) vector of strings: names of the parameters in the forecast (assumed to be in the same order as pars_set_cosmo)

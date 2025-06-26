@@ -64,12 +64,13 @@ fractional_2d_sense=0.1 # Adrian's recommendation: flat 10% uncertainty everywhe
 sigma_kpar_kperp=fractional_2d_sense*Pcyl
 
 ############################## beam widths and fractional uncertainties ########################################################################################################################
-limit=3 # TOGGLE BETWEEN CASES HERE
+limit=2 # TOGGLE BETWEEN CASES HERE
 if limit==1:
     print("limit 1: identity response/ delta window")
-    sig_LoS=    0.
-    beam_fwhm0= 0.
-    beam_fwhm1= 0.
+    small=0.
+    sig_LoS=    small
+    beam_fwhm0= small
+    beam_fwhm1= small
 
     epsLoS_test=   0.1
     epsbeam0_test= 0.1
@@ -80,9 +81,10 @@ elif limit==2:
     beam_fwhm0=(1./12.)*pi/180. # CHORD pathfinder spec page
     beam_fwhm1=(1./12.)*pi/180.
 
-    epsLoS_test=   0.
-    epsbeam0_test= 0.
-    epsbeam1_test= 0.
+    small=1e-8
+    epsLoS_test=   small
+    epsbeam0_test= small
+    epsbeam1_test= small
 elif limit==3:
     print("limit 3: recover analytical result when using numerical scheme w/ cyl sym call")
     sig_LoS=0.25*(Dc_ctr-Dc_lo)/10 # dialing in the bound set by condition following from linearization...
@@ -104,7 +106,7 @@ if verbose_test_prints: # fans of well-formatted print statements look away now.
     print("survey spans............................................................................\n    nu =  {:>5.4}    -  {:>5.4}    MHz (deltanu = {:>6.4}    MHz) \n    z =  {:>9.4} - {:>9.4}     (deltaz  = {:>9.4}    ) \n    Dc = {:>9.4f} - {:>9.4f} Mpc (deltaDc = {:>9.4f} Mpc)\n".format(nu_lo,nu_hi,survey_width,z_hi,z_lo,deltaz,Dc_hi,Dc_lo,Dc_hi-Dc_lo))
     print("characteristic instrument response widths...............................................\n    sigLoS = {:>7.4}     Mpc (frac. uncert. {:>7.4})\n    beamFWHM = {:>=8.4}  rad (frac. uncert. {:>7.4})\n".format(sig_LoS,epsLoS_test,beam_fwhm0,epsbeam0_test))
     print("specific to the cylindrically asymmetric beam...........................................\n    beamFWHM1 {:>8.4} = rad (frac. uncert. {:>7.4}) \n".format(beam_fwhm1,epsbeam1_test))
-    print("cylindrically binned wavenumbers of the survey..........................................\n    kparallel {:>8.4} - {:>8.4} Mpc**(-1) ({:>4} channels of width {:>7.4}  Mpc**(-1)) \n    kperp     {:>8.4} - {:>8.4} Mpc**(-1) ({:>4} channels of width {:>8.4} Mpc**(-1))\n".format(kpar_surv[0],kpar_surv[-1],len(kpar_surv),kpar_surv[-1]-kpar_surv[-2],   kperp_surv[0],kperp_surv[-1],len(kperp_surv),kperp_surv[-1]-kperp_surv[-2]))
+    print("cylindrically binned wavenumbers of the survey..........................................\n    kparallel {:>8.4} - {:>8.4} Mpc**(-1) ({:>4} channels of width {:>7.4}  Mpc**(-1)) \n    kperp     {:>8.4} - {:>8.4} Mpc**(-1) ({:>4} bins of width {:>8.4} Mpc**(-1))\n".format(kpar_surv[0],kpar_surv[-1],len(kpar_surv),kpar_surv[-1]-kpar_surv[-2],   kperp_surv[0],kperp_surv[-1],len(kperp_surv),kperp_surv[-1]-kperp_surv[-2]))
     print("cylindrically binned k-bin sensitivity..................................................\n    fraction of Pcyl amplitude = {:>7.4}".format(fractional_2d_sense))
 
 ############################## actual pipeline test ########################################################################################################################
@@ -144,7 +146,7 @@ if recalc_biases:
                         fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test,
                         #   fwhmbeam1=beam_fwhm1, epsbeam1=0.,
                         recalc_Pcont=True,
-                        savename="cyl_asym", n_realiz=1) # n_realiz=1 recovers the previous case where I do not average over realizations
+                        savename="cyl_asym", n_realiz=3) # n_realiz=1 recovers the previous case where I do not average over realizations
     printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
 
 ## debug zone to inspect the Pconts more closely for the two cases (this term is responsible for all the differences in the results between the two bias calc strategies at the moment)
@@ -166,7 +168,7 @@ perp_line=np.sqrt(ln2)/(Dc_ctr*beam_fwhm1)
 xtext,ytext=0.035,0.5
 
 if limit==1: # identity window limit: sigmas=0, eps=test
-    fig,axs=plt.subplots(2,4,figsize=(15,7))
+    fig,axs=plt.subplots(3,4,figsize=(15,10))
     # ROW 0: analytical
     im=axs[0,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved)
     cbar=plt.colorbar(im,ax=axs[0,0],extend="both")
@@ -176,24 +178,36 @@ if limit==1: # identity window limit: sigmas=0, eps=test
     axs[0,1].set_title("an Wtrue")
     im=axs[0,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym)
     cbar=plt.colorbar(im,ax=axs[0,2],extend="both")
-    axs[0,2].set_title("Pwindowed")
+    axs[0,2].set_title("an Pwindowed")
     im=axs[0,3].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym/cyl_P_saved)
     cbar=plt.colorbar(im,ax=axs[0,3],extend="both")
-    axs[0,3].set_title("Pwindowed/Ptrue ratio")
+    axs[0,3].set_title("an Pwindowed/Ptrue ratio")
 
     # ROW 1: numerical
     im=axs[1,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved)
     cbar=plt.colorbar(im,ax=axs[1,0],extend="both")
-    axs[1,0].set_title("Ptrue")
+    axs[1,0].set_title("nu Ptrue")
+    axs[1,1].set_title("nu W")
     axs[1,1].text(xtext,ytext,"DNE as a discrete object in my pipeline", fontsize=9)
     im=axs[1,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym)
     cbar=plt.colorbar(im,ax=axs[1,2],extend="both")
-    axs[1,2].set_title("Pwindowed")
+    axs[1,2].set_title("nu Pwindowed")
     im=axs[1,3].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym/cyl_P_saved)
     cbar=plt.colorbar(im,ax=axs[1,3],extend="both")
-    axs[1,3].set_title("Pwindowed/Ptrue ratio")
+    axs[1,3].set_title("nu Pwindowed/Ptrue ratio")
 
-    for i in range(2):
+    # ROW 2: an/nu ratio
+    im=axs[2,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved/cyl_P_saved)
+    cbar=plt.colorbar(im,ax=axs[2,0],extend="both")
+    axs[2,0].set_title("an/nu Ptrue")
+    axs[2,1].text(xtext,ytext,"no ratio possible", fontsize=9)
+    axs[2,1].set_title("an/nu W")
+    im=axs[2,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym/Pcont_cyl_asym)
+    cbar=plt.colorbar(im,ax=axs[2,2],extend="both")
+    axs[2,2].set_title("an/nu Pwindowed")
+    im=axs[2,3].text(xtext,ytext,"no new info, by construction")
+
+    for i in range(3):
         for j in range(4):
             axs[i,j].set_xlabel("k$_{||}$ (1/Mpc)")
             axs[i,j].set_ylabel("k$_\perp$ (1/Mpc)")
@@ -214,22 +228,22 @@ elif limit==2: # perfect confidence limit: sigmas=test, eps=0
     axs[0,1].set_title("an Wtrue")
     im=axs[0,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym)
     cbar=plt.colorbar(im,ax=axs[0,2],extend="both")
-    axs[0,2].set_title("Pwindowed")
+    axs[0,2].set_title("an Pwindowed")
     im=axs[0,3].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym/cyl_P_saved)
     cbar=plt.colorbar(im,ax=axs[0,3],extend="both")
-    axs[0,3].set_title("Pwindowed/Ptrue ratio")
+    axs[0,3].set_title("an Pwindowed/Ptrue ratio")
 
     # ROW 1: numerical
     im=axs[1,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved)
     cbar=plt.colorbar(im,ax=axs[1,0],extend="both")
-    axs[1,0].set_title("Ptrue")
+    axs[1,0].set_title("nu Ptrue")
     axs[1,1].text(xtext,ytext,"DNE as a discrete object in my pipeline", fontsize=9)
     im=axs[1,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym)
     cbar=plt.colorbar(im,ax=axs[1,2],extend="both")
-    axs[1,2].set_title("Pwindowed")
+    axs[1,2].set_title("nu Pwindowed")
     im=axs[1,3].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym/cyl_P_saved)
     cbar=plt.colorbar(im,ax=axs[1,3],extend="both")
-    axs[1,3].set_title("Pwindowed/Ptrue ratio")
+    axs[1,3].set_title("nu Pwindowed/Ptrue ratio")
 
     for i in range(2):
         for j in range(4):
