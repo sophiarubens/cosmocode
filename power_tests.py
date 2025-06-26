@@ -2,8 +2,8 @@ from power import *
 import time
 import numpy as np
 from matplotlib import pyplot as plt
-Lsurvey=103
-Npix=200
+Lsurvey=126
+Npix=52
 mode="lin"
 # mode="log"
 Nkpar=8 # 327
@@ -89,8 +89,8 @@ if test_cyl_interp:
     k,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp)
     kpar_have,kperp_have=k
     kpar_have_grid,kperp_have_grid=np.meshgrid(kpar_have,kperp_have,indexing="ij")
-    kpar_want=np.linspace(0.01,4.,3*Nkpar)
-    kperp_want=np.linspace(0.03,2.,3*Nkperp)
+    kpar_want=np.linspace( 0.1866,  0.9702, 2*Nkpar)
+    kperp_want=np.linspace(0.08485, 1.290,  2*Nkperp)
     k_want=(kpar_want,kperp_want)
     k_want_returned,P_want=interpolate_P(vals,k,k_want,avoid_extrapolation=False)
     kpar_want_returned,kperp_want_returned=k_want_returned

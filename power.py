@@ -84,8 +84,8 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
             NmTt=  NmTt[1:]
         amTt=np.zeros(Nk) # template to store the ensemble average: to avoid division-by-zero errors, I use an empty-bin mask for the ensemble average sum/count division to leave zero power (instead of ending up with nan power) in empty bins
 
-    elif (binto=="cyl"):
-        kpar,kperp=k # this assumes my apparently-nontraditional convention of putting kpar first... fix this later, probably
+    elif (binto=="cyl"): # kpar is z-like
+        kpar,kperp=k # kpar being unpacked first here DOES NOT change my treatment of kpar as a z-like coordinate in 3D arrays (look at these lines to re-convince myself: kperpmags=, mTt_slice=,...)
         Nkpar=len(kpar)
         Nkperp=len(kperp)
 
@@ -104,7 +104,7 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
                 slice_bin_counts= np.bincount(perpbin_indices_slice_1d, minlength=Nkperp) # each slice's update to the denominator of the ensemble average
                 if (len(slice_bin_counts)==(Nkperp+1)): # prune central voxel "below the floor of the lowest bin" extension bin
                     slice_bin_counts=slice_bin_counts[1:]
-            mTt_slice=       mTt[:,:,i]                                                                  # take the slice of interest of the preprocessed box values
+            mTt_slice=       mTt[:,:,i]                                                                  # take the slice of interest of the preprocessed box values !! still treating kpar as z-like
             mTt_slice_1d=    np.reshape(mTt_slice,(Nvox**2,))                                            # reshape to 1D for bincount compatibility
             current_binsums= np.bincount(perpbin_indices_slice_1d,weights=mTt_slice_1d,minlength=Nkperp) # this slice's update to the numerator of the ensemble average
             if (len(current_binsums)==(Nkperp+1)): # prune central voxel "below the floor of the lowest bin" extension bin
@@ -118,14 +118,17 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
         return None
     
-    # translate to power spectrum terms #AFTER ADDING THE SACRIFICIAL BIN: CHECK IF THIS BIN HANDLES THE EMPTY LAST BIN ISSUE OR IF I'LL NEED TO REMOVE IT MANUALLY
+    # translate to power spectrum terms
     nonemptybins=np.nonzero(NmTt)
     amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
     if (not custom_estimator):
         denom=V
     else:
-        bound=Lsurvey/2
-        denom,_=tplquad(custom_estimator,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
+        if (np.all(custom_estimator_args)==0): # if the response is a delta function, skip numerical integration
+            denom=1                            # and apply the delta function integral identity manually
+        else:
+            bound=Lsurvey/2
+            denom,_=tplquad(custom_estimator,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
     P=np.array(amTt/denom)
 
     return [k,P]
