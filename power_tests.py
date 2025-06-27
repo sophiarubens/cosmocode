@@ -58,16 +58,35 @@ if test_cyl_fwd:
     nsubcol=3
     vmin=np.infty
     vmax=-np.infty
+
+    ###
+    vec=1/np.fft.fftshift(np.fft.fftfreq(Npix,d=Lsurvey/Npix)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
+    xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
+    modulation=np.exp(-(xgrid**2+ygrid**2+zgrid**2)/2)
+    plt.figure()
+    slice=3
+    plt.imshow(modulation[:,:,slice])
+    plt.title("modulation[:,:,"+str(slice)+"]")
+    plt.show()
+    ###
+
     fig,axs=plt.subplots(nsubrow,nsubcol,figsize=(8,10))
+
     for i in range(nsubrow):
         for j in range(nsubcol):
             T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-            k,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp) 
+
+            ### start of modulation test
+            Tmod=T*modulation
+            k,vals=generate_P(Tmod,mode,Lsurvey,Nkpar,Nk1=Nkperp)
+            ### end of modulation test
+
+            # k,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp) 
             kpar,kperp=k
             kpargrid,kperpgrid=np.meshgrid(kpar,kperp,indexing="ij")
             im=axs[i,j].pcolor(kpargrid,kperpgrid,vals)
             axs[i,j].set_ylabel("$k_\perp$")
-            axs[i,j].set_xlabel("$k_{||}")
+            axs[i,j].set_xlabel("$k_{||}$")
             axs[i,j].set_title("Realization {:2}".format(i*nsubrow+j))
             axs[i,j].set_aspect("equal")
             minval=np.min(vals)
@@ -86,7 +105,16 @@ test_cyl_interp=True
 if test_cyl_interp:
     print("CYL INTERP")
     T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
-    k,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp)
+
+    ### start of modulation test
+    vec=1/np.fft.fftshift(np.fft.fftfreq(Npix,d=Lsurvey/Npix)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
+    xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
+    modulation=np.exp(-(xgrid**2+ygrid**2+zgrid**2))
+    Tmod=T*modulation
+    k,vals=generate_P(Tmod,mode,Lsurvey,Nkpar,Nk1=Nkperp)
+    ### end of modulation test
+
+    # k,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp)
     kpar_have,kperp_have=k
     kpar_have_grid,kperp_have_grid=np.meshgrid(kpar_have,kperp_have,indexing="ij")
     kpar_want=np.linspace( 0.1866,  0.9702, 2*Nkpar)
@@ -133,8 +161,8 @@ if test_bwd:
         kfl,P=np.genfromtxt(case,dtype='complex').T
         Npix=len(P)
 
-        # n_field_voxel_cases=[99,100] # 4.8 s for the whole loop
-        n_field_voxel_cases=[199,200] # 22.2 s for the whole loop
+        n_field_voxel_cases=[99,100] # 4.8 s for the whole loop
+        # n_field_voxel_cases=[199,200] # 22.2 s for the whole loop
         # n_field_voxel_cases=[399,400] # 172.5 s for the whole loop
         for j,n_field_voxels in enumerate(n_field_voxel_cases):
             tests=[0,n_field_voxels//2,n_field_voxels-3]

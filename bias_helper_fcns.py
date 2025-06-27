@@ -244,11 +244,45 @@ def custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0):
     returns
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
-    return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2) # LoS direction is z-like! everything is compatible here! see the comments in the elif (binto=="cyl") branch of P_driver in power.py to remind myself!!
-    # if (np.any(np.array([sigLoS,beamfwhm_x,beamfwhm_y]))==0):
-    #     return 0.*X
-    # else:
-    #     return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2) # LoS direction is z-like! everything is compatible here! see the comments in the elif (binto=="cyl") branch of P_driver in power.py to remind myself!!
+    response=np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
+    fig,axs=plt.subplots(3,3,figsize=(15,8))
+    Nvox=X.shape[0]
+    half=Nvox//2
+    axs[0,0].pcolormesh(X[:,:,0   ],Y[:,:,0   ],response[:,:,0   ])
+    axs[0,0].set_title("response[:,:,0]")
+    axs[0,1].pcolormesh(X[:,:,half],Y[:,:,half],response[:,:,half])
+    axs[0,1].set_title("response[:,:,half]")
+    axs[0,2].pcolormesh(X[:,:,-1  ],Y[:,:,-1  ],response[:,:,-1  ])
+    axs[0,2].set_title("response[:,:,-1]")
+    for i in range(3):
+        axs[0,i].set_xlabel("x")
+        axs[0,1].set_ylabel("y")
+
+    axs[1,0].pcolormesh(X[:,0,   :],Z[:,0,   :],response[:,0,   :])
+    axs[1,0].set_title("response[:,0,:]")
+    axs[1,1].pcolormesh(X[:,half,:],Z[:,half,:],response[:,half,:])
+    axs[1,1].set_title("response[:,half,:]")
+    axs[1,2].pcolormesh(X[:,-1,  :],Z[:,-1,  :],response[:,-1,  :])
+    axs[1,2].set_title("response[:,-1,:]")
+    for i in range(3):
+        axs[1,i].set_xlabel("x")
+        axs[1,i].set_ylabel("z")
+
+    axs[2,0].pcolormesh(Y[0,   :,:],Z[0,   :,:],response[0,   :,:])
+    axs[2,0].set_title("response[0,:,:]")
+    axs[2,1].pcolormesh(Y[half,:,:],Z[half,:,:],response[half,:,:])
+    axs[2,1].set_title("response[half,:,:]")
+    axs[2,2].pcolormesh(Y[-1,  :,:],Z[-1,  :,:],response[-1,  :,:])
+    axs[2,2].set_title("response[-1,:,:]")
+    for i in range(3):
+        axs[2,i].set_xlabel("Y")
+        axs[2,i].set_xlabel("Z")
+
+    plt.suptitle("inspect response")
+    plt.tight_layout()
+    plt.savefig("inspect_response.png")
+    plt.show()
+    return response # LoS direction is z-like! everything is compatible here! see the comments in the elif (binto=="cyl") branch of P_driver in power.py to remind myself!!
 
 def unbin_to_Pcyl(kpar,kperp,z,pars_set_cosmo=pars_set_cosmo_Planck18,n_sph_modes=500):  
     """
