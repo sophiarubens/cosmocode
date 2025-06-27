@@ -125,17 +125,10 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
         denom=V
     else:
         sigLoS,beamfwhm_x,beamfwhm_y,r0=custom_estimator_args
-        # Fourier_LoS_sigma=1./(np.sqrt(2)*sigLoS)
-        # Fourier_skypl_sigma=np.sqrt(np.log(2.))/(r0*np.min((beamfwhm_x,beamfwhm_y)))
-        # kpar,kperp=k # not strictly robust because I haven't formally checked that I'm in the cylindrical case, but so far I don't envision using a custom estimator for a non-cylindrical case
-        # dkpar=kpar[1]-kpar[0]
-        # dkperp=kperp[1]-kperp[0]
-        # print("Fourier_LoS_sigma,dkpar, Fourier_skypl_sigma,dkperp=",Fourier_LoS_sigma,dkpar, Fourier_skypl_sigma,dkperp)
         sky_sigmas=r0*np.array([beamfwhm_x,beamfwhm_y])/np.sqrt(2.*np.log(2))
-        print("sky_sigmas,sigLoS,Delta=",sky_sigmas,sigLoS,Delta)
+        # print("sky_sigmas,sigLoS,Delta=",sky_sigmas,sigLoS,Delta)
         if ((np.any(sky_sigmas)<Delta) or (sigLoS<Delta)): # if the response is close enough to being a delta function,
-        # if ((Fourier_LoS_sigma<dkpar) or (Fourier_skypl_sigma<dkperp)): # if the response is "close enough" to a delta function, 
-            denom=1                                                     # skip numerical integration and apply the delta function integral identity manually
+            denom=1                                        # skip numerical integration and apply the delta function integral identity manually
         else:
             bound=Lsurvey/2
             denom,_=tplquad(custom_estimator,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
@@ -236,9 +229,9 @@ def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
         if (kperp_want_hi>kperp_have_hi):
             extrapolation_warning("high kperp", kperp_want_hi, kperp_have_hi)
         kpar_want_grid,kperp_want_grid=np.meshgrid(kpar_want,kperp_want,indexing="ij")
-        P_want=interpn((kpar_have,kperp_have),P_have,(kpar_want_grid,kperp_want_grid),bounds_error=avoid_extrapolation,fill_value=None)
+        P_want=interpn((kpar_have,kperp_have),P_have,(kpar_want_grid,kperp_want_grid),method="cubic",bounds_error=avoid_extrapolation,fill_value=None)
     else:
-        P_interpolator=interp1d(k_have,P_have,bounds_error=avoid_extrapolation,fill_value="extrapolate")
+        P_interpolator=interp1d(k_have,P_have,kind="cubic",bounds_error=avoid_extrapolation,fill_value="extrapolate")
         P_want=P_interpolator(k_want)
     return (k_want,P_want)
 

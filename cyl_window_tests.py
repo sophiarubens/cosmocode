@@ -64,10 +64,11 @@ fractional_2d_sense=0.1 # Adrian's recommendation: flat 10% uncertainty everywhe
 sigma_kpar_kperp=fractional_2d_sense*Pcyl
 
 ############################## beam widths and fractional uncertainties ########################################################################################################################
-limit=2 # TOGGLE BETWEEN CASES HERE
+limit=3 # TOGGLE BETWEEN CASES HERE
 if limit==1:
     print("limit 1: identity response/ delta window")
-    small=0.
+    small=1e-10
+    # small=0.
     sig_LoS=    small
     beam_fwhm0= small
     beam_fwhm1= small
@@ -75,6 +76,9 @@ if limit==1:
     epsLoS_test=   0.1
     epsbeam0_test= 0.1
     epsbeam1_test= 0.1
+
+    supertitle="limit 1: identity window" 
+    savename="limit_1_identity_window.png"
 elif limit==2:
     print("limit 2: complete confidence in beam parametrization")
     sig_LoS=0.25*(Dc_ctr-Dc_lo)/10 # dialing in the bound set by condition following from linearization...
@@ -85,6 +89,9 @@ elif limit==2:
     epsLoS_test=   small
     epsbeam0_test= small
     epsbeam1_test= small
+
+    supertitle="limit 2: perfect confidence in beam"
+    savename="limit_2_perfect_beam_confidence.png"
 elif limit==3:
     print("limit 3: recover analytical result when using numerical scheme w/ cyl sym call")
     sig_LoS=0.25*(Dc_ctr-Dc_lo)/10 # dialing in the bound set by condition following from linearization...
@@ -94,6 +101,9 @@ elif limit==3:
     epsLoS_test=   0.1
     epsbeam0_test= 0.1
     epsbeam1_test= 0.1
+
+    supertitle="limit 3: recover analytical result with a suitable numerical call"
+    savename="limit_3_an_nu_agreement.png"
 else:
     assert(1==0), "limit not yet implemented"
 
@@ -126,13 +136,11 @@ if recalc_biases:
                         sig_LoS,Dc_ctr,beam_fwhm0,
                         pars_Planck18,
                         epsLoS_test,epsbeam0_test,
-                        # 0.,0.,
                         z_ctr,n_sph_an,
                         recalc_Pcont=True, 
                         savename="cyl_sym")
     printparswbiases(pars_Planck18,parnames,b_cyl_sym_resp )
 
-    # assert(1==0), "checking cylindrically symmetric/ analytic sigmas"
     print("cyl asym case:")
     n_sph_nu=250
     b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
@@ -140,11 +148,9 @@ if recalc_biases:
                         sig_LoS,Dc_ctr,beam_fwhm0,
                         pars_Planck18,
                         epsLoS_test,epsbeam0_test,
-                        #   0.,0.,
                         z_ctr,n_sph_nu,
                         cyl_sym_resp=False, 
                         fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test,
-                        #   fwhmbeam1=beam_fwhm1, epsbeam1=0.,
                         recalc_Pcont=True,
                         savename="cyl_asym", n_realiz=3) # n_realiz=1 recovers the previous case where I do not average over realizations
     printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
@@ -167,176 +173,85 @@ perp_line=np.sqrt(ln2)/(Dc_ctr*beam_fwhm1)
 
 xtext,ytext=0.035,0.5
 
-if limit==1: # identity window limit: sigmas=0, eps=test
-    fig,axs=plt.subplots(3,4,figsize=(15,10))
-    # ROW 0: analytical
-    im=axs[0,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved)
-    cbar=plt.colorbar(im,ax=axs[0,0],extend="both")
-    axs[0,0].set_title("an Ptrue")
-    im=axs[0,1].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_Wcont_saved)
-    cbar=plt.colorbar(im,ax=axs[0,1],extend="both")
-    axs[0,1].set_title("an Wtrue")
-    im=axs[0,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym)
-    cbar=plt.colorbar(im,ax=axs[0,2],extend="both")
-    axs[0,2].set_title("an Pwindowed")
-    im=axs[0,3].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym/cyl_P_saved)
-    cbar=plt.colorbar(im,ax=axs[0,3],extend="both")
-    axs[0,3].set_title("an Pwindowed/Ptrue ratio")
+fig,axs=plt.subplots(3,5,figsize=(20,10))
+par_line_colour="C1"
+perp_line_colour="C2"
+exp_minus_half_colour="C3"
+exp_minus_half=np.exp(-1./2.)
 
-    # ROW 1: numerical
-    im=axs[1,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved)
-    cbar=plt.colorbar(im,ax=axs[1,0],extend="both")
-    axs[1,0].set_title("nu Ptrue")
-    axs[1,1].set_title("nu W")
-    axs[1,1].text(xtext,ytext,"DNE as a discrete object in my pipeline", fontsize=9)
-    im=axs[1,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym)
-    cbar=plt.colorbar(im,ax=axs[1,2],extend="both")
-    axs[1,2].set_title("nu Pwindowed")
-    im=axs[1,3].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym/cyl_P_saved)
-    cbar=plt.colorbar(im,ax=axs[1,3],extend="both")
-    axs[1,3].set_title("nu Pwindowed/Ptrue ratio")
+# ROW 0: ANALYTIC / CYLINDRICAL                 (ALL PLOTS POPULATED)
+im=axs[0,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved)
+cbar=plt.colorbar(im,ax=axs[0,0])
+cbar.ax.set_xlabel("power")
+im=axs[0,1].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_Wcont_saved)
+cbar=plt.colorbar(im,ax=axs[0,1])
+cbar.ax.set_xlabel("power")
+im=axs[0,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym)
+cbar=plt.colorbar(im,ax=axs[0,2])
+cbar.ax.set_xlabel("power")
+axs[0,3].plot(kpar_surv,  Pcont_cyl_sym_verti,  label="Ptrue")
+# axs[0,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma",c=par_line_colour)
+# axs[0,3].axhline(Pcont_cyl_sym_verti[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
+axs[0,4].plot(kperp_surv, Pcont_cyl_sym_horiz, label="Ptrue")
+# axs[0,4].axvline(cyl_Wtrue_horiz, label="W 1isgma", c=perp_line_colour)
+# axs[0,4].axhline(Pcont_cyl_sym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
 
-    # ROW 2: an/nu ratio
-    im=axs[2,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved/cyl_P_saved)
-    cbar=plt.colorbar(im,ax=axs[2,0],extend="both")
-    axs[2,0].set_title("an/nu Ptrue")
-    axs[2,1].text(xtext,ytext,"no ratio possible", fontsize=9)
-    axs[2,1].set_title("an/nu W")
-    im=axs[2,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym/Pcont_cyl_asym)
-    cbar=plt.colorbar(im,ax=axs[2,2],extend="both")
-    axs[2,2].set_title("an/nu Pwindowed")
-    im=axs[2,3].text(xtext,ytext,"no new info, by construction")
 
-    for i in range(3):
-        for j in range(4):
+# ROW 1: NUMERICAL / CYLINDRICALLY ASYMMETRIC   (PLOTS 0, 1 EMPTY)
+im=axs[1,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym)
+cbar=plt.colorbar(im,ax=axs[1,2])
+cbar.ax.set_xlabel("power")
+axs[1,3].plot(kpar_surv,  Pcont_cyl_asym_verti, label="Ptrue")
+# axs[1,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=par_line_colour)
+# axs[1,3].axhline(Pcont_cyl_asym_verti[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
+axs[1,4].plot(kperp_surv, Pcont_cyl_asym_horiz, label="Ptrue")
+# axs[1,4].axvline(cyl_Wtrue_horiz, label="Wtrue 1sigma", c=perp_line_colour)
+# axs[1,4].axhline(Pcont_cyl_asym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
+
+# ROW 2: RATIOS                                 (PLOTS 0, 1 EMPTY)
+Pcontratio=Pcont_cyl_sym/Pcont_cyl_asym
+im=axs[2,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcontratio, vmin=np.percentile(Pcontratio,1), vmax=np.percentile(Pcontratio,99))
+cbar=plt.colorbar(im,ax=axs[2,2],extend="both")
+cbar.ax.set_xlabel("power")
+axs[2,3].plot(kpar_surv,  Pcont_cyl_sym_verti/Pcont_cyl_asym_verti, label="Ptrue")
+axs[2,4].plot(kperp_surv, Pcont_cyl_sym_horiz/Pcont_cyl_asym_horiz, label="Ptrue")
+# axs[2,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=perp_line_colour)
+# axs[2,4].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=par_line_colour)
+
+# COSMETIC FEATURES
+for i in range(3):
+    if (i==0):
+        case="an / cyl sym:"
+    if (i==1):
+        case="nu / cyl asym:"
+    if (i==2):
+        case="an/nu ratio:"
+    for j in range(5):
+        if (j==0):
+            qty=" P" 
+        if (j==1):
+            qty=" Wtrue"
+        if (j==2):
+            qty=" Ptrue"
+        if (j==3):
+            qty=" slices with constant min k$_{||}$"
+        if (j==4):
+            qty=" slices with constant min k$_\perp$"
+        axs[i,j].set_title(case+qty)
+        if (j<3):
             axs[i,j].set_xlabel("k$_{||}$ (1/Mpc)")
             axs[i,j].set_ylabel("k$_\perp$ (1/Mpc)")
+        else:
+            axs[i,3].set_xlabel("k$_{||}$ (1/Mpc)")
+            axs[i,4].set_xlabel("k$_\perp$ (1/Mpc)")
+            axs[i,j].set_ylabel("power")
+        axs[i,j].legend()
 
-    plt.suptitle("limit 1: identity window")
-    plt.tight_layout()
-    plt.savefig("limit_1_identity_window.png")
-    plt.show()
-
-elif limit==2: # perfect confidence limit: sigmas=test, eps=0
-    fig,axs=plt.subplots(2,4,figsize=(15,7))
-    # ROW 0: analytical
-    im=axs[0,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved)
-    cbar=plt.colorbar(im,ax=axs[0,0],extend="both")
-    axs[0,0].set_title("an Ptrue")
-    im=axs[0,1].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_Wcont_saved)
-    cbar=plt.colorbar(im,ax=axs[0,1],extend="both")
-    axs[0,1].set_title("an Wtrue")
-    im=axs[0,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym)
-    cbar=plt.colorbar(im,ax=axs[0,2],extend="both")
-    axs[0,2].set_title("an Pwindowed")
-    im=axs[0,3].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym/cyl_P_saved)
-    cbar=plt.colorbar(im,ax=axs[0,3],extend="both")
-    axs[0,3].set_title("an Pwindowed/Ptrue ratio")
-
-    # ROW 1: numerical
-    im=axs[1,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved)
-    cbar=plt.colorbar(im,ax=axs[1,0],extend="both")
-    axs[1,0].set_title("nu Ptrue")
-    axs[1,1].text(xtext,ytext,"DNE as a discrete object in my pipeline", fontsize=9)
-    im=axs[1,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym)
-    cbar=plt.colorbar(im,ax=axs[1,2],extend="both")
-    axs[1,2].set_title("nu Pwindowed")
-    im=axs[1,3].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym/cyl_P_saved)
-    cbar=plt.colorbar(im,ax=axs[1,3],extend="both")
-    axs[1,3].set_title("nu Pwindowed/Ptrue ratio")
-
-    for i in range(2):
-        for j in range(4):
-            axs[i,j].set_xlabel("k$_{||}$ (1/Mpc)")
-            axs[i,j].set_ylabel("k$_\perp$ (1/Mpc)")
-
-    plt.suptitle("limit 2: perfect confidence in beam")
-    plt.tight_layout()
-    plt.savefig("limit_2_perfect_beam_confidence.png")
-    plt.show()
-
-elif limit==3: # recover an result from appropriate num call limit
-    fig,axs=plt.subplots(3,5,figsize=(20,10))
-    par_line_colour="C1"
-    perp_line_colour="C2"
-    exp_minus_half_colour="C3"
-    exp_minus_half=np.exp(-1./2.)
-
-    # ROW 0: ANALYTIC / CYLINDRICAL                 (ALL PLOTS POPULATED)
-    im=axs[0,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved)
-    cbar=plt.colorbar(im,ax=axs[0,0])
-    cbar.ax.set_xlabel("power")
-    im=axs[0,1].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_Wcont_saved)
-    cbar=plt.colorbar(im,ax=axs[0,1])
-    cbar.ax.set_xlabel("power")
-    im=axs[0,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym)
-    cbar=plt.colorbar(im,ax=axs[0,2])
-    cbar.ax.set_xlabel("power")
-    axs[0,3].plot(kpar_surv,  Pcont_cyl_sym_verti,  label="Ptrue")
-    axs[0,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma",c=par_line_colour)
-    axs[0,3].axhline(Pcont_cyl_sym_verti[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
-    axs[0,4].plot(kperp_surv, Pcont_cyl_sym_horiz, label="Ptrue")
-    axs[0,4].axvline(cyl_Wtrue_horiz, label="W 1isgma", c=perp_line_colour)
-    axs[0,4].axhline(Pcont_cyl_sym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
-
-
-    # ROW 1: NUMERICAL / CYLINDRICALLY ASYMMETRIC   (PLOTS 0, 1 EMPTY)
-    im=axs[1,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym)
-    cbar=plt.colorbar(im,ax=axs[1,2])
-    cbar.ax.set_xlabel("power")
-    axs[1,3].plot(kpar_surv,  Pcont_cyl_asym_verti, label="Ptrue")
-    axs[1,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=par_line_colour)
-    axs[1,3].axhline(Pcont_cyl_asym_verti[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
-    axs[1,4].plot(kperp_surv, Pcont_cyl_asym_horiz, label="Ptrue")
-    axs[1,4].axvline(cyl_Wtrue_horiz, label="Wtrue 1sigma", c=perp_line_colour)
-    axs[1,4].axhline(Pcont_cyl_asym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
-
-    # ROW 2: RATIOS                                 (PLOTS 0, 1 EMPTY)
-    Pcontratio=Pcont_cyl_sym/Pcont_cyl_asym
-    im=axs[2,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcontratio, vmin=np.percentile(Pcontratio,1), vmax=np.percentile(Pcontratio,99))
-    cbar=plt.colorbar(im,ax=axs[2,2],extend="both")
-    cbar.ax.set_xlabel("power")
-    axs[2,3].plot(kpar_surv,  Pcont_cyl_sym_verti/Pcont_cyl_asym_verti, label="Ptrue")
-    axs[2,4].plot(kperp_surv, Pcont_cyl_sym_horiz/Pcont_cyl_asym_horiz, label="Ptrue")
-    axs[2,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=perp_line_colour)
-    axs[2,4].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=par_line_colour)
-
-    # COSMETIC FEATURES
-    for i in range(3):
-        if (i==0):
-            case="an / cyl sym:"
-        if (i==1):
-            case="nu / cyl asym:"
-        if (i==2):
-            case="an/nu ratio:"
-        for j in range(5):
-            if (j==0):
-                qty=" P" 
-            if (j==1):
-                qty=" Wtrue"
-            if (j==2):
-                qty=" Ptrue"
-            if (j==3):
-                qty=" slices with constant min k$_{||}$"
-            if (j==4):
-                qty=" slices with constant min k$_\perp$"
-            axs[i,j].set_title(case+qty)
-            if (j<3):
-                axs[i,j].set_xlabel("k$_{||}$ (1/Mpc)")
-                axs[i,j].set_ylabel("k$_\perp$ (1/Mpc)")
-            else:
-                axs[i,3].set_xlabel("k$_{||}$ (1/Mpc)")
-                axs[i,4].set_xlabel("k$_\perp$ (1/Mpc)")
-                axs[i,j].set_ylabel("power")
-            axs[i,j].legend()
-
-    axs[1,0].text(xtext,ytext,"not part of my process—I jump straight\nfrom a CAMB sph pspec to a cosmo box", fontsize=9)
-    axs[1,1].text(xtext,ytext,"DNE as a discrete object in my pipeline", fontsize=9)
-    axs[2,0].text(xtext,ytext,"no ratio possible (see above)", fontsize=9)
-    axs[2,1].text(xtext,ytext,"no ratio possible (see above)", fontsize=9)
-    plt.suptitle("limit 3: recover analytical result with a suitable numerical call")
-    plt.tight_layout()
-    plt.savefig("limit_3_an_num_agreement.png")
-    plt.show()
-else:
-    print("invalid limit selected. not plotting.")
+axs[1,0].text(xtext,ytext,"not part of my process—I jump straight\nfrom a CAMB sph pspec to a cosmo box", fontsize=9)
+axs[1,1].text(xtext,ytext,"DNE as a discrete object in my pipeline", fontsize=9)
+axs[2,0].text(xtext,ytext,"no ratio possible (see above)", fontsize=9)
+axs[2,1].text(xtext,ytext,"no ratio possible (see above)", fontsize=9)
+plt.suptitle(supertitle)
+plt.tight_layout()
+plt.savefig(savename)
+plt.show()

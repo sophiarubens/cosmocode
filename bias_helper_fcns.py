@@ -67,13 +67,13 @@ def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
 def ceilflex(x,roundto=0.05):
     multceil=np.ceil(x/roundto)
     result=multceil*roundto
-    print("ceilflex: x,multceil,result=",x,multceil,result)
+    # print("ceilflex: x,multceil,result=",x,multceil,result)
     return result
 
 def floorflex(x,roundto=0.005):
     multfloor=np.floor(x/roundto)
     result=multfloor*roundto
-    print("floorflex: x,multfloor,result=",x,multfloor,result)
+    # print("floorflex: x,multfloor,result=",x,multfloor,result)
     return result
 
 def get_padding(n):
@@ -92,9 +92,7 @@ def higher_dim_conv(P,Wcont):
     s0,s1=Pshape # by now, P and Wcont have the same shapes
     pad0lo,pad0hi=get_padding(s0)
     pad1lo,pad1hi=get_padding(s1)
-    # Pp=np.pad(P,((pad0lo,pad0hi),(pad1lo,pad1hi)),"constant",constant_values=((0,0),(0,0))) # OLD OLD OLD
-    # conv=convolve(Wcont,Pp,mode="valid") # NOW THAT I'M CENTRING MY WINDOW FUNCTION DIFFERENTLY, TRY THIS AGAIN BECAUSE NOW THE CORNER SLICE SHOULD WORK??! # CAN'T USE THIS ANYMORE BECAUSE IT GIVES ME THE WEIRD SIDELOBE THING/ SLICES THE MIDDLE WHEN I WANT THE CORNER (would've expected different padding or something)
-    Wcontp=np.pad(Wcont,((pad0lo,pad0hi),(pad1lo,pad1hi)),"edge") # NEW NEW NEW
+    Wcontp=np.pad(Wcont,((pad0lo,pad0hi),(pad1lo,pad1hi)),"edge")
     conv=convolve(Wcontp,P,mode="valid")
     return conv
 
@@ -153,22 +151,14 @@ def NvoxPracticalityWarning(Nvox):
     return None 
 
 def get_L_N_for_box(kpar,kperp):
-    # print("ENTERING get_L_N_for_box")
-    # print("kpar[0],kperp[0],kpar[-1],kperp[-1]=",kpar[0],kperp[0],kpar[-1],kperp[-1])
     klow=np.min((kpar[0],kperp[0])) 
-    # print("klow=",klow)
     khigh=np.max((kpar[-1],kperp[-1]))
-    # print("khigh=",khigh)
     kmin=floorflex(klow)
     kmax=ceilflex(khigh)
-    # print("kmin,kmax=",kmin,kmax)
     Lsurvbox=twopi/kmin
     Nvoxbox=int(Lsurvbox*kmax/pi)
-    # print("Lsurvbox,Nvoxbox=",Lsurvbox,Nvoxbox)
     if (Nvoxbox>200):
         NvoxPracticalityWarning(Nvoxbox)
-        # raise NvoxPracticalityError
-    # print("EXITING get_L_N_for_box")
     return Lsurvbox,Nvoxbox
 
 def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=15,nkperp_box=18,n_realiz=5):
@@ -194,14 +184,13 @@ def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beam
     t1=time.time()
     print(">> Pcont calc: sourced pspec from CAMB",t1-t0)
     Lsurvbox,Nvoxbox=get_L_N_for_box(kpar,kperp)
-    print("Lsurvbox,Nvoxbox=",Lsurvbox,Nvoxbox)
+    # print("Lsurvbox,Nvoxbox=",Lsurvbox,Nvoxbox)
     nkpar=len(kpar)
     nkperp=len(kperp)
     Ptrue_realizations=   np.zeros((nkpar,nkperp,n_realiz))
     Pthought_realizations=np.zeros((nkpar,nkperp,n_realiz))
     for i in range(n_realiz):
         t2=time.time()
-        # Lsurvbox,Nvoxbox=get_L_N_for_box(kpar,kperp)
         _,Tbox,rmags=generate_box(Ptruesph,ksph,Lsurvbox,Nvoxbox) 
         t3=time.time()
         print(">> Pcont calc: generated box from pspec - realization",i,t3-t2)
@@ -215,45 +204,10 @@ def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beam
         t6=time.time()
         T_x_true_resp=   Tbox* response_true
         T_x_thought_resp=Tbox* response_thought
-        ###
-        rgridx,rgridy=np.meshgrid(rmags,rmags,indexing="ij")
-        fig,axs=plt.subplots(3,9,figsize=(22,5))
-        cubes=[Tbox,response_true,T_x_true_resp]
-        cubenames=["T","resp","T x resp"]
-        places=[2,Nvox//2,-2]
-        for ii,cube in enumerate(cubes):
-            for jj,place in enumerate(places):
-                # im=axs[ii,ij].pcolor(  rgridx,rgridy,cube[place,:,:])
-                im=axs[ii,jj].imshow(cube[place,:,:])
-                plt.colorbar(im,ax=axs[ii,jj],fraction=0.05)
-                axs[ii,jj].set_title(cubenames[ii]+" "+str(place)+" axis 0")
-                # im=axs[ii,j+3].pcolor(rgridx,rgridy,cube[:,place,:])
-                im=axs[ii,jj+3].imshow(cube[:,place,:])
-                plt.colorbar(im,ax=axs[ii,jj+3],fraction=0.05)
-                axs[ii,jj+3].set_title(cubenames[ii]+" "+str(place)+" axis 1")
-                # im=axs[ii,j+6].pcolor(rgridx,rgridy,cube[:,:,place])
-                im=axs[ii,jj+6].imshow(cube[:,:,place])
-                plt.colorbar(im,ax=axs[ii,jj+6],fraction=0.05)
-                axs[ii,jj+6].set_title(cubenames[ii]+" "+str(place)+" axis 2")
-        plt.suptitle("cube diagnostic plot")
-        plt.tight_layout()
-        plt.savefig("cube_diagnostic_plot.png",dpi=500)
-        plt.show()
-        # assert(1==0), "cutting off at the cube diagnostic plot for now"
-        ###
         t7=time.time()
         print(">> Pcont calc: multiplied box and instrument response - realization",i,t7-t6)
         bundled_args=(sigLoS,beamfwhm_x,beamfwhm_y,r0,)
         ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lsurvbox,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args) # WAS LIN BUT NUMERICS WERE BAD
-        # ##
-        # kbox0,kbox1=ktrue_intrinsic_to_box
-        # kbox0grid,kbox1grid=np.meshgrid(kbox0,kbox1,indexing="ij")
-        # plt.figure()
-        # plt.pcolor(kbox0grid,kbox1grid,Ptrue_intrinsic_to_box)
-        # plt.title("cyl binned box-intrinsic pspec")
-        # plt.savefig("box_intrinsic_pspec.png")
-        # plt.show()
-        # ##
         t8=time.time()
         kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lsurvbox,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
         k_survey=(kpar,kperp)
