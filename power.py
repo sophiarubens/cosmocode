@@ -65,6 +65,7 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
 
     # establish Cartesian Fourier duals to box coordinates
     k_vec_for_box=                       twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta))
+    # print("in P_driver: k_vec_for_box=",k_vec_for_box)
     kx_box_grid,ky_box_grid,kz_box_grid= np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier duals to config space coords (ofc !not !yet !binned)
 
     if (binto=="sph"):
@@ -79,9 +80,8 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
         # binning
         summTt=np.bincount(bin_indices_1d,weights=mTt_1d,minlength=Nk) # for the ensemble average: sum    of mTt values in each bin
         NmTt=  np.bincount(bin_indices_1d,               minlength=Nk) # for the ensemble average: number of mTt values in each bin
-        if (len(summTt)==(Nk+1)): # prune central voxel "below the floor of the lowest bin" extension bin
-            summTt=summTt[1:]
-            NmTt=  NmTt[1:]
+        summTt=summTt[1:] # the central voxel has a k below the lowest bin floor, and we won't lose much info by excising it, so focus on the other Nvox**3-1 voxels with k in the bin range (CONFIRMED ON JUN 30TH: NmTt[0] before pruning is always 1, so my excising intuition seems justified)
+        NmTt=NmTt[1:]
         amTt=np.zeros(Nk) # template to store the ensemble average: to avoid division-by-zero errors, I use an empty-bin mask for the ensemble average sum/count division to leave zero power (instead of ending up with nan power) in empty bins
 
     elif (binto=="cyl"): # kpar is z-like
@@ -99,16 +99,15 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
         # binning 
         summTt= np.zeros((Nkpar,Nkperp)) # for the ensemble average: sum    of mTt values in each bin  ... each time I access it, I'll access the kparBIN row of interest, but update all NkperpBIN columns
         NmTt=   np.zeros((Nkpar,Nkperp)) # for the ensemble average: number of mTt values in each bin
+
         for i in range(Nvox): # iterate over the kpar axis of the box to capture all LoS slices
             if (i==0): # stats of the kperp "bull's eye" slice
                 slice_bin_counts= np.bincount(perpbin_indices_slice_1d, minlength=Nkperp) # each slice's update to the denominator of the ensemble average
-                if (len(slice_bin_counts)==(Nkperp+1)): # prune central voxel "below the floor of the lowest bin" extension bin
-                    slice_bin_counts=slice_bin_counts[1:]
+                slice_bin_counts = slice_bin_counts[1:]
             mTt_slice=       mTt[:,:,i]                                                                  # take the slice of interest of the preprocessed box values !! still treating kpar as z-like
             mTt_slice_1d=    np.reshape(mTt_slice,(Nvox**2,))                                            # reshape to 1D for bincount compatibility
             current_binsums= np.bincount(perpbin_indices_slice_1d,weights=mTt_slice_1d,minlength=Nkperp) # this slice's update to the numerator of the ensemble average
-            if (len(current_binsums)==(Nkperp+1)): # prune central voxel "below the floor of the lowest bin" extension bin
-                current_binsums=current_binsums[1:]
+            current_binsums=current_binsums[1:]
             current_par_bin= parbin_indices_column[i]
 
             summTt[current_par_bin,:]+= current_binsums  # update the numerator of the ensemble average
@@ -129,9 +128,10 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
         # print("sky_sigmas,sigLoS,Delta=",sky_sigmas,sigLoS,Delta)
         if ((np.any(sky_sigmas)<Delta) or (sigLoS<Delta)): # if the response is close enough to being a delta function,
             denom=1                                        # skip numerical integration and apply the delta function integral identity manually
+            # print("P_driver: instrument response is effectively a delta function in configuration space")
         else:
             bound=Lsurvey/2
-            denom,_=tplquad(custom_estimator,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
+            denom,_=tplquad(custom_estimator**2,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
     P=np.array(amTt/denom)
 
     return [k,P]
