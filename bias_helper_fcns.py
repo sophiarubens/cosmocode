@@ -49,6 +49,9 @@ args not explained here will be documented in the single function in which they 
 class NvoxPracticalityError(Exception):
     pass
 
+class NumericalDeltaError(Exception):
+    pass
+
 def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
     """
     args
@@ -61,7 +64,7 @@ def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
     N        = number survey channels
     """
     NDeltanu=nu_ctr*evol_restriction_threshold
-    N=NDeltanu/Deltanu
+    N=int(NDeltanu/Deltanu)
     return NDeltanu,N
 
 def ceilflex(x,roundto=0.05):
@@ -184,7 +187,22 @@ def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beam
     t1=time.time()
     print(">> Pcont calc: sourced pspec from CAMB",t1-t0)
     Lsurvbox,Nvoxbox=get_L_N_for_box(kpar,kperp)
-    # print("Lsurvbox,Nvoxbox=",Lsurvbox,Nvoxbox)
+    Deltabox=Lsurvbox/Nvoxbox
+    sky_plane_sigmas=r0*np.array([beamfwhm_x,beamfwhm_y])/np.sqrt(2*np.log(2))
+    all_sigmas=np.concatenate((sky_plane_sigmas,[sigLoS]))
+    print("IN CALC_PCONT_ASYM: sky_plane_sigmas,sigLoS,Deltabox=",sky_plane_sigmas,sigLoS,Deltabox)
+    # print("sky_plane_sigmas[0]<Deltabox:",sky_plane_sigmas[0]<Deltabox)
+    # print("sky_plane_sigmas[1]<Deltabox:",sky_plane_sigmas[1]<Deltabox)
+    # print("(np.any(sky_plane_sigmas)<Deltabox):",(np.any(sky_plane_sigmas)<Deltabox))
+    # print("(sigLoS<Deltabox):",(sigLoS<Deltabox))
+    # print("np.any(np.concatenate(((sky_plane_sigmas<Deltabox),(np.array(sigLoS<Deltabox))))):",np.any(np.concatenate(((sky_plane_sigmas<Deltabox),(np.array(sigLoS<Deltabox))))))
+    # print("(np.any(sky_plane_sigmas)<Deltabox) or (sigLoS<Deltabox):",(np.any(sky_plane_sigmas)<Deltabox) or (sigLoS<Deltabox))
+    print("np.any(all_sigmas<Deltabox):",np.any(all_sigmas<Deltabox))
+    if (np.any(all_sigmas<Deltabox)):
+        print("entering if branch bc there is a sigma that makes things delta-y")
+        raise NumericalDeltaError
+    else:
+        print("sigmas all okay... eval should continue")
     nkpar=len(kpar)
     nkperp=len(kperp)
     Ptrue_realizations=   np.zeros((nkpar,nkperp,n_realiz))
@@ -245,43 +263,43 @@ def custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0):
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
     response=np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/beamfwhm_x)**2+(Y/beamfwhm_y)**2)/r0**2)
-    fig,axs=plt.subplots(3,3,figsize=(15,8))
-    Nvox=X.shape[0]
-    half=Nvox//2
-    axs[0,0].pcolormesh(X[:,:,0   ],Y[:,:,0   ],response[:,:,0   ])
-    axs[0,0].set_title("response[:,:,0]")
-    axs[0,1].pcolormesh(X[:,:,half],Y[:,:,half],response[:,:,half])
-    axs[0,1].set_title("response[:,:,half]")
-    axs[0,2].pcolormesh(X[:,:,-1  ],Y[:,:,-1  ],response[:,:,-1  ])
-    axs[0,2].set_title("response[:,:,-1]")
-    for i in range(3):
-        axs[0,i].set_xlabel("x")
-        axs[0,1].set_ylabel("y")
+    # fig,axs=plt.subplots(3,3,figsize=(15,8))
+    # Nvox=X.shape[0]
+    # half=Nvox//2
+    # axs[0,0].imshow(response[:,:,0   ])
+    # axs[0,0].set_title("response[:,:,0]")
+    # axs[0,1].imshow(response[:,:,half])
+    # axs[0,1].set_title("response[:,:,half]")
+    # axs[0,2].imshow(response[:,:,-1  ])
+    # axs[0,2].set_title("response[:,:,-1]")
+    # for i in range(3):
+    #     axs[0,i].set_xlabel("x")
+    #     axs[0,1].set_ylabel("y")
 
-    axs[1,0].pcolormesh(X[:,0,   :],Z[:,0,   :],response[:,0,   :])
-    axs[1,0].set_title("response[:,0,:]")
-    axs[1,1].pcolormesh(X[:,half,:],Z[:,half,:],response[:,half,:])
-    axs[1,1].set_title("response[:,half,:]")
-    axs[1,2].pcolormesh(X[:,-1,  :],Z[:,-1,  :],response[:,-1,  :])
-    axs[1,2].set_title("response[:,-1,:]")
-    for i in range(3):
-        axs[1,i].set_xlabel("x")
-        axs[1,i].set_ylabel("z")
+    # axs[1,0].imshow(response[:,0,   :])
+    # axs[1,0].set_title("response[:,0,:]")
+    # axs[1,1].imshow(response[:,half,:])
+    # axs[1,1].set_title("response[:,half,:]")
+    # axs[1,2].imshow(response[:,-1,  :])
+    # axs[1,2].set_title("response[:,-1,:]")
+    # for i in range(3):
+    #     axs[1,i].set_xlabel("x")
+    #     axs[1,i].set_ylabel("z")
 
-    axs[2,0].pcolormesh(Y[0,   :,:],Z[0,   :,:],response[0,   :,:])
-    axs[2,0].set_title("response[0,:,:]")
-    axs[2,1].pcolormesh(Y[half,:,:],Z[half,:,:],response[half,:,:])
-    axs[2,1].set_title("response[half,:,:]")
-    axs[2,2].pcolormesh(Y[-1,  :,:],Z[-1,  :,:],response[-1,  :,:])
-    axs[2,2].set_title("response[-1,:,:]")
-    for i in range(3):
-        axs[2,i].set_xlabel("Y")
-        axs[2,i].set_xlabel("Z")
+    # axs[2,0].imshow(response[0,   :,:])
+    # axs[2,0].set_title("response[0,:,:]")
+    # axs[2,1].imshow(response[half,:,:])
+    # axs[2,1].set_title("response[half,:,:]")
+    # axs[2,2].imshow(response[-1,  :,:])
+    # axs[2,2].set_title("response[-1,:,:]")
+    # for i in range(3):
+    #     axs[2,i].set_xlabel("Y")
+    #     axs[2,i].set_xlabel("Z")
 
-    plt.suptitle("inspect response")
-    plt.tight_layout()
-    plt.savefig("inspect_response.png")
-    plt.show()
+    # plt.suptitle("inspect response")
+    # plt.tight_layout()
+    # plt.savefig("inspect_response.png")
+    # plt.show()
     return response # LoS direction is z-like! everything is compatible here! see the comments in the elif (binto=="cyl") branch of P_driver in power.py to remind myself!!
 
 def unbin_to_Pcyl(kpar,kperp,z,pars_set_cosmo=pars_set_cosmo_Planck18,n_sph_modes=500):  

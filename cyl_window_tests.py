@@ -122,7 +122,7 @@ if verbose_test_prints: # fans of well-formatted print statements look away now.
 ############################## actual pipeline test ########################################################################################################################
 recalc_biases=True
 if recalc_biases:
-    calc_P_cyl_partials=True
+    calc_P_cyl_partials=False
     if calc_P_cyl_partials:
         P_cyl_partials=build_cyl_partials(pars_Planck18,z_ctr,n_sph_pts_test,kpar_surv,kperp_surv,dpar)
         np.save("P_cyl_partials.npy",P_cyl_partials)
@@ -152,7 +152,7 @@ if recalc_biases:
                         cyl_sym_resp=False, 
                         fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test,
                         recalc_Pcont=True,
-                        savename="cyl_asym", n_realiz=3) # n_realiz=1 recovers the previous case where I do not average over realizations
+                        savename="cyl_asym", n_realiz=50) # n_realiz=1 recovers the previous case where I do not average over realizations
     printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
 
 ## debug zone to inspect the Pconts more closely for the two cases (this term is responsible for all the differences in the results between the two bias calc strategies at the moment)
@@ -234,9 +234,9 @@ for i in range(3):
         if (j==2):
             qty=" Ptrue"
         if (j==3):
-            qty=" slices with constant min k$_{||}$"
-        if (j==4):
             qty=" slices with constant min k$_\perp$"
+        if (j==4):
+            qty=" slices with constant min k$_{||}$"
         axs[i,j].set_title(case+qty)
         if (j<3):
             axs[i,j].set_xlabel("k$_{||}$ (1/Mpc)")

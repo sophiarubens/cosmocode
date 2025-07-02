@@ -3,6 +3,8 @@ from bias_helper_fcns import custom_response
 import time
 import numpy as np
 from matplotlib import pyplot as plt
+import time
+
 Lsurvey=126
 Npix=52
 mode="lin"
@@ -10,6 +12,9 @@ mode="lin"
 Nkpar=8 # 327
 Nkperp=12 # 1010
 Nk = 14
+
+def elbowy_power(k,a=0.96605,b=-0.8,c=1,a0=1,b0=5000):
+    return c/(a0*k**(-a)+b0*k**(-b))
 
 test_sph_fwd=True
 if test_sph_fwd:
@@ -112,24 +117,18 @@ if test_sph_interp:
     plt.show()
 
 test_cyl_fwd=True
+power_spec_type="wn"
+power_spec_type="bpl"
 if test_cyl_fwd:
-    nsubrow=3
-    nsubcol=3
-    vmin=np.infty
-    vmax=-np.infty
-
-
-    ##
     fig,axs=plt.subplots(4,4,figsize=(20,20))
     maxvals=0.
     maxvals_mod0=0.
     maxvals_mod1=0.
     maxvals_mod2=0.
-    Nrealiz=35
+    Nrealiz=100
 
     vec=1/np.fft.fftshift(np.fft.fftfreq(Npix,d=Lsurvey/Npix)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
-    # print("config space voxel scale = vec[1]-vec[0]=",vec[1]-vec[0])
     sigma02=1e3
     sigma12=10
     sigma22=0.5
@@ -141,30 +140,49 @@ if test_cyl_fwd:
     allvals1=np.zeros((Nkpar,Nkperp,Nrealiz))
     allvals2=np.zeros((Nkpar,Nkperp,Nrealiz))
 
+    tprev=time.time()
     for i in range(Nrealiz):
-        T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+        if power_spec_type=="wn":
+            T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+        elif power_spec_type=="bpl":
+            if (i==0):
+                Npts_bpl=25
+                k_bpl=np.linspace(twopi/Lsurvey,Npix*pi/Lsurvey,Npts_bpl)
+                P_bpl=elbowy_power(k_bpl)
+            _,T,_ = generate_box(P_bpl,k_bpl,Lsurvey,Npix) # generate_box(P,k,Lsurvey,Nvox,verbose=False) returns rgrid,T,rmags
         Tmod0=T*modulation0
-        # print("broad in config")
         kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nkpar,Nk1=Nkperp,custom_estimator=custom_response,custom_estimator_args=(np.sqrt(sigma02),np.sqrt(sigma02),np.sqrt(sigma02),2*np.sqrt(np.log(2)),)) # ,sigLoS,beamfwhm_x,beamfwhm_y,r0)
-        # print("vals_mod0.shape=",vals_mod0.shape)
         allvals0[:,:,i]=vals_mod0
         Tmod1=T*modulation1
-        # print("medium in config")
         kfloors_mod,vals_mod1=generate_P(Tmod1,mode,Lsurvey,Nkpar,Nk1=Nkperp,custom_estimator=custom_response,custom_estimator_args=(np.sqrt(sigma12),np.sqrt(sigma12),np.sqrt(sigma12),2*np.sqrt(np.log(2)),))
         allvals1[:,:,i]=vals_mod1
         Tmod2=T*modulation2
-        # print("narrow in config")
         kfloors_mod,vals_mod2=generate_P(Tmod2,mode,Lsurvey,Nkpar,Nk1=Nkperp,custom_estimator=custom_response,custom_estimator_args=(np.sqrt(sigma22),np.sqrt(sigma22),np.sqrt(sigma22),2*np.sqrt(np.log(2)),))
         allvals2[:,:,i]=vals_mod2
         kfloors,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp,custom_estimator=custom_response,custom_estimator_args=(np.sqrt(sigma22),np.sqrt(sigma22),np.sqrt(sigma22),2*np.sqrt(np.log(2)),))
         allvals[:,:,i]=vals
+        if ((i%50)==0):
+            tcurr=time.time()
+            print("finished constructing realization ",i,"in",tcurr-tprev,"s")
+            tprev=tcurr
+    
+    np.save("allvals0"+power_spec_type+".npy",allvals0)
+    np.save("allvals1"+power_spec_type+".npy",allvals1)
+    np.save("allvals2"+power_spec_type+".npy",allvals2)
+    np.save("allvals"+power_spec_type+".npy",allvals)
     valmin=np.min(allvals)
     valmax=np.max(allvals)
     kparfloors,kperpfloors=kfloors
     kparfloorsgrid,kperpfloorsgrid=np.meshgrid(kparfloors,kperpfloors,indexing="ij")
 
     column_names=["unmod","mod broad in config sp","mod medium in config sp","mod narrow in config sp"]
-    row_names=["realiz 0","realiz 1","realiz 2","average of"+str(Nrealiz)+"realix ("+str(Nrealiz-3)+"realiz not shown)"]
+    row_names=["realiz 0","realiz 1","realiz 2","\navg of "+str(Nrealiz)+" realiz \n("+str(Nrealiz-3)+"realiz not shown)"]
+
+    maxunmod= np.max(allvals)
+    max0=     np.max(allvals0)
+    max1=     np.max(allvals1)
+    max2=     np.max(allvals2)
+
     for i in range(4):
         for j in range(4):
             axs[i,j].set_xlabel("k (1/Mpc)")
@@ -172,31 +190,70 @@ if test_cyl_fwd:
             axs[i,j].set_title(column_names[j]+" - "+row_names[i])
         if (i<3):
             # print("kparfloors.shape,kperpfloors.shape,allvals[:,:,i].shape=",kparfloors.shape,kperpfloors.shape,allvals[:,:,i].shape)
-            im=axs[i,0].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals[:,:,i],  vmin=valmin,vmax=valmax)
+            im=axs[i,0].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals[:,:,i],vmin=0,vmax=maxunmod)
             fig.colorbar(im,ax=axs[i,0])
-            im=axs[i,1].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals0[:,:,i], vmin=valmin,vmax=valmax)
+            im=axs[i,1].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals0[:,:,i],vmin=0,vmax=max0)
             fig.colorbar(im,ax=axs[i,1])
-            im=axs[i,2].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals1[:,:,i], vmin=valmin,vmax=valmax)
+            im=axs[i,2].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals1[:,:,i],vmin=0,vmax=max1)
             fig.colorbar(im,ax=axs[i,2])
-            im=axs[i,3].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals2[:,:,i], vmin=valmin,vmax=valmax)
+            im=axs[i,3].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals2[:,:,i],vmin=0,vmax=max2)
             fig.colorbar(im,ax=axs[i,3])
 
         
-
-    im=axs[3,0].pcolor(kparfloorsgrid,kperpfloorsgrid,np.mean(allvals,axis=-1),  vmin=valmin,vmax=valmax)
+    mean=  np.mean(allvals,axis=-1)
+    mean0= np.mean(allvals0,axis=-1)
+    mean1= np.mean(allvals1,axis=-1)
+    mean2= np.mean(allvals2,axis=-1)
+    im=axs[3,0].pcolor(kparfloorsgrid,kperpfloorsgrid,mean,vmin=0,vmax=maxunmod)
     fig.colorbar(im,ax=axs[3,0])
-    im=axs[3,1].pcolor(kparfloorsgrid,kperpfloorsgrid,np.mean(allvals0,axis=-1), vmin=valmin,vmax=valmax)
-    fig.colorbar(im,ax=axs[3,0])
-    im=axs[3,2].pcolor(kparfloorsgrid,kperpfloorsgrid,np.mean(allvals1,axis=-1), vmin=valmin,vmax=valmax)
-    fig.colorbar(im,ax=axs[3,0])
-    im=axs[3,3].pcolor(kparfloorsgrid,kperpfloorsgrid,np.mean(allvals2,axis=-1), vmin=valmin,vmax=valmax)
-    fig.colorbar(im,ax=axs[3,0])
+    im=axs[3,1].pcolor(kparfloorsgrid,kperpfloorsgrid,mean0,vmin=0,vmax=max0)
+    fig.colorbar(im,ax=axs[3,1])
+    im=axs[3,2].pcolor(kparfloorsgrid,kperpfloorsgrid,mean1,vmin=0,vmax=max1)
+    fig.colorbar(im,ax=axs[3,2])
+    im=axs[3,3].pcolor(kparfloorsgrid,kperpfloorsgrid,mean2,vmin=0,vmax=max2)
+    fig.colorbar(im,ax=axs[3,3])
     # fig.colorbar(im)
 
-    plt.suptitle("Test white noise P(kpar,kperp) calc for Lsurvey,Npix,Nkpar,Nkperp,sigma0**2,sigma1**2,sigma2**2={:4},{:4},{:4},{:4},{:4},{:4},{:4}".format(Lsurvey,Npix,Nkpar,Nkperp,sigma02,sigma12,sigma22))
-    
+    plt.suptitle("Test "+power_spec_type+" P(kpar,kperp) calc for Lsurvey,Npix,Nkpar,Nkperp,sigma0**2,sigma1**2,sigma2**2={:4},{:4},{:4},{:4},{:4},{:4},{:4}".format(Lsurvey,Npix,Nkpar,Nkperp,sigma02,sigma12,sigma22))
+    for i in range(4):
+        for j in range(4):
+            axs[i,j].set_aspect("equal")
     plt.tight_layout()
-    plt.savefig("wn_cyl_"+mode+".png",dpi=500)
+    plt.savefig(power_spec_type+"_cyl_mod_"+mode+"_"+str(Nrealiz)+"_realiz.png",dpi=500)
+    plt.show()
+
+    fig,axs=plt.subplots(2,4,figsize=(20,10))
+    im=axs[0,0].pcolor(kparfloorsgrid,kperpfloorsgrid,mean, vmin=0)
+    fig.colorbar(im,ax=axs[0,0])
+    im=axs[0,1].pcolor(kparfloorsgrid,kperpfloorsgrid,mean0,vmin=0)
+    fig.colorbar(im,ax=axs[0,1])
+    im=axs[0,2].pcolor(kparfloorsgrid,kperpfloorsgrid,mean1,vmin=0)
+    fig.colorbar(im,ax=axs[0,2])
+    im=axs[0,3].pcolor(kparfloorsgrid,kperpfloorsgrid,mean2,vmin=0)
+    fig.colorbar(im,ax=axs[0,3])
+
+    meanmean=np.mean(mean)
+    meanmean0=np.mean(mean0)
+    meanmean1=np.mean(mean1)
+    meanmean2=np.mean(mean2)
+    im=axs[1,0].pcolor(kparfloorsgrid,kperpfloorsgrid,(mean-meanmean)/meanmean,   vmin=0)
+    fig.colorbar(im,ax=axs[1,0])
+    im=axs[1,1].pcolor(kparfloorsgrid,kperpfloorsgrid,(mean0-meanmean0)/meanmean0,vmin=0)
+    fig.colorbar(im,ax=axs[1,1])
+    im=axs[1,2].pcolor(kparfloorsgrid,kperpfloorsgrid,(mean1-meanmean1)/meanmean1,vmin=0)
+    fig.colorbar(im,ax=axs[1,2])
+    im=axs[1,3].pcolor(kparfloorsgrid,kperpfloorsgrid,(mean2-meanmean2)/meanmean2,vmin=0)
+    fig.colorbar(im,ax=axs[1,3])
+    row_names_2=["\navg over realizations","\nfractional residual"]
+    for i in range(2):
+        for j in range(4):
+            axs[i,j].set_aspect("equal")
+            axs[i,j].set_xlabel("k (1/Mpc)")
+            axs[i,j].set_ylabel("P (K$^2$ Mpc$^3$)")
+            axs[i,j].set_title(column_names[j]+row_names_2[i])
+    plt.suptitle("examine fractional residuals of means over "+str(Nrealiz)+"realizations")
+    plt.tight_layout()
+    plt.savefig(power_spec_type+"_cyl_mod_"+mode+"_"+str(Nrealiz)+"_frac_resids.png",dpi=500)
     plt.show()
 
 test_cyl_interp=False
