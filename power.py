@@ -143,7 +143,7 @@ def get_bins(Nvox,Lsurvey,Nk,mode):
     kmin=twopi/Lsurvey
     if (mode=="log"):
         kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk_internal)
-        arg=np.log(Nvox)/Nk_internal
+        arg=np.log10(Nvox)/Nk_internal # I believe the previous (ln instead of log10) version was a bug but... yikes... another thing I haven't tested (but actually kind of not yikes because Fourier math is nasty with log-spaced bins so,,)
         limiting_spacing=twopi*(10.**(2.*arg)-10.**arg)
     elif (mode=="lin"):
         kbins=np.linspace(kmin,kmax,Nk_internal)
@@ -268,7 +268,7 @@ def generate_box(P,k,Lsurvey,Nvox,verbose=False):
     
     # CORNER-origin r grid
     rmags=Lsurvey*np.fft.fftfreq(Nvox)
-    RX,RY,RZ=np.meshgrid(rmags,rmags,rmags)
+    RX,RY,RZ=np.meshgrid(rmags,rmags,rmags) # *technically* should have indexing="ij" if I want my calculations to be entirely consistent in their implementation, but there's actually no difference here because I'm meshgridding three copies of the same vector [the resulting grids are symmetric under permutation of their indices]
     rgrid=np.sqrt(RX**2+RY**2+RZ**2)
     t2=time.time()
     

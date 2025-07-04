@@ -30,7 +30,6 @@ def wl2z(lambda_rest,lambda_obs):
 def z2wl(lambda_rest,z):
     return lambda_rest*(z+1)
 
-
 def kpar(nu_ctr,chan_width,N_chan,H0=H0_Planck18):
     prefac=1e3*twopi*H0*nu21/c # 1e3 to account for units of H0/c ... assumes nu21 and chan_width have the same units
     z_ctr=freq2z(nu21,nu_ctr)
@@ -46,3 +45,10 @@ def kperp(nu_ctr,N_baselines,bmin,bmax):
     kperpmin=prefac*bmin
     kperpmax=prefac*bmax
     return np.linspace(kperpmin,kperpmax,N_baselines) # in Mpc^{-1} as long as I use nu21 in MHz, c in m s^{-1}, and Dc in Mpc^{-1}
+
+def wedge_kpar(nu_ctr,kperp,H0=H0_Planck18,nu_rest=nu21):
+    z=freq2z(nu_rest,nu_ctr)
+    E=1/comoving_dist_arg(z)
+    Dc=comoving_distance(z)
+    prefac=(H0*Dc*E)/(c*(1+z))
+    return prefac*kperp*1e3 # factor of 1e3 to reconcile the m-km mismatch (c in m/s but H0 in km/s/Mpc)

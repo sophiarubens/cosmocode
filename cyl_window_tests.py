@@ -63,6 +63,11 @@ kpar_surv_grid,kperp_surv_grid,Pcyl=unbin_to_Pcyl(kpar_surv,kperp_surv,z_ctr,n_s
 fractional_2d_sense=0.1 # Adrian's recommendation: flat 10% uncertainty everywhere as a placeholder
 sigma_kpar_kperp=fractional_2d_sense*Pcyl
 
+Nrealiz=50
+
+n_sph_an=1000
+n_sph_nu=250
+
 ############################## beam widths and fractional uncertainties ########################################################################################################################
 limit=3 # TOGGLE BETWEEN CASES HERE
 if limit==1:
@@ -122,7 +127,7 @@ if verbose_test_prints: # fans of well-formatted print statements look away now.
 ############################## actual pipeline test ########################################################################################################################
 recalc_biases=True
 if recalc_biases:
-    calc_P_cyl_partials=False
+    calc_P_cyl_partials=True
     if calc_P_cyl_partials:
         P_cyl_partials=build_cyl_partials(pars_Planck18,z_ctr,n_sph_pts_test,kpar_surv,kperp_surv,dpar)
         np.save("P_cyl_partials.npy",P_cyl_partials)
@@ -130,7 +135,6 @@ if recalc_biases:
         P_cyl_partials=np.load("P_cyl_partials.npy")
 
     print("cyl sym case:")
-    n_sph_an=1000
     b_cyl_sym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                         kpar_surv,kperp_surv,
                         sig_LoS,Dc_ctr,beam_fwhm0,
@@ -142,7 +146,6 @@ if recalc_biases:
     printparswbiases(pars_Planck18,parnames,b_cyl_sym_resp )
 
     print("cyl asym case:")
-    n_sph_nu=250
     b_cyl_asym_resp=bias( P_cyl_partials,sigma_kpar_kperp,
                         kpar_surv,kperp_surv,
                         sig_LoS,Dc_ctr,beam_fwhm0,
@@ -152,7 +155,7 @@ if recalc_biases:
                         cyl_sym_resp=False, 
                         fwhmbeam1=beam_fwhm1, epsbeam1=epsbeam1_test,
                         recalc_Pcont=True,
-                        savename="cyl_asym", n_realiz=50) # n_realiz=1 recovers the previous case where I do not average over realizations
+                        savename="cyl_asym", n_realiz=Nrealiz) # n_realiz=1 recovers the previous case where I do not average over realizations
     printparswbiases(pars_Planck18,parnames,b_cyl_asym_resp)
 
 ## debug zone to inspect the Pconts more closely for the two cases (this term is responsible for all the differences in the results between the two bias calc strategies at the moment)
@@ -162,6 +165,9 @@ Pcont_cyl_sym_horiz=  Pcont_cyl_sym[0,:]
 Pcont_cyl_sym_verti=  Pcont_cyl_sym[:,0]
 Pcont_cyl_asym_horiz= Pcont_cyl_asym[0,:]
 Pcont_cyl_asym_verti= Pcont_cyl_asym[:,0]
+
+ksph=     np.load("ksph_for_asym.npy")
+Ptruesph= np.load("Ptruesph_for_asym.npy")
 
 cyl_P_saved=         np.load("cyl_P.npy")
 cyl_Wcont_saved=     np.load("cyl_Wcont.npy")
@@ -190,23 +196,15 @@ im=axs[0,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym)
 cbar=plt.colorbar(im,ax=axs[0,2])
 cbar.ax.set_xlabel("power")
 axs[0,3].plot(kpar_surv,  Pcont_cyl_sym_verti,  label="Ptrue")
-# axs[0,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma",c=par_line_colour)
-# axs[0,3].axhline(Pcont_cyl_sym_verti[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
 axs[0,4].plot(kperp_surv, Pcont_cyl_sym_horiz, label="Ptrue")
-# axs[0,4].axvline(cyl_Wtrue_horiz, label="W 1isgma", c=perp_line_colour)
-# axs[0,4].axhline(Pcont_cyl_sym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
-
 
 # ROW 1: NUMERICAL / CYLINDRICALLY ASYMMETRIC   (PLOTS 0, 1 EMPTY)
+axs[1,0].loglog(ksph,np.reshape(Ptruesph,(n_sph_nu,)))
 im=axs[1,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym)
 cbar=plt.colorbar(im,ax=axs[1,2])
 cbar.ax.set_xlabel("power")
 axs[1,3].plot(kpar_surv,  Pcont_cyl_asym_verti, label="Ptrue")
-# axs[1,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=par_line_colour)
-# axs[1,3].axhline(Pcont_cyl_asym_verti[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
 axs[1,4].plot(kperp_surv, Pcont_cyl_asym_horiz, label="Ptrue")
-# axs[1,4].axvline(cyl_Wtrue_horiz, label="Wtrue 1sigma", c=perp_line_colour)
-# axs[1,4].axhline(Pcont_cyl_asym_horiz[0]*exp_minus_half,c=exp_minus_half_colour,label="expected 1sigma amp")
 
 # ROW 2: RATIOS                                 (PLOTS 0, 1 EMPTY)
 Pcontratio=Pcont_cyl_sym/Pcont_cyl_asym
@@ -215,8 +213,6 @@ cbar=plt.colorbar(im,ax=axs[2,2],extend="both")
 cbar.ax.set_xlabel("power")
 axs[2,3].plot(kpar_surv,  Pcont_cyl_sym_verti/Pcont_cyl_asym_verti, label="Ptrue")
 axs[2,4].plot(kperp_surv, Pcont_cyl_sym_horiz/Pcont_cyl_asym_horiz, label="Ptrue")
-# axs[2,3].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=perp_line_colour)
-# axs[2,4].axvline(cyl_Wtrue_verti, label="Wtrue 1sigma", c=par_line_colour)
 
 # COSMETIC FEATURES
 for i in range(3):
@@ -245,13 +241,32 @@ for i in range(3):
             axs[i,3].set_xlabel("k$_{||}$ (1/Mpc)")
             axs[i,4].set_xlabel("k$_\perp$ (1/Mpc)")
             axs[i,j].set_ylabel("power")
-        axs[i,j].legend()
 
-axs[1,0].text(xtext,ytext,"not part of my process—I jump straight\nfrom a CAMB sph pspec to a cosmo box", fontsize=9)
-axs[1,1].text(xtext,ytext,"DNE as a discrete object in my pipeline", fontsize=9)
-axs[2,0].text(xtext,ytext,"no ratio possible (see above)", fontsize=9)
-axs[2,1].text(xtext,ytext,"no ratio possible (see above)", fontsize=9)
+axs[1,0].text(0.1,3.8e3,"I jump straight from a \nCAMB sph power spec \nto a cosmo box", fontsize=9)
+axs[1,0].set_xlabel("k")
+axs[1,0].set_ylabel("P(k)")
+for i,kpari in enumerate(kpar_surv):
+    if i==0:
+        lab1="kpar bin floor"
+        lab2="kperp bin floor"
+        lw=0.6
+    else:
+        lab1=""
+        lab2=""
+        if i==(len(kpar_surv)-1):
+            lw=0.6
+        else:
+            lw=0.3
+    axs[1,0].axvline(kpari,         c="C1",label=lab1,linewidth=lw)
+    axs[1,0].axvline(kperp_surv[i], c="C2",label=lab2,linewidth=lw)
+axs[1,2].text(0.25,1.0,"averaged over "+str(Nrealiz)+"\nrealizations",                 fontsize=9, c="w")
+axs[1,1].text(xtext,ytext,"DNE as a discrete object in my \npipeline",                 fontsize=9)
+axs[2,0].text(xtext,ytext,"no ratio possible (see above)",                             fontsize=9)
+axs[2,1].text(xtext,ytext,"no ratio possible (see above)",                             fontsize=9)
+for i in range(3):
+    for j in range(4):
+        axs[i,j].legend() # can't do it earlier because of the overwriting I do
 plt.suptitle(supertitle)
 plt.tight_layout()
-plt.savefig(savename)
+plt.savefig(savename,dpi=500)
 plt.show()

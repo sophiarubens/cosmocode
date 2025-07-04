@@ -134,7 +134,7 @@ def calc_Pcont_cyl(kpar,kperp,sigLoS,r0,fwhmbeam,pars_set_cosmo,epsLoS,epsbeam,z
     """
     calculate the cylindrically binned "contaminant power," following from the true and perceived window functions
     """
-    print("calc_Pcont_cyl: n_sph_modes=",n_sph_modes)
+    # print("calc_Pcont_cyl: n_sph_modes=",n_sph_modes)
     Wcont=calc_Wcont(kpar,kperp,sigLoS,r0,fwhmbeam,epsLoS,epsbeam)
     print(">> Pcont calc: calculated Wcont")
     kpargrid,kperpgrid,P=unbin_to_Pcyl(kpar,kperp,z,pars_set_cosmo=pars_set_cosmo,n_sph_modes=n_sph_modes)
@@ -153,18 +153,33 @@ def NvoxPracticalityWarning(Nvox):
     print("WARNING: the specified survey requires Nvox={:4}, which will probably lead to slow eval".format(Nvox))
     return None 
 
-def get_L_N_for_box(kpar,kperp):
-    klow=np.min((kpar[0],kperp[0])) 
-    khigh=np.max((kpar[-1],kperp[-1]))
-    kmin=floorflex(klow)
-    kmax=ceilflex(khigh)
+# def get_L_N_for_box(kpar,kperp):
+#     klow=np.min((kpar[0],kperp[0])) 
+#     khigh=np.max((kpar[-1],kperp[-1]))
+#     kmin=floorflex(klow)
+#     kmax=ceilflex(khigh)
+#     Lsurvbox=twopi/kmin
+#     Nvoxbox=int(Lsurvbox*kmax/pi)
+#     if (Nvoxbox>200):
+#         NvoxPracticalityWarning(Nvoxbox)
+#     return Lsurvbox,Nvoxbox
+
+def get_L_N(kmin,kmax):
     Lsurvbox=twopi/kmin
     Nvoxbox=int(Lsurvbox*kmax/pi)
     if (Nvoxbox>200):
         NvoxPracticalityWarning(Nvoxbox)
     return Lsurvbox,Nvoxbox
 
-def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=15,nkperp_box=18,n_realiz=5):
+# def get_Nk_initial(k_surv,fractol=0.2):
+#     """"""
+#     kmin_surv=k_surv[0]
+#     kmax_surv=k_surv[-1]
+#     kmin_init=(1-fractol)*kmin_surv
+#     kmax_init=(1+fractol)*kmax_surv
+#     return Nk_init
+
+def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beamfwhm_y,eps_x,eps_y,Nvox=150,n_sph_modes=500,nkpar_box=15,nkperp_box=18,n_realiz=5,init_and_box_tol=0.05,CAMB_tol=0.05):
     """
     calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
     (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -181,63 +196,81 @@ def calc_Pcont_asym(pars_set_cosmo,z,kpar,kperp,sigLoS,epsLoS,r0,beamfwhm_x,beam
     """
     t0=time.time()
     h=pars_set_cosmo[0]/100 # typical disclaimer about cosmo param order being baked in...
-    kmin_want=np.min((kpar[0],kperp[0]))           # smallest scale we care to know about (the smallest mode on one of the cyl axes)
-    kmax_want=np.sqrt(kpar[-1]**2+kperp[-1]**2)    # largest scale we're interested in at any point (happens to be a spherical mode)
-    ksph,Ptruesph=get_mps(pars_set_cosmo,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=n_sph_modes)
+    kmin_surv=np.min([kpar[0], kperp[0]] )
+    kmax_surv=np.max([kpar[-1],kperp[-1]])
+    limiting_spacing_surv=np.min([ kpar[1]-kpar[0], kperp[1]-kperp[0]])
+    kmin_box_and_init=(1-init_and_box_tol)*kmin_surv
+    kmax_box_and_init=(1+init_and_box_tol)*kmax_surv
+    kmin_CAMB=(1-CAMB_tol)*kmin_box_and_init
+    kmax_CAMB=(1+CAMB_tol)*kmax_box_and_init
+    # kmin_want=np.min((kpar[0],kperp[0]))           # smallest scale we care to know about (the smallest mode on one of the cyl axes)
+    # kmax_want=np.sqrt(kpar[-1]**2+kperp[-1]**2)    # largest scale we're interested in at any point (happens to be a spherical mode)
+    # ksph,Ptruesph=get_mps(pars_set_cosmo,z,minkh=kmin_want/h,maxkh=kmax_want/h,n_sph_modes=n_sph_modes) # CALL UNTIL 2025.07.03 10:07
+    ksph,Ptruesph=get_mps(pars_set_cosmo,z,minkh=kmin_CAMB,maxkh=kmax_CAMB,n_sph_modes=n_sph_modes) # TESTING WHAT HAPPENS WHEN I DON'T DIVIDE BY h
+    limiting_spacing_CAMB=ksph[1]-ksph[0]
+    np.save("ksph_for_asym.npy",ksph)
+    np.save("Ptruesph_for_asym.npy",Ptruesph)
     t1=time.time()
     print(">> Pcont calc: sourced pspec from CAMB",t1-t0)
-    Lsurvbox,Nvoxbox=get_L_N_for_box(kpar,kperp)
+    # Lsurvbox,Nvoxbox=get_L_N_for_box(kpar,kperp)
+    Lsurvbox,Nvoxbox=get_L_N(kmin_box_and_init,kmax_box_and_init)
+    limiting_spacing_box=2./(Nvoxbox*Lsurvbox*np.sqrt(3)*((np.sqrt(3)/2)-(1./Nvoxbox)))
     Deltabox=Lsurvbox/Nvoxbox
     sky_plane_sigmas=r0*np.array([beamfwhm_x,beamfwhm_y])/np.sqrt(2*np.log(2))
     all_sigmas=np.concatenate((sky_plane_sigmas,[sigLoS]))
-    print("IN CALC_PCONT_ASYM: sky_plane_sigmas,sigLoS,Deltabox=",sky_plane_sigmas,sigLoS,Deltabox)
-    # print("sky_plane_sigmas[0]<Deltabox:",sky_plane_sigmas[0]<Deltabox)
-    # print("sky_plane_sigmas[1]<Deltabox:",sky_plane_sigmas[1]<Deltabox)
-    # print("(np.any(sky_plane_sigmas)<Deltabox):",(np.any(sky_plane_sigmas)<Deltabox))
-    # print("(sigLoS<Deltabox):",(sigLoS<Deltabox))
-    # print("np.any(np.concatenate(((sky_plane_sigmas<Deltabox),(np.array(sigLoS<Deltabox))))):",np.any(np.concatenate(((sky_plane_sigmas<Deltabox),(np.array(sigLoS<Deltabox))))))
-    # print("(np.any(sky_plane_sigmas)<Deltabox) or (sigLoS<Deltabox):",(np.any(sky_plane_sigmas)<Deltabox) or (sigLoS<Deltabox))
-    print("np.any(all_sigmas<Deltabox):",np.any(all_sigmas<Deltabox))
     if (np.any(all_sigmas<Deltabox)):
-        print("entering if branch bc there is a sigma that makes things delta-y")
         raise NumericalDeltaError
-    else:
-        print("sigmas all okay... eval should continue")
-    nkpar=len(kpar)
-    nkperp=len(kperp)
-    Ptrue_realizations=   np.zeros((nkpar,nkperp,n_realiz))
-    Pthought_realizations=np.zeros((nkpar,nkperp,n_realiz))
+    Nkpar_surv=len(kpar)
+    Nkperp_surv=len(kperp)
+    Ptrue_realizations=   np.zeros((Nkpar_surv,Nkperp_surv,n_realiz))
+    Pthought_realizations=np.zeros((Nkpar_surv,Nkperp_surv,n_realiz))
     for i in range(n_realiz):
         t2=time.time()
         _,Tbox,rmags=generate_box(Ptruesph,ksph,Lsurvbox,Nvoxbox) 
         t3=time.time()
-        print(">> Pcont calc: generated box from pspec - realization",i,t3-t2)
+        # print(">> Pcont calc: generated box from pspec - realization",i,t3-t2)
         if (i==0):
             t4=time.time()
             X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
             response_true=    custom_response(X,Y,Z, sigLoS,           beamfwhm_x,          beamfwhm_y,          r0)
             response_thought= custom_response(X,Y,Z, sigLoS*(1-epsLoS),beamfwhm_x*(1-eps_x),beamfwhm_y*(1-eps_y),r0)
             t5=time.time()
-            print(">> Pcont calc: generated responses",t5-t4)
+            # print(">> Pcont calc: generated responses",t5-t4)
         t6=time.time()
         T_x_true_resp=   Tbox* response_true
         T_x_thought_resp=Tbox* response_thought
         t7=time.time()
-        print(">> Pcont calc: multiplied box and instrument response - realization",i,t7-t6)
+        # print(">> Pcont calc: multiplied box and instrument response - realization",i,t7-t6)
         bundled_args=(sigLoS,beamfwhm_x,beamfwhm_y,r0,)
-        ktrue_intrinsic_to_box,    Ptrue_intrinsic_to_box=    generate_P(T_x_true_resp,    "lin",Lsurvbox,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args) # WAS LIN BUT NUMERICS WERE BAD
+        ktrue_init,    Ptrue_init=    generate_P(T_x_true_resp,    "lin",Lsurvbox,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args) # WAS LIN BUT NUMERICS WERE BAD
+        kpartrue_init,kperptrue_init=ktrue_init
+        limiting_spacing_init=np.min([kpartrue_init[1]-kpartrue_init[0],kperptrue_init[1]-kperptrue_init[0]])
         t8=time.time()
-        kthought_intrinsic_to_box, Pthought_intrinsic_to_box= generate_P(T_x_thought_resp, "lin",Lsurvbox,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
+        kthought_init, Pthought_init= generate_P(T_x_thought_resp, "lin",Lsurvbox,nkpar_box,Nk1=nkperp_box, custom_estimator=custom_response,custom_estimator_args=bundled_args)
         k_survey=(kpar,kperp)
         t9=time.time()
-        print(">> Pcont calc: generated pspecs from modulated boxes - realization",i,t9-t7)
-        _,   Ptrue= interpolate_P(Ptrue_intrinsic_to_box,    ktrue_intrinsic_to_box,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
-        _,Pthought= interpolate_P(Pthought_intrinsic_to_box, kthought_intrinsic_to_box, k_survey, avoid_extrapolation=False)
+        # print(">> Pcont calc: generated pspecs from modulated boxes - realization",i,t9-t7)
+        _,   Ptrue= interpolate_P(Ptrue_init,    ktrue_init,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
+        _,Pthought= interpolate_P(Pthought_init, kthought_init, k_survey, avoid_extrapolation=False)
         t10=time.time()
-        print(">> Pcont calc: re-binned pspecs to k-modes of interest - realization",i,t10-t9)
+        # print(">> Pcont calc: re-binned pspecs to k-modes of interest - realization",i,t10-t9)
         Ptrue_realizations[:,:,i]=    Ptrue
         Pthought_realizations[:,:,i]= Pthought
         t11=time.time()
+        print(">> Pcont calc: generated modulated power spectra - realization",i,t11-t2)
+        if i==0:
+            print("END OF ITERATION 0 - COMPARISONS")
+            print("\nLIMITING SPACINGS")
+            print("limiting_spacing_CAMB=",limiting_spacing_CAMB)
+            print("limiting_spacing_box= ",limiting_spacing_box)
+            print("limiting_spacing_init=",limiting_spacing_init)
+            print("limiting_spacing_surv=",limiting_spacing_surv)
+
+            print("\nMINS AND MAXES:")
+            print("CAMB:           ",ksph[0],"-",ksph[-1])
+            print("box vec:         I jump straight to the r-grid so this doesn't live in a variable thus far")
+            print("init par & perp: ",kpartrue_init[0],"-",kpartrue_init[-1],"&",kperptrue_init[0],"-",kperptrue_init[-1])
+            print("surv par & perp: ",kpar[0],"-",kpar[-1],"&",kperp[0],"-",kperp[-1])
     Ptrue=    np.mean(Ptrue_realizations,    axis=-1)
     Pthought= np.mean(Pthought_realizations, axis=-1)
     Pthought=0 # FOR DIAGNOSTIC PURPOSES WHILE AVOIDING RESTRUCTURING MY CODE: CALL IT PCONT BUT REALLY HAVE IT REFLECT PTRUE
