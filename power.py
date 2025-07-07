@@ -61,14 +61,16 @@ def P_driver(T, k, Lsurvey, V_custom=False):
     dr3   = Delta**3     # voxel volume
     
     # process the box values
-    Ts  = np.fft.ifftshift(T)*dr3 # T-ishifted (np wants a corner origin; ifftshift takes you there)
+    Ts  = np.fft.ifftshift(T)*dr3 # T-ishifted (np ffts operate on corner-origin arrays; ifftshift takes you there; and, yes, the default is to shift over all axes)
     Tts = np.fft.fftn(Ts)         # T-tilde
-    Tt  = np.fft.fftshift(Tts)    # shift back to physics land
-    mTt = Tt*np.conjugate(Tt)     # mod-squared of Tt
+    Tt  = np.fft.fftshift(Tts)    # shift back to physics land (centre-origin array)
+    mTt = Tt*np.conjugate(Tt) # mod-squared of Tt # AVOID ENCODING TWO COPIES OF THE VOLUME ELEMENT, AS I WAS DOING UNTIL MID-AFTERNOON ON 2025.07.07
     mTt = mTt.real                # I checked, and there aren't even any machine precision issues in the imag part
 
     # establish Cartesian Fourier duals to box coordinates
-    k_vec_for_box= twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta))
+    k_vec_for_box= twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) # easier to motivate philosophically
+    # k_vec_for_box= twopi*np.fft.fftfreq(Nvox,d=Delta) # bad (not even what I should have been trying?? makes the power law have the wrong trend,,)
+    # k_vec_for_box=twopi*np.fft.ifftshift(np.fft.fftfreq(Nvox,d=Delta)) # not appreciably different from the fftshifted version
     # print("k_vec_for_box=",k_vec_for_box)
     kx_box_grid,ky_box_grid,kz_box_grid= np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier duals to config space coords (ofc !not !yet !binned)
 
@@ -137,7 +139,7 @@ def P_driver(T, k, Lsurvey, V_custom=False):
 def get_bins(Nvox,Lsurvey,Nk,mode):
     Nk_internal=Nk
     Delta=Lsurvey/Nvox
-    kmax=pi/Delta # manually override the fftshift incompatibility
+    kmax=pi/Delta
     kmin=twopi/Lsurvey
     if (mode=="log"):
         kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk_internal)
@@ -150,7 +152,6 @@ def get_bins(Nvox,Lsurvey,Nk,mode):
         assert(1==0), "only log and linear binning are currently supported"
     return kbins,limiting_spacing
 
-# def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, custom_estimator2=False,custom_estimator_args=None): # upstream of the 2025.07.07 mid-morning change
 def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, V_custom=False):
     """
     philosophy:
@@ -261,8 +262,8 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
     dr3 = Delta**3 # voxel volume
     if not V_custom:
         V_custom=Lsurvey**3
-    r=twopi/k 
-    # print("generate_box: r=",r)
+    r=twopi/k # MONOTONICALLY **DE**CREASING
+    print("generate_box: r=",r)
     
     # CORNER-origin r grid
     rmags=Lsurvey*np.fft.fftfreq(Nvox)
@@ -270,14 +271,13 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
     rgrid=np.sqrt(RX**2+RY**2+RZ**2)
     
     # take appropriate draws from normal distributions to populate T-tilde
-    sigmas=np.flip(np.sqrt(V_custom*P/2)) # has Npix elements ... each element describes the T-tilde values in that k-bin ... flip to anticipate the fact that I'm working in r-space but calculated this vector in k-space
+    sigmas=np.flip(np.sqrt(V_custom*P/2)) # MONOTONICALLY *DE*CREASING # has Npix elements ... each element describes the T-tilde values in that k-bin ... flip to anticipate the fact that I'm working in r-space but calculated this vector in k-space
+    sigmas=np.reshape(sigmas,(Nbins,)) # transition from the (1,Nbins) of the CAMB PS to (Nbins,)
     # print("generate_box: sigmas=",sigmas)
-    sigmas=np.reshape(sigmas,(Nbins,)) # transition from the (1,npts) of the CAMB PS to (npts,)
     Ttre=np.zeros((Nvox,Nvox,Nvox))
     Ttim=np.zeros((Nvox,Nvox,Nvox))
     bin_indices=np.digitize(rgrid,r) # must pass x,bins; rgrid is the big box and r has floors [I do not observe very different behaviour if I switch to right=True... I think it's probably because, statistically, there are vanishingly few voxels exactly on a boundary]
-    for i in range(Nbins):
-        sig=sigmas[i]
+    for i,sig in enumerate(sigmas):
         here=np.nonzero(i==bin_indices) # all box indices where the corresp bin index is the ith binedge (iterable)
         numhere=len(np.argwhere(i==bin_indices)) # number of voxels in the bin we're currently considering
         sampsRe=np.random.normal(scale=sig, size=(numhere,)) # samples for filling the current bin
@@ -287,5 +287,6 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
             Ttim[here]=sampsIm
 
     Tt=Ttre+1j*Ttim # no symmetries yet
-    T=np.fft.fftshift(np.fft.irfftn(Tt,s=(Nvox,Nvox,Nvox),axes=(0,1,2)))/dr3 # applies the symmetries automatically!
+    T=np.fft.fftshift(np.fft.irfftn(Tt,s=(Nvox,Nvox,Nvox),axes=(0,1,2)))/dr3 # applies the symmetries automatically! -> then return in user-friendly CENTRE-origin format
+    # T=                  np.fft.irfftn(Tt,s=(Nvox,Nvox,Nvox),axes=(0,1,2))/dr3 (seems physically unmotivated, even if there are no bad stripes in the 21cmFast test, possibly because my rfftn/irfftn addition made the boxes and spectra immune to this sort of thing)
     return rgrid,T,rmags

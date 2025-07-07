@@ -17,14 +17,15 @@ def elbowy_power(k,a=0.96605,b=-0.8,c=1,a0=1,b0=5000):
     return c/(a0*k**(-a)+b0*k**(-b))
 
 test_sph_fwd=True
-visualize_T_slices=True
-power_spec_type="wn" #"pl"
+visualize_T_slices=False
+# power_spec_type="wn"
+power_spec_type="pl"
 if test_sph_fwd:
     maxvals=0.
     maxvals_mod0=0.
     maxvals_mod1=0.
     maxvals_mod2=0.
-    Nrealiz=35
+    Nrealiz=50
     colours=plt.cm.Blues(np.linspace(0.2,1,Nrealiz))
 
     vec=Lsurvey*np.fft.fftfreq(Npix) # THIS IS THE RMAGS-LIKE THING THAT SHOULD'VE BEEN THERE ALL ALONG???
@@ -34,9 +35,6 @@ if test_sph_fwd:
     sigma02=1e3 # wide   in config space
     sigma12=10  # medium in config space
     sigma22=0.5 # narrow in config space
-    # modulation0=np.exp(-(xgrid**2+ygrid**2+zgrid**2)/(2*sigma02)) # really wide in config space
-    # modulation1=np.exp(-(xgrid**2+ygrid**2+zgrid**2)/(2*sigma12)) # medium width in config space
-    # modulation2=np.exp(-(xgrid**2+ygrid**2+zgrid**2)/(2*sigma22)) # really narrow in config space
     beamfwhm_x=3.5 # kind of hacky but enough to stop it from entering the Delta-like case every single time (for the numerics as of 2025.07.07 09:47, the voxel scale comparison value is ~2.42)
     beamfwhm_y=np.copy(beamfwhm_x)
     sigLoS0=np.sqrt(2.*sigma02)
@@ -57,7 +55,8 @@ if test_sph_fwd:
     allvals2=np.zeros((Nk,Nrealiz))
 
     for i in range(Nrealiz):
-        print("realization",i)
+        if (i%50==0):
+            print("realization",i)
         if   power_spec_type=="wn":
             T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
         elif power_spec_type=="pl":
@@ -134,10 +133,8 @@ if test_sph_fwd:
     axs[2].plot(kfloors,mean1,label="reconstructed")
     axs[3].plot(kfloors,mean2,label="reconstructed")
     if (power_spec_type=="pl"):
-        axs[0].plot(kfloors,(kfloors/kfloors[0])**idx*meanmean[0],label="fiducial")
-        axs[1].plot(kfloors,(kfloors/kfloors[0])**idx*mean0[0],label="fiducial")
-        axs[2].plot(kfloors,(kfloors/kfloors[0])**idx*mean1[0],label="fiducial")
-        axs[3].plot(kfloors,(kfloors/kfloors[0])**idx*mean2[0],label="fiducial")
+        for i in range(4):
+            axs[i].plot(kfloors,kfloors**idx,label="fiducial")
     axs[0].set_title("P(T) / power spec of unmodulated box")
     axs[1].set_title("P(T*R) / power spec of response-modulated box \n(broad in config space)")
     axs[2].set_title("P(T*R) / power spec of response-modulated box \n(medium in config space)")
@@ -376,7 +373,7 @@ if test_cyl_interp:
     plt.savefig("cyl_interp_"+mode+".png")
     plt.show()
 
-test_bwd=False
+test_bwd=True
 if test_bwd:
     Lsurvey=103 # Mpc
     plot=True
