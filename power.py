@@ -11,20 +11,25 @@ this module helps connect ensemble-averaged power spectrum estimates and cosmolo
 1. forward direction:   generate a power spectrum that describes the statistics of a brightness temperature box
 2. backwards direction: generate one realization of a brightness temperature box consistent with a known power spectrum
 3. regridding:          interpolate a power spectrum to k-modes of interest
-
-call structure:
-1. generate_P    -> 1. {{get_bins}}
-                    2. {{P_driver}}
-2. generate_box  ->    {{flip}}
-3. interpolate_P
-
-{{}} = generally no need to call directly; called as necessary by higher-level functions
 """
 
 class ResolutionError(Exception):
     pass
 
-def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
+def get_equivalent_volume(custom_estimator2,custom_estimator_args,Lsurvey,Nvox):
+    Delta=Lsurvey/Nvox
+    sigLoS,beamfwhm_x,beamfwhm_y,r0=custom_estimator_args
+    sky_sigmas=r0*np.array([beamfwhm_x,beamfwhm_y])/np.sqrt(2.*np.log(2))
+    all_sigmas=np.concatenate((sky_sigmas,[sigLoS]))
+    if (np.any(all_sigmas<Delta)): # if the response is close enough to being a delta function,
+        equivvol=1                 # skip numerical integration and apply the delta function integral identity manually
+    else:
+        bound=Lsurvey/2
+        equivvol,_=tplquad(custom_estimator2,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
+    return equivvol
+
+# def P_driver(T, k, Lsurvey, custom_estimator2=False,custom_estimator_args=None): # the way things were up until 2025.07.07 09:58
+def P_driver(T, k, Lsurvey, V_custom=False):
     """
     philosophy:
     * generate a power spectrum consistent with a brightness temperature box for which you already know the k-bins
@@ -120,19 +125,10 @@ def P_driver(T, k, Lsurvey, custom_estimator=False,custom_estimator_args=None):
     # translate to power spectrum terms
     nonemptybins=np.nonzero(NmTt)
     amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
-    if (not custom_estimator):
-        denom=V
-    else:
-        sigLoS,beamfwhm_x,beamfwhm_y,r0=custom_estimator_args
-        sky_sigmas=r0*np.array([beamfwhm_x,beamfwhm_y])/np.sqrt(2.*np.log(2))
-        # print("sky_sigmas,sigLoS,Delta=",sky_sigmas,sigLoS,Delta)
-        if ((np.any(sky_sigmas)<Delta) or (sigLoS<Delta)): # if the response is close enough to being a delta function,
-            denom=1                                        # skip numerical integration and apply the delta function integral identity manually
-            # print("P_driver: instrument response is effectively a delta function in configuration space")
-        else:
-            bound=Lsurvey/2
-            denom,_=tplquad(custom_estimator**2,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
-    P=np.array(amTt/denom)
+    if not V_custom:
+        V_custom=Lsurvey**3
+
+    P=np.array(amTt/V_custom)
 
     return [k,P]
 
@@ -152,7 +148,8 @@ def get_bins(Nvox,Lsurvey,Nk,mode):
         assert(1==0), "only log and linear binning are currently supported"
     return kbins,limiting_spacing
 
-def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, custom_estimator=False,custom_estimator_args=None):
+# def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, custom_estimator2=False,custom_estimator_args=None): # upstream of the 2025.07.07 mid-morning change
+def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, V_custom=False):
     """
     philosophy:
     * generate a spherically or cylindrically binned power spectrum with lin- or log-spaced bins, consistent with a given brightness temperature box
@@ -183,7 +180,7 @@ def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, custom_estimator=False,custom_estim
         kbins=[k0bins,k1bins]
     else:
         kbins=k0bins
-    return P_driver(T,kbins,Lsurvey,custom_estimator=custom_estimator,custom_estimator_args=custom_estimator_args)
+    return P_driver(T,kbins,Lsurvey,V_custom=V_custom)
 
 def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
     """
@@ -239,48 +236,50 @@ def extrapolation_warning(regime,want,have):
     print("WARNING: if extrapolation is permitted in interpolate_P call, it will be conducted for {:15s} (want {:9.4}, have{:9.4})".format(regime,want,have))
     return None 
 
-def generate_box(P,k,Lsurvey,Nvox,verbose=False):
+def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
     """
     philosophy:
     generate a brightness temperature box consistent with a given matter power spectrum
 
     inputs:
     P = power spectrum
-    k = wavenumber-space points at which the power spectrum is sampled
-    Lsurvey = length of a cosmological box side, in Mpc (just sets the volume element scaling... nothing to do with pixelization)
+    k = Fourier space points at which the power spectrum is sampled
+    Lsurvey = length of a cosmological box side, in Mpc 
     Nvox = number of voxels to create per cosmo box side
 
     outputs:
     Nvox x Nvox x Nvox brightness temp box
     """
-    t0=time.time()
+    # t0=time.time()
     # helper variable setup
     k=k.real # enforce what makes sense physically
     P=P.real
-    Npix=len(P)
-    assert(Nvox>=Npix), "Nvox>=Npix is baked into the code at the moment. I'm going to fix this (interpolation...) after I handle the more pressing issues, but for now, why would you even want Nvox<Npix?"
+    Nbins=len(P)
+    assert(Nvox>=Nbins), "Nvox>=Nbins is baked into the code at the moment. I'm going to fix this (interpolation...) after I handle the more pressing issues, but for now, why would you even want Nvox<Npix?"
     Delta = Lsurvey/Nvox # voxel side length
     dr3 = Delta**3 # voxel volume
     twopi = 2*np.pi
-    V=Lsurvey**3
+    if not V_custom:
+        V_custom=Lsurvey**3
     r=twopi/k 
-    t1=time.time()
+    print("P_driver: r=",r)
+    # t1=time.time()
     
     # CORNER-origin r grid
     rmags=Lsurvey*np.fft.fftfreq(Nvox)
     RX,RY,RZ=np.meshgrid(rmags,rmags,rmags) # *technically* should have indexing="ij" if I want my calculations to be entirely consistent in their implementation, but there's actually no difference here because I'm meshgridding three copies of the same vector [the resulting grids are symmetric under permutation of their indices]
     rgrid=np.sqrt(RX**2+RY**2+RZ**2)
-    t2=time.time()
+    # t2=time.time()
     
     # take appropriate draws from normal distributions to populate T-tilde
-    sigmas=np.flip(np.sqrt(V*P/2)) # has Npix elements ... each element describes the T-tilde values in that k-bin ... flip to anticipate the fact that I'm working in r-space but calculated this vector in k-space
-    sigmas=np.reshape(sigmas,(len(k),))
-    nsigmas=len(sigmas)
-    sigmas=np.reshape(sigmas,(nsigmas,)) # transition from the (1,npts) of the CAMB PS to (npts,) ... I think this became a problem in May because I got rid of some hard-coded reshaping in get_mps
+    sigmas=np.flip(np.sqrt(V_custom*P/2)) # has Npix elements ... each element describes the T-tilde values in that k-bin ... flip to anticipate the fact that I'm working in r-space but calculated this vector in k-space
+    # sigmas=np.flip(np.sqrt(V*P)) # sneaking suspicion that the factors of two that rfftn introduces handle this internally
+    print("P_driver: sigmas=",sigmas)
+    sigmas=np.reshape(sigmas,(Nbins,)) # transition from the (1,npts) of the CAMB PS to (npts,)
     Ttre=np.zeros((Nvox,Nvox,Nvox))
     Ttim=np.zeros((Nvox,Nvox,Nvox))
-    bin_indices=np.digitize(rgrid,r,right=False) # must pass x,bins; rgrid is the big box and r has floors
-    t3=time.time()
+    bin_indices=np.digitize(rgrid,r,right=False) # must pass x,bins; rgrid is the big box and r has floors [I do not observe very different behaviour if I switch to right=True... I think it's probably because, statistically, there are vanishingly few voxels exactly on a boundary]
+    # t3=time.time()
     for i,binedge in enumerate(r):
         sig=sigmas[i]
         here=np.nonzero(i==bin_indices) # all box indices where the corresp bin index is the ith binedge (iterable)
@@ -290,15 +289,15 @@ def generate_box(P,k,Lsurvey,Nvox,verbose=False):
         if (numhere>0):
             Ttre[here]=sampsRe
             Ttim[here]=sampsIm
-    t4=time.time()
+    # t4=time.time()
 
     Tt=Ttre+1j*Ttim # no symmetries yet
     T=np.fft.fftshift(np.fft.irfftn(Tt,s=(Nvox,Nvox,Nvox),axes=(0,1,2)))/dr3 # applies the symmetries automatically!
-    t5=time.time()
-    if verbose:
-        print("generate_box: prelim arithmetic",t1-t0)
-        print("generate_box: r-grid",t2-t1)
-        print("generate_box: format sigmas and establish bin indices",t3-t2)
-        print("generate_box: iterate over bins to populate box w/ values",t4-t3)
-        print("generate_box: stitching, symmetries, and volume element",t5-t4)
+    # t5=time.time()
+    # if verbose:
+    #     print("generate_box: prelim arithmetic",t1-t0)
+    #     print("generate_box: r-grid",t2-t1)
+    #     print("generate_box: format sigmas and establish bin indices",t3-t2)
+    #     print("generate_box: iterate over bins to populate box w/ values",t4-t3)
+    #     print("generate_box: stitching, symmetries, and volume element",t5-t4)
     return rgrid,T,rmags
