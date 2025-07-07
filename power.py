@@ -28,7 +28,6 @@ def get_equivalent_volume(custom_estimator2,custom_estimator_args,Lsurvey,Nvox):
         equivvol,_=tplquad(custom_estimator2,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
     return equivvol
 
-# def P_driver(T, k, Lsurvey, custom_estimator2=False,custom_estimator_args=None): # the way things were up until 2025.07.07 09:58
 def P_driver(T, k, Lsurvey, V_custom=False):
     """
     philosophy:
@@ -69,9 +68,6 @@ def P_driver(T, k, Lsurvey, V_custom=False):
 
     # establish Cartesian Fourier duals to box coordinates
     k_vec_for_box= twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) # easier to motivate philosophically
-    # k_vec_for_box= twopi*np.fft.fftfreq(Nvox,d=Delta) # bad (not even what I should have been trying?? makes the power law have the wrong trend,,)
-    # k_vec_for_box=twopi*np.fft.ifftshift(np.fft.fftfreq(Nvox,d=Delta)) # not appreciably different from the fftshifted version
-    # print("k_vec_for_box=",k_vec_for_box)
     kx_box_grid,ky_box_grid,kz_box_grid= np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier duals to config space coords (ofc !not !yet !binned)
 
     if (binto=="sph"):
@@ -79,7 +75,7 @@ def P_driver(T, k, Lsurvey, V_custom=False):
 
         # prepare to tie the processed box values to relevant k-values
         k_box=          np.sqrt(kx_box_grid**2+ky_box_grid**2+kz_box_grid**2) # scalar k for each voxel
-        # print("CHECK DIRECTION OF MONOTONICITY: k=",k,"\n\n")
+        print("CHECK DIRECTION OF MONOTONICITY: k=",k,"\n\n")
         bin_indices=    np.digitize(k_box,k)                                  # box with entries indexing which bin each voxel belongs in [DEFAULT BEHAVIOUR IS RIGHT==FALSE]
         bin_indices_1d= np.reshape(bin_indices,(Nvox**3,))                    # to bin, I use np.bincount, which requires 1D input
         mTt_1d=         np.reshape(mTt,    (Nvox**3,))                        # ^ same preprocessing
@@ -231,6 +227,14 @@ def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
         kpar_want_grid,kperp_want_grid=np.meshgrid(kpar_want,kperp_want,indexing="ij")
         P_want=interpn((kpar_have,kperp_have),P_have,(kpar_want_grid,kperp_want_grid),method="cubic",bounds_error=avoid_extrapolation,fill_value=None)
     else:
+        k_want_lo=k_want[0]
+        k_want_hi=k_want[-1]
+        k_have_lo=k_have[0]
+        k_have_hi=k_have[-1]
+        if (k_want_lo<k_have_lo):
+            extrapolation_warning("low k",k_want_lo,k_have_lo)
+        if (k_want_hi>k_have_hi):
+            extrapolation_warning("high k",k_want_hi,k_have_hi)
         P_interpolator=interp1d(k_have,P_have,kind="cubic",bounds_error=avoid_extrapolation,fill_value="extrapolate")
         P_want=P_interpolator(k_want)
     return (k_want,P_want)
