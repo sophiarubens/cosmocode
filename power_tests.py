@@ -17,9 +17,9 @@ def elbowy_power(k,a=0.96605,b=-0.8,c=1,a0=1,b0=5000):
     return c/(a0*k**(-a)+b0*k**(-b))
 
 test_sph_fwd=True
+visualize_T_slices=True
 power_spec_type="wn" #"pl"
 if test_sph_fwd:
-    fig,axs=plt.subplots(1,4,figsize=(20,5))
     maxvals=0.
     maxvals_mod0=0.
     maxvals_mod1=0.
@@ -27,7 +27,8 @@ if test_sph_fwd:
     Nrealiz=35
     colours=plt.cm.Blues(np.linspace(0.2,1,Nrealiz))
 
-    vec=1/np.fft.fftshift(np.fft.fftfreq(Npix,d=Lsurvey/Npix)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
+    vec=Lsurvey*np.fft.fftfreq(Npix) # THIS IS THE RMAGS-LIKE THING THAT SHOULD'VE BEEN THERE ALL ALONG???
+    # vec=1/np.fft.fftshift(np.fft.fftfreq(Npix,d=Lsurvey/Npix)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
     print("Delta=Lsurvey/Npix=",Lsurvey/Npix)
     sigma02=1e3 # wide   in config space
@@ -66,32 +67,44 @@ if test_sph_fwd:
                 Ptest=ktest**idx
             _,T,_=generate_box(Ptest,ktest,Lsurvey,Npix) # generate_box(P,k,Lsurvey,Nvox,V_custom=False) (leaving the V_eff term as False here bc I will override later to avoid having to generate multiple boxes)
         if i==0:
-            ###
             V=Lsurvey**3
             Veff0=get_equivalent_volume(custom_response2,bundled0,Lsurvey,Npix) # args need to be bundled as (sigLoS,beamfwhm_x,beamfwhm_y,r0,)
             Veff1=get_equivalent_volume(custom_response2,bundled1,Lsurvey,Npix)
             Veff2=get_equivalent_volume(custom_response2,bundled2,Lsurvey,Npix)
+            if visualize_T_slices:
+                figfig,axsaxs=plt.subplots(3,4,figsize=(20,10))
+                qtr=Npix//4
+                hlf=Npix//2
+                slices=[0,qtr,hlf,-3]
+                for i,slice in enumerate(slices):
+                    axsaxs[0,i].imshow(T[:,:,slice])
+                    axsaxs[0,i].set_title("T[:,:,"+str(slice)+"]")
+                    axsaxs[1,i].imshow(T[:,slice,:])
+                    axsaxs[1,i].set_title("T[:,"+str(slice)+",:]")
+                    axsaxs[2,i].imshow(T[slice,:,:])
+                    axsaxs[2,i].set_title("T["+str(slice)+",:,:]")
+                for i in range(3):
+                    for j in range(4):
+                        axsaxs[i,j].set_xlabel("voxel index")
+                        axsaxs[i,j].set_ylabel("voxel index")
+                plt.suptitle("inspect box slices for underpopulation issues using iteration 0")
+                plt.tight_layout()
+                plt.savefig("inspect_box_slices_for_potential_underpop.png")
+                plt.show()
+            fig,axs=plt.subplots(1,4,figsize=(20,5))
         T0=T*np.sqrt(Veff0/V) # slightly hacky faster way of not having to generate four boxes at each iteration just because I'm considering different modulations
         T1=T*np.sqrt(Veff1/V)
         T2=T*np.sqrt(Veff2/V)
-            ###
-        # Tmod0=T*modulation0
         Tmod0=T0*modulation0
-        # print("broad in config")
         kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nk,V_custom=Veff0) #,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma02),np.sqrt(sigma02),np.sqrt(sigma02),2*np.sqrt(np.log(2)),)) # ,sigLoS,beamfwhm_x,beamfwhm_y,r0)
         allvals0[:,i]=vals_mod0
-        # Tmod1=T*modulation1
         Tmod1=T1*modulation1
-        # print("medium in config")
         kfloors_mod,vals_mod1=generate_P(Tmod1,mode,Lsurvey,Nk,V_custom=Veff1)# ,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma12),np.sqrt(sigma12),np.sqrt(sigma12),2*np.sqrt(np.log(2)),))
         allvals1[:,i]=vals_mod1
-        # Tmod2=T*modulation2
         Tmod2=T2*modulation2
-        # print("narrow in config")
         kfloors_mod,vals_mod2=generate_P(Tmod2,mode,Lsurvey,Nk,V_custom=Veff2) #,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma22),np.sqrt(sigma22),np.sqrt(sigma22),2*np.sqrt(np.log(2)),))
         allvals2[:,i]=vals_mod2
         kfloors,vals=generate_P(T,mode,Lsurvey,Nk)
-        # print("kfloors=",kfloors)
         allvals[:,i]=vals
         axs[0].scatter(kfloors,vals,color=colours[i])
         maxvalshere=np.max(vals)

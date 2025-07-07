@@ -59,7 +59,6 @@ def P_driver(T, k, Lsurvey, V_custom=False):
     Nvox  =T.shape[0]
     Delta = Lsurvey/Nvox # voxel side length
     dr3   = Delta**3     # voxel volume
-    V     = Lsurvey**3   # volume of the cosmo box
     
     # process the box values
     Ts  = np.fft.ifftshift(T)*dr3 # T-ishifted (np wants a corner origin; ifftshift takes you there)
@@ -69,7 +68,8 @@ def P_driver(T, k, Lsurvey, V_custom=False):
     mTt = mTt.real                # I checked, and there aren't even any machine precision issues in the imag part
 
     # establish Cartesian Fourier duals to box coordinates
-    k_vec_for_box=                       twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta))
+    k_vec_for_box= twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta))
+    # print("k_vec_for_box=",k_vec_for_box)
     kx_box_grid,ky_box_grid,kz_box_grid= np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier duals to config space coords (ofc !not !yet !binned)
 
     if (binto=="sph"):
@@ -77,6 +77,7 @@ def P_driver(T, k, Lsurvey, V_custom=False):
 
         # prepare to tie the processed box values to relevant k-values
         k_box=          np.sqrt(kx_box_grid**2+ky_box_grid**2+kz_box_grid**2) # scalar k for each voxel
+        # print("CHECK DIRECTION OF MONOTONICITY: k=",k,"\n\n")
         bin_indices=    np.digitize(k_box,k)                                  # box with entries indexing which bin each voxel belongs in [DEFAULT BEHAVIOUR IS RIGHT==FALSE]
         bin_indices_1d= np.reshape(bin_indices,(Nvox**3,))                    # to bin, I use np.bincount, which requires 1D input
         mTt_1d=         np.reshape(mTt,    (Nvox**3,))                        # ^ same preprocessing
@@ -84,12 +85,14 @@ def P_driver(T, k, Lsurvey, V_custom=False):
         # binning
         summTt=np.bincount(bin_indices_1d,weights=mTt_1d,minlength=Nk) # for the ensemble average: sum    of mTt values in each bin
         NmTt=  np.bincount(bin_indices_1d,               minlength=Nk) # for the ensemble average: number of mTt values in each bin
+        # print("CHECK—BEFORE TRUNCATION: slice bin sums, slice bin counts=",summTt,NmTt)
         summTt=summTt[1:] # the central voxel has a k below the lowest bin floor, and we won't lose much info by excising it, so focus on the other Nvox**3-1 voxels with k in the bin range (CONFIRMED ON JUN 30TH: NmTt[0] before pruning is always 1, so my excising intuition seems justified)
         NmTt=NmTt[1:]
         amTt=np.zeros(Nk) # template to store the ensemble average: to avoid division-by-zero errors, I use an empty-bin mask for the ensemble average sum/count division to leave zero power (instead of ending up with nan power) in empty bins
 
     elif (binto=="cyl"): # kpar is z-like
         kpar,kperp=k # kpar being unpacked first here DOES NOT change my treatment of kpar as a z-like coordinate in 3D arrays (look at these lines to re-convince myself: kperpmags=, mTt_slice=,...)
+        # print("CHECK DIRECTION OF MONOTONICITY: kpar=",kpar,"\nkperp=",kperp,"\n\n")
         Nkpar=len(kpar)
         Nkperp=len(kperp)
 
@@ -107,10 +110,12 @@ def P_driver(T, k, Lsurvey, V_custom=False):
         for i in range(Nvox): # iterate over the kpar axis of the box to capture all LoS slices
             if (i==0): # stats of the kperp "bull's eye" slice
                 slice_bin_counts= np.bincount(perpbin_indices_slice_1d, minlength=Nkperp) # each slice's update to the denominator of the ensemble average
+                # print("CHECK—BEFORE TRUNCATION: slice bin counts=",slice_bin_counts)
                 slice_bin_counts = slice_bin_counts[1:]
             mTt_slice=       mTt[:,:,i]                                                                  # take the slice of interest of the preprocessed box values !! still treating kpar as z-like
             mTt_slice_1d=    np.reshape(mTt_slice,(Nvox**2,))                                            # reshape to 1D for bincount compatibility
             current_binsums= np.bincount(perpbin_indices_slice_1d,weights=mTt_slice_1d,minlength=Nkperp) # this slice's update to the numerator of the ensemble average
+            # print("CHECK—BEFORE TRUNCATION: slice bin sums=",current_binsums,"\n\n")
             current_binsums=current_binsums[1:]
             current_par_bin= parbin_indices_column[i]
 
@@ -247,37 +252,31 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
     outputs:
     Nvox x Nvox x Nvox brightness temp box
     """
-    # t0=time.time()
     # helper variable setup
     k=k.real # enforce what makes sense physically
     P=P.real
     Nbins=len(P)
-    assert(Nvox>=Nbins), "Nvox>=Nbins is baked into the code at the moment. I'm going to fix this (interpolation...) after I handle the more pressing issues, but for now, why would you even want Nvox<Npix?"
+    assert(Nvox>=Nbins), "Nvox>=Nbins is baked into the code at the moment. I'm going to fix this (interpolation...) after I handle the more pressing issues, but for now, why would you even want Nvox<Nbins?"
     Delta = Lsurvey/Nvox # voxel side length
     dr3 = Delta**3 # voxel volume
-    twopi = 2*np.pi
     if not V_custom:
         V_custom=Lsurvey**3
     r=twopi/k 
-    print("P_driver: r=",r)
-    # t1=time.time()
+    # print("generate_box: r=",r)
     
     # CORNER-origin r grid
     rmags=Lsurvey*np.fft.fftfreq(Nvox)
-    RX,RY,RZ=np.meshgrid(rmags,rmags,rmags) # *technically* should have indexing="ij" if I want my calculations to be entirely consistent in their implementation, but there's actually no difference here because I'm meshgridding three copies of the same vector [the resulting grids are symmetric under permutation of their indices]
+    RX,RY,RZ=np.meshgrid(rmags,rmags,rmags, indexing="ij") # mathematically, this "ij" is arbitrary, because the output is symmetric under ijk permutation when you meshgrid three copies of the same array, but this is just to maintain philosophical consistency with my implementation elsewhere 
     rgrid=np.sqrt(RX**2+RY**2+RZ**2)
-    # t2=time.time()
     
     # take appropriate draws from normal distributions to populate T-tilde
     sigmas=np.flip(np.sqrt(V_custom*P/2)) # has Npix elements ... each element describes the T-tilde values in that k-bin ... flip to anticipate the fact that I'm working in r-space but calculated this vector in k-space
-    # sigmas=np.flip(np.sqrt(V*P)) # sneaking suspicion that the factors of two that rfftn introduces handle this internally
-    print("P_driver: sigmas=",sigmas)
+    # print("generate_box: sigmas=",sigmas)
     sigmas=np.reshape(sigmas,(Nbins,)) # transition from the (1,npts) of the CAMB PS to (npts,)
     Ttre=np.zeros((Nvox,Nvox,Nvox))
     Ttim=np.zeros((Nvox,Nvox,Nvox))
     bin_indices=np.digitize(rgrid,r) # must pass x,bins; rgrid is the big box and r has floors [I do not observe very different behaviour if I switch to right=True... I think it's probably because, statistically, there are vanishingly few voxels exactly on a boundary]
-    # t3=time.time()
-    for i,binedge in enumerate(r):
+    for i in range(Nbins):
         sig=sigmas[i]
         here=np.nonzero(i==bin_indices) # all box indices where the corresp bin index is the ith binedge (iterable)
         numhere=len(np.argwhere(i==bin_indices)) # number of voxels in the bin we're currently considering
@@ -286,15 +285,7 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
         if (numhere>0):
             Ttre[here]=sampsRe
             Ttim[here]=sampsIm
-    # t4=time.time()
 
     Tt=Ttre+1j*Ttim # no symmetries yet
     T=np.fft.fftshift(np.fft.irfftn(Tt,s=(Nvox,Nvox,Nvox),axes=(0,1,2)))/dr3 # applies the symmetries automatically!
-    # t5=time.time()
-    # if verbose:
-    #     print("generate_box: prelim arithmetic",t1-t0)
-    #     print("generate_box: r-grid",t2-t1)
-    #     print("generate_box: format sigmas and establish bin indices",t3-t2)
-    #     print("generate_box: iterate over bins to populate box w/ values",t4-t3)
-    #     print("generate_box: stitching, symmetries, and volume element",t5-t4)
     return rgrid,T,rmags
