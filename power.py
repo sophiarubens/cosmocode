@@ -70,7 +70,6 @@ def P_driver(T, k, Lsurvey, V_custom=False):
 
     # establish Cartesian Fourier duals to box coordinates
     k_vec_for_box=                       twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta))
-    # print("in P_driver: k_vec_for_box=",k_vec_for_box)
     kx_box_grid,ky_box_grid,kz_box_grid= np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier duals to config space coords (ofc !not !yet !binned)
 
     if (binto=="sph"):
@@ -78,7 +77,7 @@ def P_driver(T, k, Lsurvey, V_custom=False):
 
         # prepare to tie the processed box values to relevant k-values
         k_box=          np.sqrt(kx_box_grid**2+ky_box_grid**2+kz_box_grid**2) # scalar k for each voxel
-        bin_indices=    np.digitize(k_box,k,right=False)                      # box with entries indexing which bin each voxel belongs in
+        bin_indices=    np.digitize(k_box,k)                                  # box with entries indexing which bin each voxel belongs in [DEFAULT BEHAVIOUR IS RIGHT==FALSE]
         bin_indices_1d= np.reshape(bin_indices,(Nvox**3,))                    # to bin, I use np.bincount, which requires 1D input
         mTt_1d=         np.reshape(mTt,    (Nvox**3,))                        # ^ same preprocessing
 
@@ -95,11 +94,11 @@ def P_driver(T, k, Lsurvey, V_custom=False):
         Nkperp=len(kperp)
 
         # prepare to tie the processed box values to relevant k-values
-        kperpmags=                np.sqrt(kx_box_grid**2+ky_box_grid**2)         # here, I'm jumping on the "kpar is like z" bandwagon,, probably fix and avoid mixing conventions at some point
-        kperpmags_slice=          kperpmags[:,:,0]                               # take a representative slice, now that I've rigorously checked that things vary the way I want
-        perpbin_indices_slice=    np.digitize(kperpmags_slice,kperp,right=False) # each representative slice has the same bull's-eye pattern of bin indices... no need to calculate for each slice, not to mention how it would be overkill to reshape the whole box down to 1D and digitize and bincount that
-        perpbin_indices_slice_1d= np.reshape(perpbin_indices_slice,(Nvox**2,))   # even though I've chosen a representative slice, I still need to flatten down to 1D in anticipation of bincounting
-        parbin_indices_column=    np.digitize(k_vec_for_box,kpar, right=False)   # vector with entries indexing which kpar bin each voxel belongs in (pending slight postprocessing in the loop) ... just as I could look at a representative slice for the kperp direction, I can look at a representative chunk for the LoS direction (though, naturally, in this case it is a "column") ... no need to reshape, b/c (1). it's already 1D and (2). I don't have an explicit bincount call along this axis because I iterate over kpar slices
+        kperpmags=                np.sqrt(kx_box_grid**2+ky_box_grid**2)       # here, I'm jumping on the "kpar is like z" bandwagon,, probably fix and avoid mixing conventions at some point
+        kperpmags_slice=          kperpmags[:,:,0]                             # take a representative slice, now that I've rigorously checked that things vary the way I want
+        perpbin_indices_slice=    np.digitize(kperpmags_slice,kperp)           # each representative slice has the same bull's-eye pattern of bin indices... no need to calculate for each slice, not to mention how it would be overkill to reshape the whole box down to 1D and digitize and bincount that
+        perpbin_indices_slice_1d= np.reshape(perpbin_indices_slice,(Nvox**2,)) # even though I've chosen a representative slice, I still need to flatten down to 1D in anticipation of bincounting
+        parbin_indices_column=    np.digitize(k_vec_for_box,kpar)              # vector with entries indexing which kpar bin each voxel belongs in (pending slight postprocessing in the loop) ... just as I could look at a representative slice for the kperp direction, I can look at a representative chunk for the LoS direction (though, naturally, in this case it is a "column") ... no need to reshape, b/c (1). it's already 1D and (2). I don't have an explicit bincount call along this axis because I iterate over kpar slices
 
         # binning 
         summTt= np.zeros((Nkpar,Nkperp)) # for the ensemble average: sum    of mTt values in each bin  ... each time I access it, I'll access the kparBIN row of interest, but update all NkperpBIN columns
@@ -127,9 +126,7 @@ def P_driver(T, k, Lsurvey, V_custom=False):
     amTt[nonemptybins]=summTt[nonemptybins]/NmTt[nonemptybins]
     if not V_custom:
         V_custom=Lsurvey**3
-
     P=np.array(amTt/V_custom)
-
     return [k,P]
 
 def get_bins(Nvox,Lsurvey,Nk,mode):
@@ -278,7 +275,7 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
     sigmas=np.reshape(sigmas,(Nbins,)) # transition from the (1,npts) of the CAMB PS to (npts,)
     Ttre=np.zeros((Nvox,Nvox,Nvox))
     Ttim=np.zeros((Nvox,Nvox,Nvox))
-    bin_indices=np.digitize(rgrid,r,right=False) # must pass x,bins; rgrid is the big box and r has floors [I do not observe very different behaviour if I switch to right=True... I think it's probably because, statistically, there are vanishingly few voxels exactly on a boundary]
+    bin_indices=np.digitize(rgrid,r) # must pass x,bins; rgrid is the big box and r has floors [I do not observe very different behaviour if I switch to right=True... I think it's probably because, statistically, there are vanishingly few voxels exactly on a boundary]
     # t3=time.time()
     for i,binedge in enumerate(r):
         sig=sigmas[i]
