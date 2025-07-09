@@ -11,7 +11,8 @@ mode="lin"
 # mode="log"
 Nkpar=8 # 327
 Nkperp=12 # 1010
-Nk = 10
+Nk = 18
+Nrealiz=50
 
 def elbowy_power(k,a=0.96605,b=-0.8,c=1,a0=1,b0=5000):
     return c/(a0*k**(-a)+b0*k**(-b))
@@ -25,7 +26,6 @@ if test_sph_fwd:
     maxvals_mod0=0.
     maxvals_mod1=0.
     maxvals_mod2=0.
-    Nrealiz=10
     colours=plt.cm.Blues(np.linspace(0.2,1,Nrealiz))
 
     vec=Lsurvey*np.fft.fftshift(np.fft.fftfreq(Npix))
@@ -56,8 +56,7 @@ if test_sph_fwd:
     # scaleto=-1
     scaleto=4
     for i in range(Nrealiz):
-        if (i%50==0):
-            print("realization",i)
+        print("realization",i)
         if   power_spec_type=="wn":
             T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
         elif power_spec_type=="pl":
@@ -65,6 +64,7 @@ if test_sph_fwd:
                 ktest=np.linspace(1e-4,1,25)
                 idx=-0.96605
                 Ptest=ktest**idx
+            print("generate_box during realization 0:")
             _,T,_=generate_box(Ptest,ktest,Lsurvey,Npix) # generate_box(P,k,Lsurvey,Nvox,V_custom=False) (leaving the V_eff term as False here bc I will override later to avoid having to generate multiple boxes)
         if i==0:
             V=Lsurvey**3
@@ -96,14 +96,18 @@ if test_sph_fwd:
         T1=T*np.sqrt(Veff1/V)
         T2=T*np.sqrt(Veff2/V)
         Tmod0=T0*modulation0
+        print("mod 0")
         kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nk,V_custom=Veff0) #,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma02),np.sqrt(sigma02),np.sqrt(sigma02),2*np.sqrt(np.log(2)),)) # ,sigLoS,beamfwhm_x,beamfwhm_y,r0)
         allvals0[:,i]=vals_mod0
         Tmod1=T1*modulation1
+        print("mod 1")
         kfloors_mod,vals_mod1=generate_P(Tmod1,mode,Lsurvey,Nk,V_custom=Veff1)# ,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma12),np.sqrt(sigma12),np.sqrt(sigma12),2*np.sqrt(np.log(2)),))
         allvals1[:,i]=vals_mod1
         Tmod2=T2*modulation2
+        print("mod 2")
         kfloors_mod,vals_mod2=generate_P(Tmod2,mode,Lsurvey,Nk,V_custom=Veff2) #,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma22),np.sqrt(sigma22),np.sqrt(sigma22),2*np.sqrt(np.log(2)),))
         allvals2[:,i]=vals_mod2
+        print("unmod:")
         kfloors,vals=generate_P(T,mode,Lsurvey,Nk)
         allvals[:,i]=vals
         axs[0].scatter(kfloors,vals,color=colours[i])
