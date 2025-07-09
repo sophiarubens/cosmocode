@@ -25,11 +25,10 @@ if test_sph_fwd:
     maxvals_mod0=0.
     maxvals_mod1=0.
     maxvals_mod2=0.
-    Nrealiz=50
+    Nrealiz=10
     colours=plt.cm.Blues(np.linspace(0.2,1,Nrealiz))
 
-    vec=Lsurvey*np.fft.fftfreq(Npix) # THIS IS THE RMAGS-LIKE THING THAT SHOULD'VE BEEN THERE ALL ALONG???
-    # vec=1/np.fft.fftshift(np.fft.fftfreq(Npix,d=Lsurvey/Npix)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
+    vec=Lsurvey*np.fft.fftshift(np.fft.fftfreq(Npix))
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
     print("Delta=Lsurvey/Npix=",Lsurvey/Npix)
     sigma02=1e3 # wide   in config space
@@ -54,6 +53,8 @@ if test_sph_fwd:
     allvals1=np.zeros((Nk,Nrealiz))
     allvals2=np.zeros((Nk,Nrealiz))
 
+    # scaleto=-1
+    scaleto=4
     for i in range(Nrealiz):
         if (i%50==0):
             print("realization",i)
@@ -129,9 +130,13 @@ if test_sph_fwd:
     mean1=np.mean(allvals1,axis=-1)
     mean2=np.mean(allvals2,axis=-1)
     axs[0].plot(kfloors,meanmean, label="reconstructed")
+    axs[0].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*meanmean[scaleto],label="fiducial scaled")
     axs[1].plot(kfloors,mean0,label="reconstructed")
+    axs[1].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean0[scaleto],label="fiducial scaled")
     axs[2].plot(kfloors,mean1,label="reconstructed")
+    axs[2].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean1[scaleto],label="fiducial scaled")
     axs[3].plot(kfloors,mean2,label="reconstructed")
+    axs[3].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean2[scaleto],label="fiducial scaled")
     if (power_spec_type=="pl"):
         for i in range(4):
             axs[i].plot(kfloors,kfloors**idx,label="fiducial")
@@ -146,7 +151,7 @@ if test_sph_fwd:
     axs[3].set_ylim(0,1.2*maxvals_mod2)
     plt.legend()
     plt.tight_layout()
-    plt.savefig("wn_sph_"+mode+".png",dpi=500)
+    plt.savefig(power_spec_type+"_sph_"+mode+".png",dpi=500)
     plt.show()
 
 test_sph_interp=False
@@ -375,9 +380,8 @@ if test_cyl_interp:
 
 test_bwd=True
 if test_bwd:
-    Lsurvey=103 # Mpc
     plot=True
-    cases=['ps_wn_2px.txt','z5spec.txt','ps_wn_20px.txt']
+    cases=['ps_wn_2px.txt','z8spec.txt','ps_wn_20px.txt']
     ncases=len(cases)
     if plot:
         fig,axs=plt.subplots(2*ncases,3, figsize=(15,10)) # (3 power specs * 2 voxel schemes per power spec) = 6 generated boxes to look at slices of

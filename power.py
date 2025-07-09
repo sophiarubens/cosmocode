@@ -73,8 +73,18 @@ def P_driver(T, k, Lsurvey, V_custom=False):
 
         # prepare to tie the processed box values to relevant k-values
         k_box=          np.sqrt(kx_box_grid**2+ky_box_grid**2+kz_box_grid**2) # scalar k for each voxel
-        print("CHECK DIRECTION OF MONOTONICITY: k=",k,"\n\n")
         bin_indices=    np.digitize(k_box,k)                                  # box with entries indexing which bin each voxel belongs in [DEFAULT BEHAVIOUR IS RIGHT==FALSE]
+        ################################
+        with open("bin_indices_in_P_driver_sph.txt", "w") as f:
+            for i, slice2d in enumerate(bin_indices):
+                np.savetxt(f, slice2d, fmt="%2d")
+                if i < bin_indices.shape[0] - 1: # white space between slices
+                    f.write("\n")
+        with open("P_driver_k_quantities.txt", "w") as f:
+            f.write("k=\n"+str(k)+"\n\n")
+            f.write("k_vec_for_box=\n"+str(k_vec_for_box))
+        ################################   
+        
         bin_indices_1d= np.reshape(bin_indices,(Nvox**3,))                    # to bin, I use np.bincount, which requires 1D input
         modsq_T_tilde_1d=         np.reshape(modsq_T_tilde,    (Nvox**3,))                        # ^ same preprocessing
 
@@ -264,38 +274,42 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
     d3k = (twopi/Lsurvey)**3# Fourier-space voxel volume
     if not V_custom:
         V_custom=Lsurvey**3
-    r=twopi/k # MONOTONICALLY **DE**CREASING
-    print("generate_box: r=",r)
-    
-    # CORNER-origin r grid
-    r_vec_for_box=Lsurvey*fftfreq(Nvox) # @@@
-    # r_vec_for_box=Lsurvey*fftshift(fftfreq(Nvox)) # %%%
-    RX,RY,RZ=np.meshgrid(r_vec_for_box,r_vec_for_box,r_vec_for_box, indexing="ij") # mathematically, this "ij" is arbitrary, because the output is symmetric under ijk permutation when you meshgrid three copies of the same array, but this is just to maintain philosophical consistency with my implementation elsewhere 
-    rgrid=np.sqrt(RX**2+RY**2+RZ**2)
 
-    # try the k-grid approach
-    k_vec_for_box=twopi*fftshift(fftfreq(Nvox,d=Delta))
+    # CORNER-origin k-grid
+    k_vec_for_box=twopi*fftfreq(Nvox,d=Delta)
     KX,KY,KZ=np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box)
     kgrid=np.sqrt(KX**2+KY**2+KZ**2)
     
     # take appropriate draws from normal distributions to populate T-tilde
-    sigmas=np.flip(np.sqrt(V_custom*P/2)) # @@@ monotonically decreasing for decaying power law, Npix elements, each element describes the std dev of the Gaussian from which T-tilde values in that k-bin are drawn, flip to anticipate that I'm working in r-space but calculated this vector in k-space
-    # sigmas=np.sqrt(V_custom*P/2)
+    sigmas=np.sqrt(V_custom*P/2)
     sigmas=np.reshape(sigmas,(Nbins,)) # transition from the (1,Nbins) of the CAMB PS to (Nbins,)
     # print("generate_box: sigmas=",sigmas)
     T_tildere=np.zeros((Nvox,Nvox,Nvox))
     T_tildeim=np.zeros((Nvox,Nvox,Nvox))
-    bin_indices=np.digitize(rgrid,r) # must pass x,bins; rgrid is the big box and r has floors [I do not observe very different behaviour if I switch to right=True... I think it's probably because, statistically, there are vanishingly few voxels exactly on a boundary]
+    bin_indices=np.digitize(kgrid,k)
+    
+    ################################
+    with open('bin_indices_in_generate_box.txt', 'w') as f:
+        for i, slice2d in enumerate(bin_indices):
+            np.savetxt(f, slice2d, fmt='%2d')
+            if i < bin_indices.shape[0] - 1: # white space between slices
+                f.write('\n')
+    with open("generate_box_k_quantities.txt", "w") as f:
+            f.write("k=\n"+str(k)+"\n\n")
+            f.write("k_vec_for_box=\n"+str(k_vec_for_box))
+    ################################
+
     for i,sig in enumerate(sigmas):
         here=np.nonzero(i==bin_indices) # all box indices where the corresp bin index is the ith binedge (iterable)
         numhere=len(np.argwhere(i==bin_indices)) # number of voxels in the bin we're currently considering
         sampsRe=np.random.normal(scale=sig, size=(numhere,)) # samples for filling the current bin
         sampsIm=np.random.normal(scale=sig, size=(numhere,))
+        # sampsRe= sig*np.ones((numhere,)) # test where I put the sigma values in the voxels, not draws from zero-mean Gaussians with the appropriate sigmas as standard deviations
+        # sampsIm= sig*np.ones((numhere,))
         if (numhere>0):
             T_tildere[here]=sampsRe
             T_tildeim[here]=sampsIm
 
     T_tilde=T_tildere+1j*T_tildeim # no symmetries yet
-    T=fftshift(irfftn(T_tilde*d3k,s=(Nvox,Nvox,Nvox),axes=(0,1,2),norm="forward"))/(2.*pi**3) # @@@ applies the symmetries automatically! -> then return in user-friendly CENTRE-origin format (net unitary shifting)
-    # T=irfftn(T_tilde*d3k,s=(Nvox,Nvox,Nvox),axes=(0,1,2),norm="forward")/(2.*pi**3) # %%%
-    return rgrid,T,r_vec_for_box
+    T=fftshift(irfftn(T_tilde*d3k,s=(Nvox,Nvox,Nvox),axes=(0,1,2),norm="forward"))/(2.*pi)**3 # @@@ applies the symmetries automatically! -> then return in user-friendly CENTRE-origin format (net unitary shifting)
+    return kgrid,T,k_vec_for_box
