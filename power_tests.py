@@ -5,14 +5,14 @@ import numpy as np
 from matplotlib import pyplot as plt
 import time
 
-Lsurvey=126
-Npix=52
+Lsurvey=126 # 63
+Nvox=52 # 10 
+Nk = 14 # 8
 mode="lin"
 # mode="log"
-Nkpar=8 # 327
-Nkperp=12 # 1010
-Nk = 18
-Nrealiz=50
+Nkpar=8
+Nkperp=12
+Nrealiz=3
 
 def elbowy_power(k,a=0.96605,b=-0.8,c=1,a0=1,b0=5000):
     return c/(a0*k**(-a)+b0*k**(-b))
@@ -22,15 +22,15 @@ visualize_T_slices=False
 # power_spec_type="wn"
 power_spec_type="pl"
 if test_sph_fwd:
+    t0=time.time()
     maxvals=0.
     maxvals_mod0=0.
     maxvals_mod1=0.
     maxvals_mod2=0.
     colours=plt.cm.Blues(np.linspace(0.2,1,Nrealiz))
 
-    vec=Lsurvey*np.fft.fftshift(np.fft.fftfreq(Npix))
+    vec=Lsurvey*np.fft.fftshift(np.fft.fftfreq(Nvox))
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
-    print("Delta=Lsurvey/Npix=",Lsurvey/Npix)
     sigma02=1e3 # wide   in config space
     sigma12=10  # medium in config space
     sigma22=0.5 # narrow in config space
@@ -54,27 +54,30 @@ if test_sph_fwd:
     allvals2=np.zeros((Nk,Nrealiz))
 
     # scaleto=-1
-    scaleto=4
+    scaleto=1
     for i in range(Nrealiz):
-        print("realization",i)
+        # alert=Nrealiz//10
+        # if (i%alert==0):
+        #     print("realization",i)
         if   power_spec_type=="wn":
-            T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+            T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
         elif power_spec_type=="pl":
             if (i==0):
-                ktest=np.linspace(1e-4,1,25)
+                # ktest=np.linspace(1e-4,1,Nk) # !!!!oh yikes was this where my "stats cut off at one" problems were coming from???
+                ktest=np.linspace(twopi/Lsurvey,twopi*Nvox/Lsurvey,Nk)
                 idx=-0.96605
                 Ptest=ktest**idx
-            print("generate_box during realization 0:")
-            _,T,_=generate_box(Ptest,ktest,Lsurvey,Npix) # generate_box(P,k,Lsurvey,Nvox,V_custom=False) (leaving the V_eff term as False here bc I will override later to avoid having to generate multiple boxes)
+            # print("generate_box during realization 0:")
+            _,T,_=generate_box(Ptest,ktest,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,V_custom=False) (leaving the V_eff term as False here bc I will override later to avoid having to generate multiple boxes)
         if i==0:
             V=Lsurvey**3
-            Veff0=get_equivalent_volume(custom_response2,bundled0,Lsurvey,Npix) # args need to be bundled as (sigLoS,beamfwhm_x,beamfwhm_y,r0,)
-            Veff1=get_equivalent_volume(custom_response2,bundled1,Lsurvey,Npix)
-            Veff2=get_equivalent_volume(custom_response2,bundled2,Lsurvey,Npix)
+            Veff0=get_equivalent_volume(custom_response2,bundled0,Lsurvey,Nvox) # args need to be bundled as (sigLoS,beamfwhm_x,beamfwhm_y,r0,)
+            Veff1=get_equivalent_volume(custom_response2,bundled1,Lsurvey,Nvox)
+            Veff2=get_equivalent_volume(custom_response2,bundled2,Lsurvey,Nvox)
             if visualize_T_slices:
                 figfig,axsaxs=plt.subplots(3,4,figsize=(20,10))
-                qtr=Npix//4
-                hlf=Npix//2
+                qtr=Nvox//4
+                hlf=Nvox//2
                 slices=[0,qtr,hlf,-3]
                 for i,slice in enumerate(slices):
                     axsaxs[0,i].imshow(T[:,:,slice])
@@ -96,18 +99,14 @@ if test_sph_fwd:
         T1=T*np.sqrt(Veff1/V)
         T2=T*np.sqrt(Veff2/V)
         Tmod0=T0*modulation0
-        print("mod 0")
         kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nk,V_custom=Veff0) #,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma02),np.sqrt(sigma02),np.sqrt(sigma02),2*np.sqrt(np.log(2)),)) # ,sigLoS,beamfwhm_x,beamfwhm_y,r0)
         allvals0[:,i]=vals_mod0
         Tmod1=T1*modulation1
-        print("mod 1")
         kfloors_mod,vals_mod1=generate_P(Tmod1,mode,Lsurvey,Nk,V_custom=Veff1)# ,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma12),np.sqrt(sigma12),np.sqrt(sigma12),2*np.sqrt(np.log(2)),))
         allvals1[:,i]=vals_mod1
         Tmod2=T2*modulation2
-        print("mod 2")
         kfloors_mod,vals_mod2=generate_P(Tmod2,mode,Lsurvey,Nk,V_custom=Veff2) #,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma22),np.sqrt(sigma22),np.sqrt(sigma22),2*np.sqrt(np.log(2)),))
         allvals2[:,i]=vals_mod2
-        print("unmod:")
         kfloors,vals=generate_P(T,mode,Lsurvey,Nk)
         allvals[:,i]=vals
         axs[0].scatter(kfloors,vals,color=colours[i])
@@ -134,33 +133,35 @@ if test_sph_fwd:
     mean1=np.mean(allvals1,axis=-1)
     mean2=np.mean(allvals2,axis=-1)
     axs[0].plot(kfloors,meanmean, label="reconstructed")
-    axs[0].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*meanmean[scaleto],label="fiducial scaled")
     axs[1].plot(kfloors,mean0,label="reconstructed")
-    axs[1].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean0[scaleto],label="fiducial scaled")
     axs[2].plot(kfloors,mean1,label="reconstructed")
-    axs[2].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean1[scaleto],label="fiducial scaled")
     axs[3].plot(kfloors,mean2,label="reconstructed")
-    axs[3].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean2[scaleto],label="fiducial scaled")
     if (power_spec_type=="pl"):
-        for i in range(4):
+        axs[0].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*meanmean[scaleto],label="fiducial scaled")
+        axs[1].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean0[scaleto],label="fiducial scaled")
+        axs[2].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean1[scaleto],label="fiducial scaled")
+        axs[3].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean2[scaleto],label="fiducial scaled")
+        for i in range(3):
             axs[i].plot(kfloors,kfloors**idx,label="fiducial")
     axs[0].set_title("P(T) / power spec of unmodulated box")
     axs[1].set_title("P(T*R) / power spec of response-modulated box \n(broad in config space)")
     axs[2].set_title("P(T*R) / power spec of response-modulated box \n(medium in config space)")
     axs[3].set_title("P(T*R) / power spec of response-modulated box \n(narrow in config space)")
-    plt.suptitle("Test white noise P(k) calc for Lsurvey,Npix,Nk,sigma0**2,sigma1**2,sigma2**2={:4},{:4},{:4},{:4},{:4},{:4}".format(Lsurvey,Npix,Nk,sigma02,sigma12,sigma22))
+    plt.suptitle("Test {:4} P(k) calc for Lsurvey,Nvox,Nk,Nrealiz,sigma0**2,sigma1**2,sigma2**2={:4},{:4},{:4},{:4},{:4},{:4}".format(power_spec_type,Lsurvey,Nvox,Nk,Nrealiz,sigma02,sigma12,sigma22))
     axs[0].set_ylim(0,1.2*maxvals)
     axs[1].set_ylim(0,1.2*maxvals_mod0)
     axs[2].set_ylim(0,1.2*maxvals_mod1)
     axs[3].set_ylim(0,1.2*maxvals_mod2)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(power_spec_type+"_sph_"+mode+".png",dpi=500)
+    plt.savefig(power_spec_type+"_sph_"+mode+"_"+str(Nrealiz)+"realiz.png",dpi=1000)
+    t1=time.time()
+    print("test suite took",t1-t0,"s")
     plt.show()
 
 test_sph_interp=False
 if test_sph_interp:
-    T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+    T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
     kfloors,vals=generate_P(T,mode,Lsurvey,Nk)
     k_want_lo=0.01
     k_want_hi=4.
@@ -194,7 +195,7 @@ if test_cyl_fwd:
     maxvals_mod2=0.
     Nrealiz=100
 
-    vec=1/np.fft.fftshift(np.fft.fftfreq(Npix,d=Lsurvey/Npix)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
+    vec=1/np.fft.fftshift(np.fft.fftfreq(Nvox,d=Lsurvey/Nvox)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
     sigma02=1e3
     sigma12=10
@@ -210,24 +211,24 @@ if test_cyl_fwd:
     tprev=time.time()
     for i in range(Nrealiz):
         if power_spec_type=="wn":
-            T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+            T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
         elif power_spec_type=="bpl":
             if (i==0):
                 Npts_bpl=25
-                k_bpl=np.linspace(twopi/Lsurvey,Npix*pi/Lsurvey,Npts_bpl)
+                k_bpl=np.linspace(twopi/Lsurvey,Nvox*pi/Lsurvey,Npts_bpl)
                 P_bpl=elbowy_power(k_bpl)
-            _,T,_ = generate_box(P_bpl,k_bpl,Lsurvey,Npix) # generate_box(P,k,Lsurvey,Nvox,verbose=False) returns rgrid,T,rmags
+            _,T,_ = generate_box(P_bpl,k_bpl,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,verbose=False) returns rgrid,T,rmags
         elif power_spec_type=="pl":
             if (i==0):
                 Npts_pl=25
-                k_pl=np.linspace(twopi/Lsurvey,Npix*pi/Lsurvey,Npts_pl)
+                k_pl=np.linspace(twopi/Lsurvey,Nvox*pi/Lsurvey,Npts_pl)
                 P_pl=k_pl**(-0.96605)
                 # plt.figure()
                 # plt.plot(k_pl,P_pl)
                 # plt.title("power law inspection")
                 # plt.savefig("pl_inspection.png")
                 # plt.show()
-            _,T,_=generate_box(P_pl,k_pl,Lsurvey,Npix)
+            _,T,_=generate_box(P_pl,k_pl,Lsurvey,Nvox)
         Tmod0=T*modulation0
         kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nkpar,Nk1=Nkperp,custom_estimator=custom_response,custom_estimator_args=(np.sqrt(sigma02),np.sqrt(sigma02),np.sqrt(sigma02),2*np.sqrt(np.log(2)),)) # ,sigLoS,beamfwhm_x,beamfwhm_y,r0)
         allvals0[:,:,i]=vals_mod0
@@ -292,7 +293,7 @@ if test_cyl_fwd:
     fig.colorbar(im,ax=axs[3,3])
     # fig.colorbar(im)
 
-    plt.suptitle("Test "+power_spec_type+" P(kpar,kperp) calc for Lsurvey,Npix,Nkpar,Nkperp,sigma0**2,sigma1**2,sigma2**2={:4},{:4},{:4},{:4},{:4},{:4},{:4}".format(Lsurvey,Npix,Nkpar,Nkperp,sigma02,sigma12,sigma22))
+    plt.suptitle("Test "+power_spec_type+" P(kpar,kperp) calc for Lsurvey,Nvox,Nkpar,Nkperp,sigma0**2,sigma1**2,sigma2**2={:4},{:4},{:4},{:4},{:4},{:4},{:4}".format(Lsurvey,Nvox,Nkpar,Nkperp,sigma02,sigma12,sigma22))
     for i in range(4):
         for j in range(4):
             axs[i,j].set_aspect("equal")
@@ -337,10 +338,10 @@ if test_cyl_fwd:
 test_cyl_interp=False
 if test_cyl_interp:
     print("CYL INTERP")
-    T = np.random.normal(loc=0.0, scale=1.0, size=(Npix,Npix,Npix))
+    T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
 
     ### start of modulation test
-    vec=1/np.fft.fftshift(np.fft.fftfreq(Npix,d=Lsurvey/Npix)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
+    vec=1/np.fft.fftshift(np.fft.fftfreq(Nvox,d=Lsurvey/Nvox)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
     print("vec=",vec)
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
     modulation=np.exp(-(xgrid**2+ygrid**2+zgrid**2))
@@ -392,7 +393,7 @@ if test_bwd:
     t0=time.time()
     for k,case in enumerate(cases):
         kfl,P=np.genfromtxt(case,dtype='complex').T
-        Npix=len(P)
+        Nvox=len(P)
 
         n_field_voxel_cases=[99,100] # 4.8 s for the whole loop
         # n_field_voxel_cases=[199,200] # 22.2 s for the whole loop

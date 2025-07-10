@@ -56,24 +56,34 @@ def P_driver(T, k, Lsurvey, V_custom=False):
         binto="cyl"
     else: # kind of hackily relying on the properties of list-stored ragged arrays to let the "if" catch cases that need to be cyl and then shuffle everything else along to spherical ... not very robust against pathological calls
         binto="sph"
-    Nvox  =T.shape[0]
+    Nvox  = T.shape[0]
     Delta = Lsurvey/Nvox # voxel side length
     d3r   = Delta**3     # voxel volume
     
     # process the box values
-    T_tilde=fftshift(fftn((ifftshift(T)*d3r)))
-    modsq_T_tilde=(T_tilde*np.conjugate(T_tilde)).real
+    T_tilde=        fftshift(fftn((ifftshift(T)*d3r)))
+    modsq_T_tilde= (T_tilde*np.conjugate(T_tilde)).real
 
     # establish Cartesian Fourier duals to box coordinates
-    k_vec_for_box= twopi*fftshift(fftfreq(Nvox,d=Delta)) # easier to motivate philosophically (!!Hannah's version does the same thing!!)
-    kx_box_grid,ky_box_grid,kz_box_grid= np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier duals to config space coords (ofc !not !yet !binned)
+    k_vec_for_box= twopi*fftshift(fftfreq(Nvox,d=Delta)) 
+    # print("\n\nP_driver:\nLsurvey=",Lsurvey,"\nNvox=",Nvox,"\nNk=",lenk)
+    # print("k_vec_for_box=\n",k_vec_for_box,"\n\n")
+    # assert(1==0), "scrutinizing k_vec_for_box"
+    kx_box_grid,ky_box_grid,kz_box_grid= np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier-space grid
 
     if (binto=="sph"):
         Nk=lenk # number of k-modes to put in the power spectrum
 
         # prepare to tie the processed box values to relevant k-values
         k_box=          np.sqrt(kx_box_grid**2+ky_box_grid**2+kz_box_grid**2) # scalar k for each voxel
+        print(">>>>>>>")
+        print("box sees np.min(k_box),np.min(np.abs(k_box)),np.max(k_box),np.max(np.abs(k_box))=",np.min(k_box),np.min(np.abs(k_box)),np.max(k_box),np.max(np.abs(k_box)))
+        print("bins span np.min(k) to np.max(k)", np.min(k), "to", np.max(k))
+        print(">>>>>>>")
+        # print("P_driver: k_box=",k_box)
         bin_indices=    np.digitize(k_box,k)                                  # box with entries indexing which bin each voxel belongs in [DEFAULT BEHAVIOUR IS RIGHT==FALSE]
+        # print("k bin edges:",k)
+        # print("P_driver: bin_indices=",bin_indices)
         ################################
         with open("bin_indices_in_P_driver_sph.txt", "w") as f:
             for i, slice2d in enumerate(bin_indices):
@@ -82,7 +92,17 @@ def P_driver(T, k, Lsurvey, V_custom=False):
                     f.write("\n")
         with open("P_driver_k_quantities.txt", "w") as f:
             f.write("k=\n"+str(k)+"\n\n")
-            f.write("k_vec_for_box=\n"+str(k_vec_for_box))
+            f.write("k_vec_for_box=\n"+str(k_vec_for_box)+"\n\n")
+            f.write("kgrid=\n")
+            for i, slice2d in enumerate(k_box):
+                np.savetxt(f, slice2d, fmt='%2d')
+                if i < bin_indices.shape[0] - 1: 
+                    f.write('\n')
+            f.write("\n")
+            for i, slice2d in enumerate(bin_indices):
+                np.savetxt(f, slice2d, fmt='%2d')
+                if i < bin_indices.shape[0] - 1: 
+                    f.write('\n')
         ################################   
         
         bin_indices_1d=   np.reshape(bin_indices,(Nvox**3,))       # to bin, I use np.bincount, which requires 1D input
@@ -91,10 +111,14 @@ def P_driver(T, k, Lsurvey, V_custom=False):
         # binning
         sum_modsq_T_tilde= np.bincount(bin_indices_1d,weights=modsq_T_tilde_1d,minlength=Nk) # for the ensemble average: sum    of modsq_T_tilde values in each bin
         N_modsq_T_tilde=   np.bincount(bin_indices_1d,               minlength=Nk) # for the ensemble average: number of modsq_T_tilde values in each bin
-        sum_modsq_T_tilde= sum_modsq_T_tilde[1:] # the central voxel has a k below the lowest bin floor, and we won't lose much info by excising it, so focus on the other Nvox**3-1 voxels with k in the bin range (CONFIRMED ON JUN 30TH: N_modsq_T_tilde[0] before pruning is always 1, so my excising intuition seems justified)
-        N_modsq_T_tilde=   N_modsq_T_tilde[1:]
-        avg_modsq_T_tilde= np.zeros(Nk) # template to store the ensemble average: to avoid division-by-zero errors, I use an empty-bin mask for the ensemble average sum/count division to leave zero power (instead of ending up with nan power) in empty bins
+        
+        print("NO TRUNCATION: sum_modsq_T_tilde="+np.array2string(sum_modsq_T_tilde, precision=3, suppress_small=True))
+        print("NO TRUNCATION: N_modsq_T_tilde="+np.array2string(N_modsq_T_tilde, precision=3, suppress_small=True))
 
+        sum_modsq_T_tilde_truncated=sum_modsq_T_tilde[:-1]
+        N_modsq_T_tilde_truncated=N_modsq_T_tilde[:-1]
+        
+        k_keep=k[:-1]
     elif (binto=="cyl"): # kpar is z-like
         kpar,kperp=k # kpar being unpacked first here DOES NOT change my treatment of kpar as a z-like coordinate in 3D arrays (look at these lines to re-convince myself: kperpmags=, modsq_T_tilde_slice=,...)
         Nkpar=len(kpar)
@@ -114,38 +138,56 @@ def P_driver(T, k, Lsurvey, V_custom=False):
         for i in range(Nvox): # iterate over the kpar axis of the box to capture all LoS slices
             if (i==0): # stats of the kperp "bull's eye" slice
                 slice_bin_counts=  np.bincount(perpbin_indices_slice_1d, minlength=Nkperp) # each slice's update to the denominator of the ensemble average
-                slice_bin_counts = slice_bin_counts[1:]
+                # slice_bin_counts = slice_bin_counts[1:]
             modsq_T_tilde_slice=    modsq_T_tilde[:,:,i]                                                                  # take the slice of interest of the preprocessed box values !! still treating kpar as z-like
             modsq_T_tilde_slice_1d= np.reshape(modsq_T_tilde_slice,(Nvox**2,))                                            # reshape to 1D for bincount compatibility
             current_binsums=        np.bincount(perpbin_indices_slice_1d,weights=modsq_T_tilde_slice_1d,minlength=Nkperp) # this slice's update to the numerator of the ensemble average
-            current_binsums=        current_binsums[1:]
+            # current_binsums=        current_binsums[1:]
             current_par_bin=        parbin_indices_column[i]
 
             sum_modsq_T_tilde[current_par_bin,:]+= current_binsums  # update the numerator of the ensemble average
             N_modsq_T_tilde[current_par_bin,:]+=   slice_bin_counts # update the denominator of the ensemble average
-        avg_modsq_T_tilde=np.zeros((Nkpar,Nkperp)) # template to store the ensemble average (same philosophy as for the spherical case—see above)
+        # avg_modsq_T_tilde=np.zeros((Nkpar,Nkperp)) # template to store the ensemble average (same philosophy as for the spherical case—see above)
+        
+        sum_modsq_T_tilde_truncated= sum_modsq_T_tilde[:-1,:-1]
+        N_modsq_T_tilde_truncated=   N_modsq_T_tilde[:-1,:-1]
+        
+        kpar_keep=kpar[:-1]
+        kperp_keep=kperp[:-1]
+        k_keep=[kpar_keep,kperp_keep]
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
         return None
     
     # translate to power spectrum terms
-    nonemptybins=np.nonzero(N_modsq_T_tilde)
-    avg_modsq_T_tilde[nonemptybins]=sum_modsq_T_tilde[nonemptybins]/N_modsq_T_tilde[nonemptybins]
-    # print("P_driver:\nsum_modsq_T_tilde=",sum_modsq_T_tilde)
-    # print("N_modsq_T_tilde=",N_modsq_T_tilde)
-    # print("avg_modsq_T_tilde=",avg_modsq_T_tilde,"\n")
+    # nonemptybins=np.nonzero(N_modsq_T_tilde)
+    # avg_modsq_T_tilde[nonemptybins]=sum_modsq_T_tilde[nonemptybins]/N_modsq_T_tilde[nonemptybins]
+
+    avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/N_modsq_T_tilde_truncated
+    # k=k_bins[:-1]
+
     if not V_custom:
         V_custom=Lsurvey**3
     P=np.array(avg_modsq_T_tilde/V_custom)
-    P=P[:-1] # actually ignore the first shell of corner points (I was using a k-value outside the largest box-enclosed sphere as a bin floor, even when, in theory, I agree that it's probably okay to ignore the not-great stats in the corners of a box) 
-    k=k[:-1]
-    return [k,P]
+    print("right before return: P=",P)
+    # P=P[:-1] # actually ignore the first shell of corner points (I was using a k-value outside the largest box-enclosed sphere as a bin floor, even when, in theory, I agree that it's probably okay to ignore the not-great stats in the corners of a box) 
+    # k=k[:-1]
+    return [k_keep,P]
 
 def get_bins(Nvox,Lsurvey,Nk,mode):
     Nk_internal=Nk+1
     Delta=Lsurvey/Nvox
-    kmax=pi/(2.*Delta) # FACTOR OF TWO FROM +/- K IN BOX BUT ONLY POSITIVE VALUES IN THE ARRAY OF FLOORS
-    kmin=twopi/Lsurvey
+    kmax_want=twopi/Delta # what theo says
+    kmin_want=twopi/Lsurvey
+    # deltakinternal=twopi*(Nvox-1)/(Lsurvey*(Nk+1)) # +1 gives 0 as lowest bin, +2 gives raw idx 1 too high, +3 gives raw idx 1 even higher
+    # print("get_bins: deltakinternal=",deltakinternal)
+    kmax=kmax_want # factor of two b/c +/- in box
+    kmin=kmin_want
+    # eps=0
+    # kmin=kmin_want-deltakinternal-eps # because we will be excising the smallest bin anyway and want good stats in the actual smallest bin
+    # print("kmin_want-deltakinternal=",kmin_want-deltakinternal)
+
+    # print("\nget_bins: kmin_want,kmax_want=",kmin_want,kmax_want,"kmin_send,kmax_send=",kmin,kmax)
     if (mode=="log"):
         kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk_internal)
         arg=np.log10(Nvox)/Nk_internal # I believe the previous (ln instead of log10) version was a bug but... yikes... another thing I haven't tested (but actually kind of not yikes because Fourier math is nasty with log-spaced bins so,,)
@@ -155,6 +197,12 @@ def get_bins(Nvox,Lsurvey,Nk,mode):
         limiting_spacing=twopi*(Nvox-1)/(Nk_internal*Lsurvey)
     else:
         assert(1==0), "only log and linear binning are currently supported"
+    # print("Lsurvey,Nvox=",Lsurvey,Nvox)
+    # print("Nk_internal=",Nk_internal)
+    # print("Delta=Lsurvey/Nvox=",Delta)
+    # print("kmin,kmax=",kmin,kmax)
+    # print("kbins=",kbins)
+    # print("limiting_spacing=",limiting_spacing)
     return kbins,limiting_spacing
 
 def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, V_custom=False):
@@ -176,6 +224,7 @@ def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, V_custom=False):
     """
     Nvox=T.shape[0]
     deltak_box=twopi/Lsurvey
+    print("deltak_box=",deltak_box)
 
     k0bins,limiting_spacing_0=get_bins(Nvox,Lsurvey,Nk0,mode)
     if (limiting_spacing_0<deltak_box):
@@ -278,13 +327,13 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
 
     # CORNER-origin k-grid
     k_vec_for_box=twopi*fftfreq(Nvox,d=Delta)
+    # print("generate_box: k_vec_for_box=",k_vec_for_box)
     KX,KY,KZ=np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box)
     kgrid=np.sqrt(KX**2+KY**2+KZ**2)
     
     # take appropriate draws from normal distributions to populate T-tilde
     sigmas=np.sqrt(V_custom*P/2)
     sigmas=np.reshape(sigmas,(Nbins,)) # transition from the (1,Nbins) of the CAMB PS to (Nbins,)
-    # print("generate_box: sigmas=",sigmas)
     T_tildere=np.zeros((Nvox,Nvox,Nvox))
     T_tildeim=np.zeros((Nvox,Nvox,Nvox))
     bin_indices=np.digitize(kgrid,k)
@@ -293,11 +342,21 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
     with open('bin_indices_in_generate_box.txt', 'w') as f:
         for i, slice2d in enumerate(bin_indices):
             np.savetxt(f, slice2d, fmt='%2d')
-            if i < bin_indices.shape[0] - 1: # white space between slices
+            if i < bin_indices.shape[0] - 1:
                 f.write('\n')
     with open("generate_box_k_quantities.txt", "w") as f:
             f.write("k=\n"+str(k)+"\n\n")
-            f.write("k_vec_for_box=\n"+str(k_vec_for_box))
+            f.write("k_vec_for_box=\n"+str(k_vec_for_box)+"\n\n")
+            f.write("kgrid=\n")
+            for i, slice2d in enumerate(kgrid):
+                np.savetxt(f, slice2d, fmt='%2d')
+                if i < bin_indices.shape[0] - 1: 
+                    f.write('\n')
+            for i, slice2d in enumerate(bin_indices):
+                np.savetxt(f, slice2d, fmt='%2d')
+                if i < bin_indices.shape[0] - 1: 
+                    f.write('\n')
+            
     ################################
 
     for i,sig in enumerate(sigmas):
@@ -312,5 +371,5 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
             T_tildeim[here]=sampsIm
 
     T_tilde=T_tildere+1j*T_tildeim # no symmetries yet
-    T=fftshift(irfftn(T_tilde*d3k,s=(Nvox,Nvox,Nvox),axes=(0,1,2),norm="forward"))/(2.*pi)**3 # @@@ applies the symmetries automatically! -> then return in user-friendly CENTRE-origin format (net unitary shifting)
+    T=fftshift(irfftn(T_tilde*d3k,s=(Nvox,Nvox,Nvox),axes=(0,1,2),norm="forward"))/(2.*pi)**3 # applies the symmetries automatically! -> then return in user-friendly CENTRE-origin format (net unitary shifting)
     return kgrid,T,k_vec_for_box
