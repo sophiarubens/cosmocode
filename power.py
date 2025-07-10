@@ -104,11 +104,12 @@ def P_driver(T, k, Lsurvey, V_custom=False):
         kperpmags_slice=          kperpmags[:,:,0]                             # take a representative slice, now that I've rigorously checked that things vary the way I want
         perpbin_indices_slice=    np.digitize(kperpmags_slice,kperp)           # each representative slice has the same bull's-eye pattern of bin indices... no need to calculate for each slice, not to mention how it would be overkill to reshape the whole box down to 1D and digitize and bincount that
         perpbin_indices_slice_1d= np.reshape(perpbin_indices_slice,(Nvox**2,)) # even though I've chosen a representative slice, I still need to flatten down to 1D in anticipation of bincounting
-        parbin_indices_column=    np.digitize(k_vec_for_box,kpar)              # vector with entries indexing which kpar bin each voxel belongs in (pending slight postprocessing in the loop) ... just as I could look at a representative slice for the kperp direction, I can look at a representative chunk for the LoS direction (though, naturally, in this case it is a "column") ... no need to reshape, b/c (1). it's already 1D and (2). I don't have an explicit bincount call along this axis because I iterate over kpar slices
+        kparmags_column=          np.abs(k_vec_for_box)                        # to avoid the negative kpar/kz half of the box from being all shuffled into bin 0 (pos/neg issue)
+        parbin_indices_column=    np.digitize(kparmags_column,kpar)            # vector with entries indexing which kpar bin each voxel belongs in (pending slight postprocessing in the loop) ... just as I could look at a representative slice for the kperp direction, I can look at a representative chunk for the LoS direction (though, naturally, in this case it is a "column") ... no need to reshape, b/c (1). it's already 1D and (2). I don't have an explicit bincount call along this axis because I iterate over kpar slices
         
         # binning 
-        sum_modsq_T_tilde= np.zeros((Nkpar,Nkperp)) # for the ensemble average: sum    of modsq_T_tilde values in each bin  ... each time I access it, I'll access the kparBIN row of interest, but update all NkperpBIN columns
-        N_modsq_T_tilde=   np.zeros((Nkpar,Nkperp)) # for the ensemble average: number of modsq_T_tilde values in each bin
+        sum_modsq_T_tilde= np.zeros((Nkpar+1,Nkperp+1)) # for the ensemble average: sum    of modsq_T_tilde values in each bin  ... each time I access it, I'll access the kparBIN row of interest, but update all NkperpBIN columns
+        N_modsq_T_tilde=   np.zeros((Nkpar+1,Nkperp+1)) # for the ensemble average: number of modsq_T_tilde values in each bin
 
         for i in range(Nvox): # iterate over the kpar axis of the box to capture all LoS slices
             if (i==0): # stats of the kperp "bull's eye" slice
@@ -123,22 +124,20 @@ def P_driver(T, k, Lsurvey, V_custom=False):
         
         sum_modsq_T_tilde_truncated= sum_modsq_T_tilde[:-1,:-1]
         N_modsq_T_tilde_truncated=   N_modsq_T_tilde[:-1,:-1]
-        
-        kpar_keep=kpar[:-1]
-        kperp_keep=kperp[:-1]
-        k_keep=[kpar_keep,kperp_keep]
 
         ################################
-        with open("bin_indices_par_in_P_driver_cyl.txt", "w") as f:
-            for i, slice2d in enumerate(perpbin_indices_slice):
-                np.savetxt(f, slice2d, fmt="%2d")
-                if i < bin_indices.shape[0] - 1: # white space between slices
-                    f.write("\n")
         with open("bin_indices_perp_in_P_driver_cyl.txt", "w") as f:
-            for i, slice2d in enumerate(parbin_indices_column):
-                np.savetxt(f, slice2d, fmt="%2d")
-                if i < bin_indices.shape[0] - 1: # white space between slices
-                    f.write("\n")
+            np.savetxt(f,perpbin_indices_slice, fmt="%2d")
+            # for i, slice2d in enumerate(perpbin_indices_slice):
+            #     np.savetxt(f, slice2d, fmt="%2d")
+            #     if i < perpbin_indices_slice.shape[0] - 1: # white space between slices
+            #         f.write("\n")
+        with open("bin_indices_par_in_P_driver_cyl.txt", "w") as f:
+            np.savetxt(f,parbin_indices_column, fmt="%2d")
+            # for i, slice2d in enumerate(parbin_indices_column):
+            #     np.savetxt(f, slice2d, fmt="%2d")
+            #     if i < parbin_indices_column.shape[0] - 1: # white space between slices
+            #         f.write("\n")
         ################################
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"

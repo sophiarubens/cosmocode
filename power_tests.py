@@ -12,16 +12,18 @@ mode="lin"
 # mode="log"
 Nkpar=11
 Nkperp=13
-Nrealiz=30
+Nrealiz=100
 
 def elbowy_power(k,a=0.96605,b=-0.8,c=1,a0=1,b0=5000):
     return c/(a0*k**(-a)+b0*k**(-b))
 
+####################################################################################################################################################################################
 test_sph_fwd=True
 visualize_T_slices=False
 # power_spec_type="wn"
 power_spec_type="pl"
 if test_sph_fwd:
+    print("GENERATE SPH POWER SPEC FROM BOX")
     t0=time.time()
     maxvals=0.
     maxvals_mod0=0.
@@ -56,7 +58,7 @@ if test_sph_fwd:
     # scaleto=-1
     scaleto=1
     for i in range(Nrealiz):
-        alert=Nrealiz//10
+        alert=Nrealiz//5
         if alert>0:
             if (i%alert==0):
                 print("realization",i)
@@ -64,11 +66,9 @@ if test_sph_fwd:
             T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
         elif power_spec_type=="pl":
             if (i==0):
-                # ktest=np.linspace(1e-4,1,Nk) # !!!!oh yikes was this where my "stats cut off at one" problems were coming from???
                 ktest=np.linspace(twopi/Lsurvey,twopi*Nvox/Lsurvey,Nk)
                 idx=-0.96605
                 Ptest=ktest**idx
-            # print("generate_box during realization 0:")
             _,T,_=generate_box(Ptest,ktest,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,V_custom=False) (leaving the V_eff term as False here bc I will override later to avoid having to generate multiple boxes)
         if i==0:
             V=Lsurvey**3
@@ -157,11 +157,14 @@ if test_sph_fwd:
     plt.tight_layout()
     plt.savefig(power_spec_type+"_sph_"+mode+"_"+str(Nrealiz)+"realiz.png",dpi=1000)
     t1=time.time()
-    print("test suite took",t1-t0,"s")
+    print("generating sph power spectra took",t1-t0,"s\n")
     plt.show()
 
-test_sph_interp=False
+####################################################################################################################################################################################
+test_sph_interp=True
 if test_sph_interp:
+    print("INTERP SPH POWER SPEC")
+    t0=time.time()
     T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
     kfloors,vals=generate_P(T,mode,Lsurvey,Nk)
     k_want_lo=0.01
@@ -182,13 +185,18 @@ if test_sph_interp:
     plt.axvline(k_want_hi,  c="C1",label="extent of interpolated P")
     plt.legend()
     plt.savefig("sph_interp_"+mode+".png",dpi=500)
+    t1=time.time()
     plt.show()
+    print("interpolating a sph power spectrum took",t1-t0,"s\n")
 
-test_cyl_fwd=False
+####################################################################################################################################################################################
+test_cyl_fwd=True
 # power_spec_type="wn"
 # power_spec_type="bpl"
 power_spec_type="pl"
 if test_cyl_fwd:
+    print("GENERATE CYL POWER SPEC FROM BOX")
+    t0=time.time()
     fig,axs=plt.subplots(4,4,figsize=(20,20))
     maxvals=0.
     maxvals_mod0=0.
@@ -196,7 +204,6 @@ if test_cyl_fwd:
     maxvals_mod2=0.
     Delta=Lsurvey/Nvox
 
-    # vec=1/np.fft.fftshift(np.fft.fftfreq(Nvox,d=Lsurvey/Nvox)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
     vec=Lsurvey*np.fft.fftshift(np.fft.fftfreq(Nvox))
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
     sigma02=1e3
@@ -226,6 +233,10 @@ if test_cyl_fwd:
 
     tprev=time.time()
     for i in range(Nrealiz):
+        alert=Nrealiz//5
+        if alert>0:
+            if (i%alert==0):
+                print("realization",i)
         if i==0:
             V=Lsurvey**3
             Veff0=get_equivalent_volume(custom_response2,bundled0,Lsurvey,Nvox) # args need to be bundled as (sigLoS,beamfwhm_x,beamfwhm_y,r0,)
@@ -258,10 +269,6 @@ if test_cyl_fwd:
         allvals2[:,:,i]=vals_mod2
         kfloors,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp)
         allvals[:,:,i]=vals
-        if ((i%50)==0):
-            tcurr=time.time()
-            print("finished constructing realization ",i,"in",tcurr-tprev,"s")
-            tprev=tcurr
     
     np.save("allvals0"+power_spec_type+".npy",allvals0)
     np.save("allvals1"+power_spec_type+".npy",allvals1)
@@ -286,7 +293,6 @@ if test_cyl_fwd:
             axs[i,j].set_ylabel("P (K$^2$ Mpc$^3$)")
             axs[i,j].set_title(column_names[j]+" - "+row_names[i])
         if (i<3):
-            # print("kparfloors.shape,kperpfloors.shape,allvals[:,:,i].shape=",kparfloors.shape,kperpfloors.shape,allvals[:,:,i].shape)
             im=axs[i,0].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals[:,:,i],vmin=0,vmax=maxunmod)
             fig.colorbar(im,ax=axs[i,0])
             im=axs[i,1].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals0[:,:,i],vmin=0,vmax=max0)
@@ -300,65 +306,33 @@ if test_cyl_fwd:
     mean0= np.mean(allvals0,axis=-1)
     mean1= np.mean(allvals1,axis=-1)
     mean2= np.mean(allvals2,axis=-1)
-    im=axs[3,0].pcolor(kparfloorsgrid,kperpfloorsgrid,mean,vmin=0,vmax=maxunmod)
+    im=axs[3,0].pcolor(kparfloorsgrid,kperpfloorsgrid,mean) #,vmin=0,vmax=maxunmod)
     fig.colorbar(im,ax=axs[3,0])
-    im=axs[3,1].pcolor(kparfloorsgrid,kperpfloorsgrid,mean0,vmin=0,vmax=max0)
+    im=axs[3,1].pcolor(kparfloorsgrid,kperpfloorsgrid,mean0) #,vmin=0,vmax=max0)
     fig.colorbar(im,ax=axs[3,1])
-    im=axs[3,2].pcolor(kparfloorsgrid,kperpfloorsgrid,mean1,vmin=0,vmax=max1)
+    im=axs[3,2].pcolor(kparfloorsgrid,kperpfloorsgrid,mean1) #,vmin=0,vmax=max1)
     fig.colorbar(im,ax=axs[3,2])
-    im=axs[3,3].pcolor(kparfloorsgrid,kperpfloorsgrid,mean2,vmin=0,vmax=max2)
+    im=axs[3,3].pcolor(kparfloorsgrid,kperpfloorsgrid,mean2) #,vmin=0,vmax=max2)
     fig.colorbar(im,ax=axs[3,3])
-    # fig.colorbar(im)
 
     plt.suptitle("Test "+power_spec_type+" P(kpar,kperp) calc for Lsurvey,Nvox,Nkpar,Nkperp,sigma0**2,sigma1**2,sigma2**2={:4},{:4},{:4},{:4},{:4},{:4},{:4}".format(Lsurvey,Nvox,Nkpar,Nkperp,sigma02,sigma12,sigma22))
-    # for i in range(4):
-    #     for j in range(4):
-    #         axs[i,j].set_aspect("equal")
+    for i in range(4):
+        for j in range(4):
+            axs[i,j].set_aspect("equal")
     plt.tight_layout()
     plt.savefig(power_spec_type+"_cyl_mod_"+mode+"_"+str(Nrealiz)+"_realiz.png",dpi=500)
+    t1=time.time()
     plt.show()
+    print("constructing cyl power spectra took",t1-t0,"s\n")
 
-    fig,axs=plt.subplots(2,4,figsize=(20,10))
-    im=axs[0,0].pcolor(kparfloorsgrid,kperpfloorsgrid,mean, vmin=0)
-    fig.colorbar(im,ax=axs[0,0])
-    im=axs[0,1].pcolor(kparfloorsgrid,kperpfloorsgrid,mean0,vmin=0)
-    fig.colorbar(im,ax=axs[0,1])
-    im=axs[0,2].pcolor(kparfloorsgrid,kperpfloorsgrid,mean1,vmin=0)
-    fig.colorbar(im,ax=axs[0,2])
-    im=axs[0,3].pcolor(kparfloorsgrid,kperpfloorsgrid,mean2,vmin=0)
-    fig.colorbar(im,ax=axs[0,3])
-
-    meanmean=np.mean(mean)
-    meanmean0=np.mean(mean0)
-    meanmean1=np.mean(mean1)
-    meanmean2=np.mean(mean2)
-    im=axs[1,0].pcolor(kparfloorsgrid,kperpfloorsgrid,(mean-meanmean)/meanmean,   vmin=0)
-    fig.colorbar(im,ax=axs[1,0])
-    im=axs[1,1].pcolor(kparfloorsgrid,kperpfloorsgrid,(mean0-meanmean0)/meanmean0,vmin=0)
-    fig.colorbar(im,ax=axs[1,1])
-    im=axs[1,2].pcolor(kparfloorsgrid,kperpfloorsgrid,(mean1-meanmean1)/meanmean1,vmin=0)
-    fig.colorbar(im,ax=axs[1,2])
-    im=axs[1,3].pcolor(kparfloorsgrid,kperpfloorsgrid,(mean2-meanmean2)/meanmean2,vmin=0)
-    fig.colorbar(im,ax=axs[1,3])
-    row_names_2=["\navg over realizations","\nfractional residual"]
-    for i in range(2):
-        for j in range(4):
-            # axs[i,j].set_aspect("equal")
-            axs[i,j].set_xlabel("k (1/Mpc)")
-            axs[i,j].set_ylabel("P (K$^2$ Mpc$^3$)")
-            axs[i,j].set_title(column_names[j]+row_names_2[i])
-    plt.suptitle("examine fractional residuals of means over "+str(Nrealiz)+"realizations")
-    plt.tight_layout()
-    plt.savefig(power_spec_type+"_cyl_mod_"+mode+"_"+str(Nrealiz)+"_frac_resids.png",dpi=500)
-    plt.show()
-
-test_cyl_interp=False
+####################################################################################################################################################################################
+test_cyl_interp=True
 if test_cyl_interp:
-    print("CYL INTERP")
+    print("INTERPOLATING CYL POWER SPEC")
+    t0=time.time()
     T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
 
     ### start of modulation test
-    # vec=1/np.fft.fftshift(np.fft.fftfreq(Nvox,d=Lsurvey/Nvox)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
     vec=Lsurvey*np.fft.fftshift(np.fft.fftfreq(Nvox))
     # print("vec=",vec)
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
@@ -367,7 +341,6 @@ if test_cyl_interp:
     k,vals=generate_P(Tmod,mode,Lsurvey,Nkpar,Nk1=Nkperp)
     ### end of modulation test
 
-    # k,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp)
     kpar_have,kperp_have=k
     kpar_have_grid,kperp_have_grid=np.meshgrid(kpar_have,kperp_have,indexing="ij")
     kpar_want=np.linspace( 0.1866,  0.9702, 2*Nkpar)
@@ -375,7 +348,6 @@ if test_cyl_interp:
     k_want=(kpar_want,kperp_want)
     k_want_returned,P_want=interpolate_P(vals,k,k_want,avoid_extrapolation=False)
     kpar_want_returned,kperp_want_returned=k_want_returned
-    # print("np.all(kpar_want_returned==kpar_want),np.all(kperp_want_returned==kperp_want)=",np.all(kpar_want_returned==kpar_want),np.all(kperp_want_returned==kperp_want)) # PASSES
     kpar_want_grid,kperp_want_grid=np.meshgrid(kpar_want_returned,kperp_want_returned,indexing="ij")
     fig,axs=plt.subplots(1,2,figsize=(10,5))
     im=axs[0].pcolor(kpar_have_grid,kperp_have_grid,vals)
@@ -399,15 +371,18 @@ if test_cyl_interp:
     plt.legend(loc="upper right")
     plt.suptitle("power spectrum interpolation tests")
     plt.savefig("cyl_interp_"+mode+".png")
+    t1=time.time()
     plt.show()
+    print("interpolating a cyl power spectrum took",t1-t0,"s\n")
 
-test_bwd=False
+####################################################################################################################################################################################
+test_bwd=True
 if test_bwd:
-    plot=True
+    print("GENERATING BOXES FROM POWER SPECTRA")
+    t0=time.time()
     cases=['ps_wn_2px.txt','z8spec.txt','ps_wn_20px.txt']
     ncases=len(cases)
-    if plot:
-        fig,axs=plt.subplots(2*ncases,3, figsize=(15,10)) # (3 power specs * 2 voxel schemes per power spec) = 6 generated boxes to look at slices of
+    fig,axs=plt.subplots(2*ncases,3, figsize=(15,10)) # (3 power specs * 2 voxel schemes per power spec) = 6 generated boxes to look at slices of
     t0=time.time()
     for k,case in enumerate(cases):
         kfl,P=np.genfromtxt(case,dtype='complex').T
@@ -420,23 +395,22 @@ if test_bwd:
             tests=[0,n_field_voxels//2,n_field_voxels-3]
             rgen,Tgen,rmags=generate_box(P,kfl,Lsurvey,n_field_voxels)
             print('done with inversion for k,j=',k,j)
-            if plot:
-                for i,test in enumerate(tests):
+            # if plot:
+            for i,test in enumerate(tests):
 
-                    if len(cases)>1:
-                        im=axs[2*k+j,i].imshow(Tgen[:,:,test])
-                        fig.colorbar(im)
-                        axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
-                    else:
-                        im=axs[2*k+j,i].imshow(Tgen[:,:,test])
-                        fig.colorbar(im)
-                        axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
+                if len(cases)>1:
+                    im=axs[2*k+j,i].imshow(Tgen[:,:,test])
+                    fig.colorbar(im)
+                    axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
+                else:
+                    im=axs[2*k+j,i].imshow(Tgen[:,:,test])
+                    fig.colorbar(im)
+                    axs[2*k+j,i].set_title('slice '+str(test)+'/'+str(n_field_voxels)+'; original box = '+str(case))
 
-    if plot:
-        plt.suptitle('brightness temp box slices generated from inverting a PS I calculated')
-        plt.tight_layout()
-        fig.savefig('generate_box_tests.png')
-        t1=time.time()
-        plt.show()
-
-    print('test suite took',t1-t0,'s')
+    # if plot:
+    plt.suptitle('brightness temp box slices generated from inverting a PS I calculated')
+    plt.tight_layout()
+    fig.savefig('generate_box_tests.png')
+    t1=time.time()
+    plt.show()
+    print('generating assorted boxes took',t1-t0,'s\n')
