@@ -10,9 +10,9 @@ Nvox=52 # 10
 Nk = 14 # 8
 mode="lin"
 # mode="log"
-Nkpar=8
-Nkperp=12
-Nrealiz=3
+Nkpar=11
+Nkperp=13
+Nrealiz=30
 
 def elbowy_power(k,a=0.96605,b=-0.8,c=1,a0=1,b0=5000):
     return c/(a0*k**(-a)+b0*k**(-b))
@@ -56,9 +56,10 @@ if test_sph_fwd:
     # scaleto=-1
     scaleto=1
     for i in range(Nrealiz):
-        # alert=Nrealiz//10
-        # if (i%alert==0):
-        #     print("realization",i)
+        alert=Nrealiz//10
+        if alert>0:
+            if (i%alert==0):
+                print("realization",i)
         if   power_spec_type=="wn":
             T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
         elif power_spec_type=="pl":
@@ -141,7 +142,7 @@ if test_sph_fwd:
         axs[1].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean0[scaleto],label="fiducial scaled")
         axs[2].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean1[scaleto],label="fiducial scaled")
         axs[3].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean2[scaleto],label="fiducial scaled")
-        for i in range(3):
+        for i in range(4):
             axs[i].plot(kfloors,kfloors**idx,label="fiducial")
     axs[0].set_title("P(T) / power spec of unmodulated box")
     axs[1].set_title("P(T*R) / power spec of response-modulated box \n(broad in config space)")
@@ -193,52 +194,69 @@ if test_cyl_fwd:
     maxvals_mod0=0.
     maxvals_mod1=0.
     maxvals_mod2=0.
-    Nrealiz=100
+    Delta=Lsurvey/Nvox
 
-    vec=1/np.fft.fftshift(np.fft.fftfreq(Nvox,d=Lsurvey/Nvox)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
+    # vec=1/np.fft.fftshift(np.fft.fftfreq(Nvox,d=Lsurvey/Nvox)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
+    vec=Lsurvey*np.fft.fftshift(np.fft.fftfreq(Nvox))
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
     sigma02=1e3
     sigma12=10
     sigma22=0.5
-    modulation0=np.exp(-(xgrid**2+ygrid**2+zgrid**2)/(2*sigma02)) # really wide in config space
-    modulation1=np.exp(-(xgrid**2+ygrid**2+zgrid**2)/(2*sigma12)) # medium width in config space
-    modulation2=np.exp(-(xgrid**2+ygrid**2+zgrid**2)/(2*sigma22)) # really narrow in config space
+
+    ##
+    beamfwhm_x=3.5 # kind of hacky but enough to stop it from entering the Delta-like case every single time (for the numerics as of 2025.07.07 09:47, the voxel scale comparison value is ~2.42)
+    beamfwhm_y=np.copy(beamfwhm_x)
+    sigLoS0=np.sqrt(2.*sigma02)
+    sigLoS1=np.sqrt(2.*sigma12)
+    sigLoS2=np.sqrt(2.*sigma22)
+    r00=np.sqrt(np.log(2))*sigLoS0
+    r10=np.sqrt(np.log(2))*sigLoS1
+    r20=np.sqrt(np.log(2))*sigLoS2
+    bundled0=(sigLoS0,beamfwhm_x,beamfwhm_y,r00,)
+    modulation0=custom_response(xgrid,ygrid,zgrid,sigLoS0,beamfwhm_x,beamfwhm_y,r00)
+    bundled1=(sigLoS1,beamfwhm_x,beamfwhm_y,r10)
+    modulation1=custom_response(xgrid,ygrid,zgrid,sigLoS1,beamfwhm_x,beamfwhm_y,r10)
+    bundled2=(sigLoS2,beamfwhm_x,beamfwhm_y,r20,)
+    modulation2=custom_response(xgrid,ygrid,zgrid,sigLoS2,beamfwhm_x,beamfwhm_y,r20)
     allvals= np.zeros((Nkpar,Nkperp,Nrealiz))
     allvals0=np.zeros((Nkpar,Nkperp,Nrealiz))
     allvals1=np.zeros((Nkpar,Nkperp,Nrealiz))
     allvals2=np.zeros((Nkpar,Nkperp,Nrealiz))
+    ##
 
     tprev=time.time()
     for i in range(Nrealiz):
+        if i==0:
+            V=Lsurvey**3
+            Veff0=get_equivalent_volume(custom_response2,bundled0,Lsurvey,Nvox) # args need to be bundled as (sigLoS,beamfwhm_x,beamfwhm_y,r0,)
+            Veff1=get_equivalent_volume(custom_response2,bundled1,Lsurvey,Nvox)
+            Veff2=get_equivalent_volume(custom_response2,bundled2,Lsurvey,Nvox)
         if power_spec_type=="wn":
             T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
         elif power_spec_type=="bpl":
             if (i==0):
                 Npts_bpl=25
-                k_bpl=np.linspace(twopi/Lsurvey,Nvox*pi/Lsurvey,Npts_bpl)
+                k_bpl=np.linspace(twopi/Lsurvey,twopi/Delta,Npts_bpl)
                 P_bpl=elbowy_power(k_bpl)
             _,T,_ = generate_box(P_bpl,k_bpl,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,verbose=False) returns rgrid,T,rmags
         elif power_spec_type=="pl":
             if (i==0):
                 Npts_pl=25
-                k_pl=np.linspace(twopi/Lsurvey,Nvox*pi/Lsurvey,Npts_pl)
+                k_pl=np.linspace(twopi/Lsurvey,twopi/Delta,Npts_pl)
                 P_pl=k_pl**(-0.96605)
-                # plt.figure()
-                # plt.plot(k_pl,P_pl)
-                # plt.title("power law inspection")
-                # plt.savefig("pl_inspection.png")
-                # plt.show()
             _,T,_=generate_box(P_pl,k_pl,Lsurvey,Nvox)
+        else:
+            assert(1==0), "unsupported power_spec_type"
         Tmod0=T*modulation0
-        kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nkpar,Nk1=Nkperp,custom_estimator=custom_response,custom_estimator_args=(np.sqrt(sigma02),np.sqrt(sigma02),np.sqrt(sigma02),2*np.sqrt(np.log(2)),)) # ,sigLoS,beamfwhm_x,beamfwhm_y,r0)
+        kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nkpar,Nk1=Nkperp,V_custom=Veff0)
         allvals0[:,:,i]=vals_mod0
         Tmod1=T*modulation1
-        kfloors_mod,vals_mod1=generate_P(Tmod1,mode,Lsurvey,Nkpar,Nk1=Nkperp,custom_estimator=custom_response,custom_estimator_args=(np.sqrt(sigma12),np.sqrt(sigma12),np.sqrt(sigma12),2*np.sqrt(np.log(2)),))
+        kfloors_mod,vals_mod1=generate_P(Tmod1,mode,Lsurvey,Nkpar,Nk1=Nkperp,V_custom=Veff1)
         allvals1[:,:,i]=vals_mod1
         Tmod2=T*modulation2
-        kfloors_mod,vals_mod2=generate_P(Tmod2,mode,Lsurvey,Nkpar,Nk1=Nkperp,custom_estimator=custom_response,custom_estimator_args=(np.sqrt(sigma22),np.sqrt(sigma22),np.sqrt(sigma22),2*np.sqrt(np.log(2)),))
+        kfloors_mod,vals_mod2=generate_P(Tmod2,mode,Lsurvey,Nkpar,Nk1=Nkperp,V_custom=Veff2)
         allvals2[:,:,i]=vals_mod2
-        kfloors,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp,custom_estimator=custom_response,custom_estimator_args=(np.sqrt(sigma22),np.sqrt(sigma22),np.sqrt(sigma22),2*np.sqrt(np.log(2)),))
+        kfloors,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp)
         allvals[:,:,i]=vals
         if ((i%50)==0):
             tcurr=time.time()
@@ -277,8 +295,7 @@ if test_cyl_fwd:
             fig.colorbar(im,ax=axs[i,2])
             im=axs[i,3].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals2[:,:,i],vmin=0,vmax=max2)
             fig.colorbar(im,ax=axs[i,3])
-
-        
+ 
     mean=  np.mean(allvals,axis=-1)
     mean0= np.mean(allvals0,axis=-1)
     mean1= np.mean(allvals1,axis=-1)
@@ -294,9 +311,9 @@ if test_cyl_fwd:
     # fig.colorbar(im)
 
     plt.suptitle("Test "+power_spec_type+" P(kpar,kperp) calc for Lsurvey,Nvox,Nkpar,Nkperp,sigma0**2,sigma1**2,sigma2**2={:4},{:4},{:4},{:4},{:4},{:4},{:4}".format(Lsurvey,Nvox,Nkpar,Nkperp,sigma02,sigma12,sigma22))
-    for i in range(4):
-        for j in range(4):
-            axs[i,j].set_aspect("equal")
+    # for i in range(4):
+    #     for j in range(4):
+    #         axs[i,j].set_aspect("equal")
     plt.tight_layout()
     plt.savefig(power_spec_type+"_cyl_mod_"+mode+"_"+str(Nrealiz)+"_realiz.png",dpi=500)
     plt.show()
@@ -326,7 +343,7 @@ if test_cyl_fwd:
     row_names_2=["\navg over realizations","\nfractional residual"]
     for i in range(2):
         for j in range(4):
-            axs[i,j].set_aspect("equal")
+            # axs[i,j].set_aspect("equal")
             axs[i,j].set_xlabel("k (1/Mpc)")
             axs[i,j].set_ylabel("P (K$^2$ Mpc$^3$)")
             axs[i,j].set_title(column_names[j]+row_names_2[i])
@@ -341,8 +358,9 @@ if test_cyl_interp:
     T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
 
     ### start of modulation test
-    vec=1/np.fft.fftshift(np.fft.fftfreq(Nvox,d=Lsurvey/Nvox)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
-    print("vec=",vec)
+    # vec=1/np.fft.fftshift(np.fft.fftfreq(Nvox,d=Lsurvey/Nvox)) # based on k_vec_for_box=twopi*np.fft.fftshift(np.fft.fftfreq(Nvox,d=Delta)) and r=2pi/k
+    vec=Lsurvey*np.fft.fftshift(np.fft.fftfreq(Nvox))
+    # print("vec=",vec)
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
     modulation=np.exp(-(xgrid**2+ygrid**2+zgrid**2))
     Tmod=T*modulation
@@ -383,7 +401,7 @@ if test_cyl_interp:
     plt.savefig("cyl_interp_"+mode+".png")
     plt.show()
 
-test_bwd=True
+test_bwd=False
 if test_bwd:
     plot=True
     cases=['ps_wn_2px.txt','z8spec.txt','ps_wn_20px.txt']
