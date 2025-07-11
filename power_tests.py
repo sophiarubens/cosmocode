@@ -7,12 +7,12 @@ import time
 
 Lsurvey=126 # 63
 Nvox=52 # 10 
-Nk = 14 # 8
+Nk = 11 # 8
 mode="lin"
 # mode="log"
 Nkpar=11
 Nkperp=13
-Nrealiz=100
+Nrealiz=50
 
 def elbowy_power(k,a=0.96605,b=-0.8,c=1,a0=1,b0=5000):
     return c/(a0*k**(-a)+b0*k**(-b))
@@ -96,8 +96,6 @@ if test_sph_fwd:
                 plt.tight_layout()
                 plt.savefig("inspect_box_slices_for_potential_underpop.png")
                 plt.show()
-            # fig,axs=plt.subplots(1,4,figsize=(20,5))  # version with no inset for the reconstructed values
-            # fig,axs=plt.subplots(2,4,figsize=(20,10)) # version with an inset for the reconstructed values
             fig,axs=plt.subplots(3,4,figsize=(20,15)) # version that adds ratios of the fiducial and reconstructed values
         Tmod0=T0*modulation0
         kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nk, primary_beam=custom_response,primary_beam_args=bundled0) # generate_P(T, mode, Lsurvey, Nk0, Nk1=0, primary_beam=False,primary_beam_args=False) 
@@ -320,8 +318,8 @@ if test_cyl_fwd:
 
     for i in range(4):
         for j in range(4):
-            axs[i,j].set_xlabel("k (1/Mpc)")
-            axs[i,j].set_ylabel("P (K$^2$ Mpc$^3$)")
+            axs[i,j].set_xlabel("k$_{||}$ (1/Mpc)")
+            axs[i,j].set_ylabel("k$_\perp$ (1/Mpc)")
             axs[i,j].set_title(column_names[j]+" - "+row_names[i])
         if (i<3):
             im=axs[i,0].pcolor(kparfloorsgrid,kperpfloorsgrid,allvals[:,:,i],vmin=0,vmax=maxunmod)

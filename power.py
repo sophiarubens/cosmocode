@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.interpolate import interpn,interp1d
-from scipy.integrate import tplquad
+# from scipy.integrate import tplquad
 # import time
 from numpy.fft import fftshift,ifftshift,fftn,irfftn,fftfreq
 
@@ -19,23 +19,11 @@ this module helps connect ensemble-averaged power spectrum estimates and cosmolo
 class ResolutionError(Exception):
     pass
 
-# def get_equivalent_volume(custom_estimator2,custom_estimator_args,Lsurvey,Nvox):
-#     Delta=Lsurvey/Nvox
-#     sigLoS,beamfwhm_x,beamfwhm_y,r0=custom_estimator_args
-#     sky_sigmas=r0*np.array([beamfwhm_x,beamfwhm_y])/np.sqrt(2.*np.log(2))
-#     all_sigmas=np.concatenate((sky_sigmas,[sigLoS]))
-#     if (np.any(all_sigmas<Delta)): # if the response is close enough to being a delta function,
-#         equivvol=1                 # skip numerical integration and apply the delta function integral identity manually
-#     else:
-#         bound=Lsurvey/2
-#         equivvol,_=tplquad(custom_estimator2,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
-#     return equivvol
-
 def get_Veff(custom_estimator,custom_estimator_args,Lsurvey,Nvox):
     vec=Lsurvey*fftshift(fftfreq(Nvox))
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
     sigLoS,beamfwhm_x,beamfwhm_y,r0=custom_estimator_args
-    evaled_response=custom_estimator(xgrid,ygrid,zgrid,sigLoS,beamfwhm_x,beamfwhm_y,r0)# custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0)
+    evaled_response=custom_estimator(xgrid,ygrid,zgrid,sigLoS,beamfwhm_x,beamfwhm_y,r0)
     d3r=(Lsurvey/Nvox)**3
     Veff=np.sum(evaled_response*d3r)
     return Veff,evaled_response
@@ -68,22 +56,23 @@ def P_driver(T, k, Lsurvey, primary_beam=False,primary_beam_args=False):
     else:
         binto="sph"
     Nvox  = T.shape[0]
-    Delta = Lsurvey/Nvox # voxel side length
-    d3r   = Delta**3     # voxel volume
-    V_box = Lsurvey**3   # volume of box (agnostic to response function math, which is handled separately)
+    Delta = Lsurvey/Nvox  # voxel side length
+    d3r   = Delta**3      # voxel volume
+    V_box = Lsurvey**3    # volume of box (agnostic to response function math, which is handled separately)
     if not primary_beam:  # identity primary beam
         Veff=V_box
         evaled_response=1
     else:                 # non-identity primary beam
         Veff,evaled_response=get_Veff(primary_beam,primary_beam_args,Lsurvey,Nvox)
-        evaled_response[evaled_response==0]=maxfloat # might need to generalize the evaled_response==0 to something like evaled_response<eps...?
-    
+        # evaled_response[evaled_response==0]=maxfloat # consistent with the "a narrower primary beam makes the effective size of your box smaller" intuition, but not sure if this is the right thing to do numerically... for example, I might need to generalize the evaled_response==0 to something like evaled_response<eps...?
+        evaled_response[evaled_response==0]=1e-6 # some kind of eps (this is kind of the opposite of what I think I should do, but it'll be interesting to see what happens...)
+
     # process the box values
     T_no_primary_beam=T/evaled_response
     T_tilde=        fftshift(fftn((ifftshift(T_no_primary_beam)*d3r)))
     modsq_T_tilde= (T_tilde*np.conjugate(T_tilde)).real
 
-    # establish Cartesian Fourier duals to box coordinates
+    # establish Fourier duals to box coordinates (Cartesian paradigm)
     k_vec_for_box= twopi*fftshift(fftfreq(Nvox,d=Delta)) 
     kx_box_grid,ky_box_grid,kz_box_grid= np.meshgrid(k_vec_for_box,k_vec_for_box,k_vec_for_box,indexing="ij") # centre-origin Fourier-space grid
 
@@ -101,6 +90,12 @@ def P_driver(T, k, Lsurvey, primary_beam=False,primary_beam_args=False):
         N_modsq_T_tilde=   np.bincount(bin_indices_1d,                         minlength=Nk) # for the ensemble average: number of modsq_T_tilde values in each bin
         sum_modsq_T_tilde_truncated=sum_modsq_T_tilde[:-1]
         N_modsq_T_tilde_truncated=N_modsq_T_tilde[:-1]
+
+        # # binning scrutiny
+        # N_voxels_per_bin=np.zeros(Nk)
+        # for i in range(Nk):
+        #     N_voxels_per_bin[i]=len(np.unique(k_box[bin_indices==i]))
+        # print("number of voxels per bin=",N_voxels_per_bin)
 
         ################################
         with open("bin_indices_in_P_driver_sph.txt", "w") as f:
@@ -161,18 +156,19 @@ def P_driver(T, k, Lsurvey, primary_beam=False,primary_beam_args=False):
     return [k,P]
 
 def get_bins(Nvox,Lsurvey,Nk,mode):
-    Nk_internal=Nk
     Delta=Lsurvey/Nvox
     kmax=pi/Delta # to handle the +/-
     kmin=twopi/Lsurvey
 
     if (mode=="log"):
-        kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk_internal)
-        arg=np.log10(Nvox)/Nk_internal 
-        limiting_spacing=twopi*(10.**(2.*arg)-10.**arg)
+        kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nk)
+        # arg=np.log10(Nvox)/Nk 
+        # limiting_spacing=twopi*(10.**(2.*arg)-10.**arg) # old version—I don't think I believe this math anymore
+        limiting_spacing=twopi*(10.**(kmax)-10.**(kmax-(np.log10(Nvox)/Nk)))
     elif (mode=="lin"):
-        kbins=np.linspace(kmin,kmax,Nk_internal)
-        limiting_spacing=twopi*(Nvox-1)/(Nk_internal*Lsurvey)
+        kbins=np.linspace(kmin,kmax,Nk)
+        # limiting_spacing=twopi*(Nvox-1)/(Nk*Lsurvey) # version for a "geometry only" kmax
+        limiting_spacing=twopi*(0.5*Nvox-1)/(Nk) # version for a kmax that is aware of the fact that there are +/- k-coordinates in the box
     else:
         assert(1==0), "only log and linear binning are currently supported"
     return kbins,limiting_spacing
@@ -296,9 +292,10 @@ def generate_box(P,k,Lsurvey,Nvox,primary_beam=False,primary_beam_args=False):
     V_box=Lsurvey**3
     if not primary_beam:  # identity primary beam
         Veff=V_box
-        evaled_response=1
+        # evaled_response=1
     else:                 # non-identity primary beam
-        Veff,evaled_response=get_Veff(primary_beam,primary_beam_args,Lsurvey,Nvox)
+        # Veff,evaled_response=get_Veff(primary_beam,primary_beam_args,Lsurvey,Nvox)
+        Veff,_=get_Veff(primary_beam,primary_beam_args,Lsurvey,Nvox)
 
     # CORNER-origin k-grid
     k_vec_for_box=twopi*fftfreq(Nvox,d=Delta)
@@ -313,8 +310,8 @@ def generate_box(P,k,Lsurvey,Nvox,primary_beam=False,primary_beam_args=False):
     bin_indices=np.digitize(kgrid,k)
 
     for i,sig in enumerate(sigmas):
-        here=np.nonzero(i==bin_indices) # all box indices where the corresp bin index is the ith binedge (iterable)
-        numhere=len(np.argwhere(i==bin_indices)) # number of voxels in the bin we're currently considering
+        here=np.nonzero(i==bin_indices)                      # all box indices where the corresponding bin index is the ith bin floor (iterable)
+        numhere=len(np.argwhere(i==bin_indices))             # number of voxels in the bin currently under consideration
         sampsRe=np.random.normal(scale=sig, size=(numhere,)) # samples for filling the current bin
         sampsIm=np.random.normal(scale=sig, size=(numhere,))
         if (numhere>0):
@@ -322,5 +319,10 @@ def generate_box(P,k,Lsurvey,Nvox,primary_beam=False,primary_beam_args=False):
             T_tildeim[here]=sampsIm
 
     T_tilde=T_tildere+1j*T_tildeim # no symmetries yet
-    T=fftshift(irfftn(T_tilde*d3k,s=(Nvox,Nvox,Nvox),axes=(0,1,2),norm="forward"))/(2.*pi)**3 # applies the symmetries automatically! -> then return in user-friendly CENTRE-origin format (net unitary shifting)
+    T=fftshift(irfftn(T_tilde*d3k,s=(Nvox,Nvox,Nvox),axes=(0,1,2),norm="forward"))/(2.*pi)**3 # applies the symmetries automatically! -> then return in user-friendly CENTRE-origin format (net zero shift when applied sequentially with generate_P)
+    # ####
+    # T_mean=np.mean(T)
+    # print("just before returning the box: mean(T)=",T_mean)
+    # T-=T_mean # subtracting off the mean of the config space box will just send the power you reconstruct in the lowest-k bin to 0
+    # ####
     return kgrid,T,k_vec_for_box
