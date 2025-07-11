@@ -20,6 +20,7 @@ def elbowy_power(k,a=0.96605,b=-0.8,c=1,a0=1,b0=5000):
 ####################################################################################################################################################################################
 test_sph_fwd=True
 visualize_T_slices=False
+plot_fiducial_scaled=False
 # power_spec_type="wn"
 power_spec_type="pl"
 if test_sph_fwd:
@@ -56,8 +57,7 @@ if test_sph_fwd:
     allvals1=np.zeros((Nk,Nrealiz))
     allvals2=np.zeros((Nk,Nrealiz))
 
-    # scaleto=-1
-    scaleto=1
+    scaleto=-1
     for i in range(Nrealiz):
         alert=Nrealiz//5
         if alert>0:
@@ -70,12 +70,12 @@ if test_sph_fwd:
                 ktest=np.linspace(twopi/Lsurvey,twopi*Nvox/Lsurvey,Nk)
                 idx=-0.96605
                 Ptest=ktest**idx
-            _,T,_=generate_box(Ptest,ktest,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,V_custom=False) (leaving the V_eff term as False here bc I will override later to avoid having to generate multiple boxes)
+            _,T, _=generate_box(Ptest,ktest,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,primary_beam=False,primary_beam_args=False)
+            _,T0,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled0)
+            _,T1,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled1)
+            _,T2,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled2)
         if i==0:
             V=Lsurvey**3
-            Veff0=get_Veff(custom_response,bundled0,Lsurvey,Nvox) # args need to be bundled as (sigLoS,beamfwhm_x,beamfwhm_y,r0,)
-            Veff1=get_Veff(custom_response,bundled1,Lsurvey,Nvox)
-            Veff2=get_Veff(custom_response,bundled2,Lsurvey,Nvox)
             if visualize_T_slices:
                 figfig,axsaxs=plt.subplots(3,4,figsize=(20,10))
                 qtr=Nvox//4
@@ -96,26 +96,27 @@ if test_sph_fwd:
                 plt.tight_layout()
                 plt.savefig("inspect_box_slices_for_potential_underpop.png")
                 plt.show()
-            fig,axs=plt.subplots(1,4,figsize=(20,5))
-        T0=T*np.sqrt(Veff0/V) # slightly hacky faster way of not having to generate four boxes at each iteration just because I'm considering different modulations
-        T1=T*np.sqrt(Veff1/V)
-        T2=T*np.sqrt(Veff2/V)
+            # fig,axs=plt.subplots(1,4,figsize=(20,5))  # version with no inset for the reconstructed values
+            # fig,axs=plt.subplots(2,4,figsize=(20,10)) # version with an inset for the reconstructed values
+            fig,axs=plt.subplots(3,4,figsize=(20,15)) # version that adds ratios of the fiducial and reconstructed values
         Tmod0=T0*modulation0
-        kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nk,V_custom=Veff0) #,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma02),np.sqrt(sigma02),np.sqrt(sigma02),2*np.sqrt(np.log(2)),)) # ,sigLoS,beamfwhm_x,beamfwhm_y,r0)
+        kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nk, primary_beam=custom_response,primary_beam_args=bundled0) # generate_P(T, mode, Lsurvey, Nk0, Nk1=0, primary_beam=False,primary_beam_args=False) 
         allvals0[:,i]=vals_mod0
         Tmod1=T1*modulation1
-        kfloors_mod,vals_mod1=generate_P(Tmod1,mode,Lsurvey,Nk,V_custom=Veff1)# ,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma12),np.sqrt(sigma12),np.sqrt(sigma12),2*np.sqrt(np.log(2)),))
+        kfloors_mod,vals_mod1=generate_P(Tmod1,mode,Lsurvey,Nk, primary_beam=custom_response,primary_beam_args=bundled1)
         allvals1[:,i]=vals_mod1
         Tmod2=T2*modulation2
-        kfloors_mod,vals_mod2=generate_P(Tmod2,mode,Lsurvey,Nk,V_custom=Veff2) #,custom_estimator2=custom_response2,custom_estimator_args=(np.sqrt(sigma22),np.sqrt(sigma22),np.sqrt(sigma22),2*np.sqrt(np.log(2)),))
+        kfloors_mod,vals_mod2=generate_P(Tmod2,mode,Lsurvey,Nk, primary_beam=custom_response,primary_beam_args=bundled2)
         allvals2[:,i]=vals_mod2
         kfloors,vals=generate_P(T,mode,Lsurvey,Nk)
         allvals[:,i]=vals
-        axs[0].scatter(kfloors,vals,color=colours[i])
+        axs[0,0].scatter(kfloors,vals,color=colours[i])
+        axs[1,0].scatter(kfloors,vals,color=colours[i])
         maxvalshere=np.max(vals)
         if (maxvalshere>maxvals):
             maxvals=maxvalshere
-        axs[1].scatter(kfloors_mod,vals_mod0,color=colours[i])
+        axs[0,1].scatter(kfloors_mod,vals_mod0,color=colours[i])
+        axs[1,1].scatter(kfloors_mod,vals_mod0,color=colours[i])
         maxvalshere_mod0=np.max(vals_mod0)
         if (maxvalshere_mod0>maxvals_mod0):
             maxvals_mod0=maxvalshere_mod0
@@ -125,40 +126,68 @@ if test_sph_fwd:
         maxvalshere_mod2=np.max(vals_mod2)
         if (maxvalshere_mod2>maxvals_mod2):
             maxvals_mod2=maxvalshere_mod2
-        axs[2].scatter(kfloors_mod,vals_mod1,color=colours[i])
-        axs[3].scatter(kfloors_mod,vals_mod2,color=colours[i])
-    for i in range(4):
-        axs[i].set_xlabel("k (1/Mpc)")
-        axs[i].set_ylabel("Power (K$^2$ Mpc$^3$)")
+        axs[0,2].scatter(kfloors_mod,vals_mod1,color=colours[i])
+        axs[0,3].scatter(kfloors_mod,vals_mod2,color=colours[i])
+        axs[1,2].scatter(kfloors_mod,vals_mod1,color=colours[i])
+        axs[1,3].scatter(kfloors_mod,vals_mod2,color=colours[i])
+    for i in range(3):
+        for j in range(4):
+            ylabels=["Power (K$^2$ Mpc$^3$)","Power (K$^2$ Mpc$^3$)","Ratio of powers (dimensionless, unitless)"]
+            axs[i,j].set_xlabel("k (1/Mpc)")
+            axs[i,j].set_ylabel(ylabels[i])
     meanmean=np.mean(allvals,axis=-1)
     mean0=np.mean(allvals0,axis=-1)
     mean1=np.mean(allvals1,axis=-1)
     mean2=np.mean(allvals2,axis=-1)
-    axs[0].plot(kfloors,meanmean, label="reconstructed")
-    axs[1].plot(kfloors,mean0,label="reconstructed")
-    axs[2].plot(kfloors,mean1,label="reconstructed")
-    axs[3].plot(kfloors,mean2,label="reconstructed")
+    axs[0,0].plot(kfloors,meanmean, label="reconstructed")
+    axs[0,1].plot(kfloors,mean0,label="reconstructed")
+    axs[0,2].plot(kfloors,mean1,label="reconstructed")
+    axs[0,3].plot(kfloors,mean2,label="reconstructed")
+    axs[1,0].plot(kfloors,meanmean, label="reconstructed")
+    axs[1,1].plot(kfloors,mean0,label="reconstructed")
+    axs[1,2].plot(kfloors,mean1,label="reconstructed")
+    axs[1,3].plot(kfloors,mean2,label="reconstructed")
     if (power_spec_type=="pl"):
         scale=1/kfloors[scaleto]**idx*meanmean[scaleto]
-        axs[0].plot(kfloors,kfloors**idx*scale, label="fiducial scaled")
         scale0=1/kfloors[scaleto]**idx*mean0[scaleto]
-        axs[1].plot(kfloors,kfloors**idx*scale0,label="fiducial scaled")
         scale1=1/kfloors[scaleto]**idx*mean1[scaleto]
-        axs[2].plot(kfloors,kfloors**idx*scale1,label="fiducial scaled")
         scale2=1/kfloors[scaleto]**idx*mean2[scaleto]
-        axs[3].plot(kfloors,kfloors**idx*scale2,label="fiducial scaled")
+        if plot_fiducial_scaled:
+            axs[0,0].plot(kfloors,kfloors**idx*scale, label="fiducial scaled")
+            axs[0,1].plot(kfloors,kfloors**idx*scale0,label="fiducial scaled")
+            axs[0,2].plot(kfloors,kfloors**idx*scale1,label="fiducial scaled")
+            axs[0,3].plot(kfloors,kfloors**idx*scale2,label="fiducial scaled")
+            axs[1,0].plot(kfloors,kfloors**idx*scale, label="fiducial scaled")
+            axs[1,1].plot(kfloors,kfloors**idx*scale0,label="fiducial scaled")
+            axs[1,2].plot(kfloors,kfloors**idx*scale1,label="fiducial scaled")
+            axs[1,3].plot(kfloors,kfloors**idx*scale2,label="fiducial scaled")
         print("scale,scale0,scale1,scale2=",scale,scale0,scale1,scale2)
-        for i in range(4):
-            axs[i].plot(kfloors,kfloors**idx,label="fiducial")
-    axs[0].set_title("P(T) / power spec of unmodulated box")
-    axs[1].set_title("P(T*R) / power spec of response-modulated box \n(broad in config space)")
-    axs[2].set_title("P(T*R) / power spec of response-modulated box \n(medium in config space)")
-    axs[3].set_title("P(T*R) / power spec of response-modulated box \n(narrow in config space)")
+        for i in range(2):
+            for j in range(4):
+                axs[i,j].plot(kfloors,kfloors**idx,label="fiducial")
+    axs[0,0].set_title("P(T) / power spec of unmodulated box")
+    axs[0,1].set_title("P(T*R) / power spec of response-modulated box \n(broad in config space)")
+    axs[0,2].set_title("P(T*R) / power spec of response-modulated box \n(medium in config space)")
+    axs[0,3].set_title("P(T*R) / power spec of response-modulated box \n(narrow in config space)")
+    for j in range(4):
+        axs[1,j].set_title("inset for the case above")
+    
+    axs[2,0].plot(kfloors,kfloors**idx/meanmean)
+    axs[2,1].plot(kfloors,kfloors**idx/mean0)
+    axs[2,2].plot(kfloors,kfloors**idx/mean1)
+    axs[2,3].plot(kfloors,kfloors**idx/mean2)
+    for j in range(4):
+        axs[2,j].set_title("Ratio of powers: fiducial/reconstructed")
+    
     plt.suptitle("Test {:4} P(k) calc for Lsurvey,Nvox,Nk,Nrealiz,sigma0**2,sigma1**2,sigma2**2={:4},{:4},{:4},{:4},{:4},{:4}".format(power_spec_type,Lsurvey,Nvox,Nk,Nrealiz,sigma02,sigma12,sigma22))
-    axs[0].set_ylim(0,1.2*maxvals)
-    axs[1].set_ylim(0,1.2*maxvals_mod0)
-    axs[2].set_ylim(0,1.2*maxvals_mod1)
-    axs[3].set_ylim(0,1.2*maxvals_mod2)
+    axs[0,0].set_ylim(0,1.2*maxvals)
+    axs[0,1].set_ylim(0,1.2*maxvals_mod0)
+    axs[0,2].set_ylim(0,1.2*maxvals_mod1)
+    axs[0,3].set_ylim(0,1.2*maxvals_mod2)
+    axs[1,0].set_ylim(0,1.2*meanmean[0])
+    axs[1,1].set_ylim(0,1.2*mean0[0])
+    axs[1,2].set_ylim(0,1.2*mean1[0])
+    axs[1,3].set_ylim(0,1.2*mean2[0])
     plt.legend()
     plt.tight_layout()
     plt.savefig(power_spec_type+"_sph_"+mode+"_"+str(Nrealiz)+"realiz.png",dpi=1000)
@@ -265,13 +294,13 @@ if test_cyl_fwd:
         else:
             assert(1==0), "unsupported power_spec_type"
         Tmod0=T*modulation0
-        kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nkpar,Nk1=Nkperp,V_custom=Veff0)
+        kfloors_mod,vals_mod0=generate_P(Tmod0,mode,Lsurvey,Nkpar,Nk1=Nkperp, primary_beam=custom_response,primary_beam_args=bundled0)
         allvals0[:,:,i]=vals_mod0
         Tmod1=T*modulation1
-        kfloors_mod,vals_mod1=generate_P(Tmod1,mode,Lsurvey,Nkpar,Nk1=Nkperp,V_custom=Veff1)
+        kfloors_mod,vals_mod1=generate_P(Tmod1,mode,Lsurvey,Nkpar,Nk1=Nkperp, primary_beam=custom_response,primary_beam_args=bundled1)
         allvals1[:,:,i]=vals_mod1
         Tmod2=T*modulation2
-        kfloors_mod,vals_mod2=generate_P(Tmod2,mode,Lsurvey,Nkpar,Nk1=Nkperp,V_custom=Veff2)
+        kfloors_mod,vals_mod2=generate_P(Tmod2,mode,Lsurvey,Nkpar,Nk1=Nkperp, primary_beam=custom_response,primary_beam_args=bundled2)
         allvals2[:,:,i]=vals_mod2
         kfloors,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp)
         allvals[:,:,i]=vals
@@ -333,15 +362,7 @@ if test_cyl_interp:
     print("INTERPOLATING CYL POWER SPEC")
     t0=time.time()
     T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
-
-    ### start of modulation test
-    vec=Lsurvey*np.fft.fftshift(np.fft.fftfreq(Nvox))
-    # print("vec=",vec)
-    xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
-    modulation=np.exp(-(xgrid**2+ygrid**2+zgrid**2))
-    Tmod=T*modulation
-    k,vals=generate_P(Tmod,mode,Lsurvey,Nkpar,Nk1=Nkperp)
-    ### end of modulation test
+    k,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp)
 
     kpar_have,kperp_have=k
     kpar_have_grid,kperp_have_grid=np.meshgrid(kpar_have,kperp_have,indexing="ij")
@@ -390,9 +411,7 @@ if test_bwd:
         kfl,P=np.genfromtxt(case,dtype='complex').T
         Nvox=len(P)
 
-        n_field_voxel_cases=[99,100] # 4.8 s for the whole loop
-        # n_field_voxel_cases=[199,200] # 22.2 s for the whole loop
-        # n_field_voxel_cases=[399,400] # 172.5 s for the whole loop
+        n_field_voxel_cases=[99,100] # 4.8 s for the whole loop; [199,200] # 22.2 s for the whole loop; [399,400] # 172.5 s for the whole loop
         for j,n_field_voxels in enumerate(n_field_voxel_cases):
             tests=[0,n_field_voxels//2,n_field_voxels-3]
             rgen,Tgen,rmags=generate_box(P,kfl,Lsurvey,n_field_voxels)

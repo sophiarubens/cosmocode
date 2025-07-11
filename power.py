@@ -6,7 +6,8 @@ from numpy.fft import fftshift,ifftshift,fftn,irfftn,fftfreq
 
 pi=np.pi
 twopi=2.*pi
-maxint=np.iinfo(np.int64).max
+maxint=  np.iinfo(np.int64  ).max
+maxfloat=np.finfo(np.float64).max
 
 """
 this module helps connect ensemble-averaged power spectrum estimates and cosmological brighness temperature boxes for three main use cases:
@@ -37,9 +38,9 @@ def get_Veff(custom_estimator,custom_estimator_args,Lsurvey,Nvox):
     evaled_response=custom_estimator(xgrid,ygrid,zgrid,sigLoS,beamfwhm_x,beamfwhm_y,r0)# custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0)
     d3r=(Lsurvey/Nvox)**3
     Veff=np.sum(evaled_response*d3r)
-    return Veff
+    return Veff,evaled_response
 
-def P_driver(T, k, Lsurvey, V_custom=False):
+def P_driver(T, k, Lsurvey, primary_beam=False,primary_beam_args=False):
     """
     philosophy:
     * generate a power spectrum consistent with a brightness temperature box for which you already know the k-bins
@@ -58,9 +59,9 @@ def P_driver(T, k, Lsurvey, V_custom=False):
     outputs:
     k-modes and powers of the power spectrum
          - if binto=="sph": [(Nk,),(Nk,)] object unpackable as kbins,powers
-         - if binto=="cyl": [[(Nkpar,),(Nkperp,)],(Nkpar,Nkperp)] object unpackable as [kparvec,kperpvec],powers_on_grid
+         - if binto=="cyl": [[(Nkpar,),(Nkperp,)],(Nkpar,Nkperp)] object unpackable as [kparbins,kperpbins],powers
     """
-    # helper variables
+    # setup
     lenk=len(k)
     if lenk==2:
         binto="cyl"
@@ -70,11 +71,16 @@ def P_driver(T, k, Lsurvey, V_custom=False):
     Delta = Lsurvey/Nvox # voxel side length
     d3r   = Delta**3     # voxel volume
     V_box = Lsurvey**3   # volume of box (agnostic to response function math, which is handled separately)
-    if not V_custom:
-        V_custom=V_box
+    if not primary_beam:  # identity primary beam
+        Veff=V_box
+        evaled_response=1
+    else:                 # non-identity primary beam
+        Veff,evaled_response=get_Veff(primary_beam,primary_beam_args,Lsurvey,Nvox)
+        evaled_response[evaled_response==0]=maxfloat # might need to generalize the evaled_response==0 to something like evaled_response<eps...?
     
     # process the box values
-    T_tilde=        fftshift(fftn((ifftshift(T)*d3r)))
+    T_no_primary_beam=T/evaled_response
+    T_tilde=        fftshift(fftn((ifftshift(T_no_primary_beam)*d3r)))
     modsq_T_tilde= (T_tilde*np.conjugate(T_tilde)).real
 
     # establish Cartesian Fourier duals to box coordinates
@@ -151,7 +157,7 @@ def P_driver(T, k, Lsurvey, V_custom=False):
 
     # translate to power spectrum terms
     avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/N_modsq_T_tilde_truncated
-    P=np.array(avg_modsq_T_tilde/(V_custom))
+    P=np.array(avg_modsq_T_tilde/Veff)
     return [k,P]
 
 def get_bins(Nvox,Lsurvey,Nk,mode):
@@ -171,7 +177,7 @@ def get_bins(Nvox,Lsurvey,Nk,mode):
         assert(1==0), "only log and linear binning are currently supported"
     return kbins,limiting_spacing
 
-def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, V_custom=False):
+def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, primary_beam=False,primary_beam_args=False):
     """
     philosophy:
     * generate a spherically or cylindrically binned power spectrum with lin- or log-spaced bins, consistent with a given brightness temperature box
@@ -202,7 +208,7 @@ def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, V_custom=False):
         kbins=[k0bins,k1bins]
     else:
         kbins=k0bins
-    return P_driver(T,kbins,Lsurvey,V_custom=V_custom)
+    return P_driver(T,kbins,Lsurvey,primary_beam=primary_beam,primary_beam_args=primary_beam_args)
 
 def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
     """
@@ -266,7 +272,7 @@ def extrapolation_warning(regime,want,have):
     print("WARNING: if extrapolation is permitted in interpolate_P call, it will be conducted for {:15s} (want {:9.4}, have{:9.4})".format(regime,want,have))
     return None 
 
-def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
+def generate_box(P,k,Lsurvey,Nvox,primary_beam=False,primary_beam_args=False):
     """
     philosophy:
     generate a brightness temperature box consistent with a given matter power spectrum
@@ -288,8 +294,11 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
     Delta=Lsurvey/Nvox
     d3k = (twopi/Lsurvey)**3 # Fourier-space voxel volume
     V_box=Lsurvey**3
-    if not V_custom:
-        V_custom=V_box
+    if not primary_beam:  # identity primary beam
+        Veff=V_box
+        evaled_response=1
+    else:                 # non-identity primary beam
+        Veff,evaled_response=get_Veff(primary_beam,primary_beam_args,Lsurvey,Nvox)
 
     # CORNER-origin k-grid
     k_vec_for_box=twopi*fftfreq(Nvox,d=Delta)
@@ -297,7 +306,7 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
     kgrid=np.sqrt(KX**2+KY**2+KZ**2)
     
     # take appropriate draws from normal distributions to populate T-tilde
-    sigmas=np.sqrt(V_custom*P/2)
+    sigmas=np.sqrt(Veff*P/2)
     sigmas=np.reshape(sigmas,(Nbins,)) # transition from the (1,Nbins) of the CAMB PS to (Nbins,)
     T_tildere=np.zeros((Nvox,Nvox,Nvox))
     T_tildeim=np.zeros((Nvox,Nvox,Nvox))
