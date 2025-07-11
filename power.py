@@ -1,8 +1,7 @@
 import numpy as np
 from scipy.interpolate import interpn,interp1d
 from scipy.integrate import tplquad
-from scipy.stats import binned_statistic_2d
-import time
+# import time
 from numpy.fft import fftshift,ifftshift,fftn,irfftn,fftfreq
 
 pi=np.pi
@@ -19,17 +18,26 @@ this module helps connect ensemble-averaged power spectrum estimates and cosmolo
 class ResolutionError(Exception):
     pass
 
-def get_equivalent_volume(custom_estimator2,custom_estimator_args,Lsurvey,Nvox):
-    Delta=Lsurvey/Nvox
+# def get_equivalent_volume(custom_estimator2,custom_estimator_args,Lsurvey,Nvox):
+#     Delta=Lsurvey/Nvox
+#     sigLoS,beamfwhm_x,beamfwhm_y,r0=custom_estimator_args
+#     sky_sigmas=r0*np.array([beamfwhm_x,beamfwhm_y])/np.sqrt(2.*np.log(2))
+#     all_sigmas=np.concatenate((sky_sigmas,[sigLoS]))
+#     if (np.any(all_sigmas<Delta)): # if the response is close enough to being a delta function,
+#         equivvol=1                 # skip numerical integration and apply the delta function integral identity manually
+#     else:
+#         bound=Lsurvey/2
+#         equivvol,_=tplquad(custom_estimator2,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
+#     return equivvol
+
+def get_Veff(custom_estimator,custom_estimator_args,Lsurvey,Nvox):
+    vec=Lsurvey*fftshift(fftfreq(Nvox))
+    xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
     sigLoS,beamfwhm_x,beamfwhm_y,r0=custom_estimator_args
-    sky_sigmas=r0*np.array([beamfwhm_x,beamfwhm_y])/np.sqrt(2.*np.log(2))
-    all_sigmas=np.concatenate((sky_sigmas,[sigLoS]))
-    if (np.any(all_sigmas<Delta)): # if the response is close enough to being a delta function,
-        equivvol=1                 # skip numerical integration and apply the delta function integral identity manually
-    else:
-        bound=Lsurvey/2
-        equivvol,_=tplquad(custom_estimator2,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args)
-    return equivvol
+    evaled_response=custom_estimator(xgrid,ygrid,zgrid,sigLoS,beamfwhm_x,beamfwhm_y,r0)# custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0)
+    d3r=(Lsurvey/Nvox)**3
+    Veff=np.sum(evaled_response*d3r)
+    return Veff
 
 def P_driver(T, k, Lsurvey, V_custom=False):
     """
@@ -50,17 +58,20 @@ def P_driver(T, k, Lsurvey, V_custom=False):
     outputs:
     k-modes and powers of the power spectrum
          - if binto=="sph": [(Nk,),(Nk,)] object unpackable as kbins,powers
-         - if binto=="cyl": [[(Nkpar,),(Nkperp,)],(Nkpar,Nkperp)] object unpackable as [kparvec,kperpvec],powers_on_grid **MAKE SURE THIS ENDS UP BEING TRUE**
+         - if binto=="cyl": [[(Nkpar,),(Nkperp,)],(Nkpar,Nkperp)] object unpackable as [kparvec,kperpvec],powers_on_grid
     """
     # helper variables
     lenk=len(k)
     if lenk==2:
         binto="cyl"
-    else: # kind of hackily relying on the properties of list-stored ragged arrays to let the "if" catch cases that need to be cyl and then shuffle everything else along to spherical ... not very robust against pathological calls
+    else:
         binto="sph"
     Nvox  = T.shape[0]
     Delta = Lsurvey/Nvox # voxel side length
     d3r   = Delta**3     # voxel volume
+    V_box = Lsurvey**3   # volume of box (agnostic to response function math, which is handled separately)
+    if not V_custom:
+        V_custom=V_box
     
     # process the box values
     T_tilde=        fftshift(fftn((ifftshift(T)*d3r)))
@@ -84,7 +95,6 @@ def P_driver(T, k, Lsurvey, V_custom=False):
         N_modsq_T_tilde=   np.bincount(bin_indices_1d,                         minlength=Nk) # for the ensemble average: number of modsq_T_tilde values in each bin
         sum_modsq_T_tilde_truncated=sum_modsq_T_tilde[:-1]
         N_modsq_T_tilde_truncated=N_modsq_T_tilde[:-1]
-        k_keep=k[:-1]
 
         ################################
         with open("bin_indices_in_P_driver_sph.txt", "w") as f:
@@ -123,42 +133,30 @@ def P_driver(T, k, Lsurvey, V_custom=False):
             N_modsq_T_tilde[current_par_bin,:]+=   slice_bin_counts # update the denominator of the ensemble average
         
         sum_modsq_T_tilde_truncated= sum_modsq_T_tilde[:-1,:-1]
-        N_modsq_T_tilde_truncated=   N_modsq_T_tilde[:-1,:-1]
+        N_modsq_T_tilde_truncated=   N_modsq_T_tilde[  :-1,:-1]
 
         ################################
         with open("bin_indices_perp_in_P_driver_cyl.txt", "w") as f:
             np.savetxt(f,perpbin_indices_slice, fmt="%2d")
-            # for i, slice2d in enumerate(perpbin_indices_slice):
-            #     np.savetxt(f, slice2d, fmt="%2d")
-            #     if i < perpbin_indices_slice.shape[0] - 1: # white space between slices
-            #         f.write("\n")
         with open("bin_indices_par_in_P_driver_cyl.txt", "w") as f:
             np.savetxt(f,parbin_indices_column, fmt="%2d")
-            # for i, slice2d in enumerate(parbin_indices_column):
-            #     np.savetxt(f, slice2d, fmt="%2d")
-            #     if i < parbin_indices_column.shape[0] - 1: # white space between slices
-            #         f.write("\n")
         ################################
     else:
         assert(1==0), "only spherical and cylindrical power spectrum binning are currently supported"
         return None
     
-    # translate to power spectrum terms
+    # avoid nans
     empty=np.nonzero(N_modsq_T_tilde_truncated==0)
     N_modsq_T_tilde_truncated[empty]=maxint
-    avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/N_modsq_T_tilde_truncated
 
-    if not V_custom:
-        V_custom=Lsurvey**3
-    P=np.array(avg_modsq_T_tilde/V_custom)
-    # print("immediately before return: P.shape,k.shape,k_keep.shape=",P.shape,k.shape,k_keep.shape)
+    # translate to power spectrum terms
+    avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/N_modsq_T_tilde_truncated
+    P=np.array(avg_modsq_T_tilde/(V_custom))
     return [k,P]
 
 def get_bins(Nvox,Lsurvey,Nk,mode):
-    # Nk_internal=Nk+1 # if I use the "what the math says" version of kmax ***REQUIRES TRUNCATING THE LAST ELEMENT BEFORE THE RETURN IN P_DRIVER
     Nk_internal=Nk
     Delta=Lsurvey/Nvox
-    # kmax=twopi/Delta # what the math says
     kmax=pi/Delta # to handle the +/-
     kmin=twopi/Lsurvey
 
@@ -288,9 +286,10 @@ def generate_box(P,k,Lsurvey,Nvox,V_custom=False):
     Nbins=len(P)
     assert(Nvox>=Nbins), "Nvox>=Nbins is baked into the code at the moment. I'm going to fix this (interpolation...) after I handle the more pressing issues, but for now, why would you even want Nvox<Nbins?"
     Delta=Lsurvey/Nvox
-    d3k = (twopi/Lsurvey)**3# Fourier-space voxel volume
+    d3k = (twopi/Lsurvey)**3 # Fourier-space voxel volume
+    V_box=Lsurvey**3
     if not V_custom:
-        V_custom=Lsurvey**3
+        V_custom=V_box
 
     # CORNER-origin k-grid
     k_vec_for_box=twopi*fftfreq(Nvox,d=Delta)

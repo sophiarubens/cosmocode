@@ -44,6 +44,7 @@ if test_sph_fwd:
     r00=np.sqrt(np.log(2))*sigLoS0
     r10=np.sqrt(np.log(2))*sigLoS1
     r20=np.sqrt(np.log(2))*sigLoS2
+    print("sigLoS0,sigLoS1,sigLoS2,r00,r10,r20=",sigLoS0,sigLoS1,sigLoS2,r00,r10,r20)
     bundled0=(sigLoS0,beamfwhm_x,beamfwhm_y,r00,)
     modulation0=custom_response(xgrid,ygrid,zgrid,sigLoS0,beamfwhm_x,beamfwhm_y,r00)
     bundled1=(sigLoS1,beamfwhm_x,beamfwhm_y,r10)
@@ -72,9 +73,9 @@ if test_sph_fwd:
             _,T,_=generate_box(Ptest,ktest,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,V_custom=False) (leaving the V_eff term as False here bc I will override later to avoid having to generate multiple boxes)
         if i==0:
             V=Lsurvey**3
-            Veff0=get_equivalent_volume(custom_response2,bundled0,Lsurvey,Nvox) # args need to be bundled as (sigLoS,beamfwhm_x,beamfwhm_y,r0,)
-            Veff1=get_equivalent_volume(custom_response2,bundled1,Lsurvey,Nvox)
-            Veff2=get_equivalent_volume(custom_response2,bundled2,Lsurvey,Nvox)
+            Veff0=get_Veff(custom_response,bundled0,Lsurvey,Nvox) # args need to be bundled as (sigLoS,beamfwhm_x,beamfwhm_y,r0,)
+            Veff1=get_Veff(custom_response,bundled1,Lsurvey,Nvox)
+            Veff2=get_Veff(custom_response,bundled2,Lsurvey,Nvox)
             if visualize_T_slices:
                 figfig,axsaxs=plt.subplots(3,4,figsize=(20,10))
                 qtr=Nvox//4
@@ -138,10 +139,15 @@ if test_sph_fwd:
     axs[2].plot(kfloors,mean1,label="reconstructed")
     axs[3].plot(kfloors,mean2,label="reconstructed")
     if (power_spec_type=="pl"):
-        axs[0].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*meanmean[scaleto],label="fiducial scaled")
-        axs[1].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean0[scaleto],label="fiducial scaled")
-        axs[2].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean1[scaleto],label="fiducial scaled")
-        axs[3].plot(kfloors,kfloors**idx/kfloors[scaleto]**idx*mean2[scaleto],label="fiducial scaled")
+        scale=1/kfloors[scaleto]**idx*meanmean[scaleto]
+        axs[0].plot(kfloors,kfloors**idx*scale, label="fiducial scaled")
+        scale0=1/kfloors[scaleto]**idx*mean0[scaleto]
+        axs[1].plot(kfloors,kfloors**idx*scale0,label="fiducial scaled")
+        scale1=1/kfloors[scaleto]**idx*mean1[scaleto]
+        axs[2].plot(kfloors,kfloors**idx*scale1,label="fiducial scaled")
+        scale2=1/kfloors[scaleto]**idx*mean2[scaleto]
+        axs[3].plot(kfloors,kfloors**idx*scale2,label="fiducial scaled")
+        print("scale,scale0,scale1,scale2=",scale,scale0,scale1,scale2)
         for i in range(4):
             axs[i].plot(kfloors,kfloors**idx,label="fiducial")
     axs[0].set_title("P(T) / power spec of unmodulated box")
@@ -168,7 +174,7 @@ if test_sph_interp:
     T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
     kfloors,vals=generate_P(T,mode,Lsurvey,Nk)
     k_want_lo=0.01
-    k_want_hi=4.
+    k_want_hi=2.
     k_want=np.linspace(k_want_lo,k_want_hi,3*Nk)
     k_have=np.reshape(kfloors,(Nk,))
     P_have=np.reshape(vals,(Nk,))
@@ -239,9 +245,9 @@ if test_cyl_fwd:
                 print("realization",i)
         if i==0:
             V=Lsurvey**3
-            Veff0=get_equivalent_volume(custom_response2,bundled0,Lsurvey,Nvox) # args need to be bundled as (sigLoS,beamfwhm_x,beamfwhm_y,r0,)
-            Veff1=get_equivalent_volume(custom_response2,bundled1,Lsurvey,Nvox)
-            Veff2=get_equivalent_volume(custom_response2,bundled2,Lsurvey,Nvox)
+            Veff0=get_Veff(custom_response,bundled0,Lsurvey,Nvox) # args need to be bundled as (sigLoS,beamfwhm_x,beamfwhm_y,r0,)
+            Veff1=get_Veff(custom_response,bundled1,Lsurvey,Nvox)
+            Veff2=get_Veff(custom_response,bundled2,Lsurvey,Nvox)
         if power_spec_type=="wn":
             T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
         elif power_spec_type=="bpl":
@@ -270,10 +276,6 @@ if test_cyl_fwd:
         kfloors,vals=generate_P(T,mode,Lsurvey,Nkpar,Nk1=Nkperp)
         allvals[:,:,i]=vals
     
-    np.save("allvals0"+power_spec_type+".npy",allvals0)
-    np.save("allvals1"+power_spec_type+".npy",allvals1)
-    np.save("allvals2"+power_spec_type+".npy",allvals2)
-    np.save("allvals"+power_spec_type+".npy",allvals)
     valmin=np.min(allvals)
     valmax=np.max(allvals)
     kparfloors,kperpfloors=kfloors
