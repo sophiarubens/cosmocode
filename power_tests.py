@@ -9,13 +9,9 @@ Lsurvey=126 # 63
 Nvox=52 # 10 
 Nk = 11 # 8
 mode="lin"
-# mode="log"
 Nkpar=11
 Nkperp=13
 Nrealiz=50
-
-def elbowy_power(k,a=0.96605,b=-0.8,c=1,a0=1,b0=5000):
-    return c/(a0*k**(-a)+b0*k**(-b))
 
 ####################################################################################################################################################################################
 test_sph_fwd=True
@@ -63,12 +59,17 @@ if test_sph_fwd:
         if alert>0:
             if (i%alert==0):
                 print("realization",i)
+        ktest=np.linspace(twopi/Lsurvey,twopi*Nvox/Lsurvey,Nk)
         if   power_spec_type=="wn":
             T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
+            Ptest=np.ones(Nk)
+            _,T0,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled0)
+            _,T1,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled1)
+            _,T2,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled2)
         elif power_spec_type=="pl":
             if (i==0):
-                ktest=np.linspace(twopi/Lsurvey,twopi*Nvox/Lsurvey,Nk)
-                idx=-0.96605
+                idx=-1.4 # DECAYING   power law
+                # idx=2.3  # INCREASING power law
                 Ptest=ktest**idx
             _,T, _=generate_box(Ptest,ktest,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,primary_beam=False,primary_beam_args=False)
             _,T0,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled0)
@@ -108,26 +109,11 @@ if test_sph_fwd:
         allvals2[:,i]=vals_mod2
         kfloors,vals=generate_P(T,mode,Lsurvey,Nk)
         allvals[:,i]=vals
-        axs[0,0].scatter(kfloors,vals,color=colours[i])
-        axs[1,0].scatter(kfloors,vals,color=colours[i])
-        maxvalshere=np.max(vals)
-        if (maxvalshere>maxvals):
-            maxvals=maxvalshere
-        axs[0,1].scatter(kfloors_mod,vals_mod0,color=colours[i])
-        axs[1,1].scatter(kfloors_mod,vals_mod0,color=colours[i])
-        maxvalshere_mod0=np.max(vals_mod0)
-        if (maxvalshere_mod0>maxvals_mod0):
-            maxvals_mod0=maxvalshere_mod0
-        maxvalshere_mod1=np.max(vals_mod1)
-        if (maxvalshere_mod1>maxvals_mod1):
-            maxvals_mod1=maxvalshere_mod1
-        maxvalshere_mod2=np.max(vals_mod2)
-        if (maxvalshere_mod2>maxvals_mod2):
-            maxvals_mod2=maxvalshere_mod2
-        axs[0,2].scatter(kfloors_mod,vals_mod1,color=colours[i])
-        axs[0,3].scatter(kfloors_mod,vals_mod2,color=colours[i])
-        axs[1,2].scatter(kfloors_mod,vals_mod1,color=colours[i])
-        axs[1,3].scatter(kfloors_mod,vals_mod2,color=colours[i])
+        for k in range(2):
+            axs[k,0].scatter(kfloors,vals,color=colours[i])
+            axs[k,1].scatter(kfloors_mod,vals_mod0,color=colours[i])
+            axs[k,2].scatter(kfloors_mod,vals_mod1,color=colours[i])
+            axs[k,3].scatter(kfloors_mod,vals_mod2,color=colours[i])
     for i in range(3):
         for j in range(4):
             ylabels=["Power (K$^2$ Mpc$^3$)","Power (K$^2$ Mpc$^3$)","Ratio of powers (dimensionless, unitless)"]
@@ -146,11 +132,11 @@ if test_sph_fwd:
     axs[1,2].plot(kfloors,mean1,label="reconstructed")
     axs[1,3].plot(kfloors,mean2,label="reconstructed")
     if (power_spec_type=="pl"):
-        scale=1/kfloors[scaleto]**idx*meanmean[scaleto]
-        scale0=1/kfloors[scaleto]**idx*mean0[scaleto]
-        scale1=1/kfloors[scaleto]**idx*mean1[scaleto]
-        scale2=1/kfloors[scaleto]**idx*mean2[scaleto]
         if plot_fiducial_scaled:
+            scale=1/kfloors[scaleto]**idx*meanmean[scaleto]
+            scale0=1/kfloors[scaleto]**idx*mean0[scaleto]
+            scale1=1/kfloors[scaleto]**idx*mean1[scaleto]
+            scale2=1/kfloors[scaleto]**idx*mean2[scaleto]
             axs[0,0].plot(kfloors,kfloors**idx*scale, label="fiducial scaled")
             axs[0,1].plot(kfloors,kfloors**idx*scale0,label="fiducial scaled")
             axs[0,2].plot(kfloors,kfloors**idx*scale1,label="fiducial scaled")
@@ -159,10 +145,22 @@ if test_sph_fwd:
             axs[1,1].plot(kfloors,kfloors**idx*scale0,label="fiducial scaled")
             axs[1,2].plot(kfloors,kfloors**idx*scale1,label="fiducial scaled")
             axs[1,3].plot(kfloors,kfloors**idx*scale2,label="fiducial scaled")
-        print("scale,scale0,scale1,scale2=",scale,scale0,scale1,scale2)
+            print("scale,scale0,scale1,scale2=",scale,scale0,scale1,scale2)
+        axs[2,0].plot(kfloors,kfloors**idx/meanmean)
+        axs[2,1].plot(kfloors,kfloors**idx/mean0)
+        axs[2,2].plot(kfloors,kfloors**idx/mean1)
+        axs[2,3].plot(kfloors,kfloors**idx/mean2)
         for i in range(2):
             for j in range(4):
                 axs[i,j].plot(kfloors,kfloors**idx,label="fiducial")
+    elif (power_spec_type=="wn"):
+        for i in range(2):
+            for j in range(4):
+                axs[i,j].plot(kfloors,1+0*kfloors,label="fiducial")
+        axs[2,0].plot(kfloors,1/meanmean)
+        axs[2,1].plot(kfloors,1/mean0)
+        axs[2,2].plot(kfloors,1/mean1)
+        axs[2,3].plot(kfloors,1/mean2)
     axs[0,0].set_title("P(T) / power spec of unmodulated box")
     axs[0,1].set_title("P(T*R) / power spec of response-modulated box \n(broad in config space)")
     axs[0,2].set_title("P(T*R) / power spec of response-modulated box \n(medium in config space)")
@@ -170,22 +168,10 @@ if test_sph_fwd:
     for j in range(4):
         axs[1,j].set_title("inset for the case above")
     
-    axs[2,0].plot(kfloors,kfloors**idx/meanmean)
-    axs[2,1].plot(kfloors,kfloors**idx/mean0)
-    axs[2,2].plot(kfloors,kfloors**idx/mean1)
-    axs[2,3].plot(kfloors,kfloors**idx/mean2)
     for j in range(4):
         axs[2,j].set_title("Ratio of powers: fiducial/reconstructed")
     
     plt.suptitle("Test {:4} P(k) calc for Lsurvey,Nvox,Nk,Nrealiz,sigma0**2,sigma1**2,sigma2**2={:4},{:4},{:4},{:4},{:4},{:4}".format(power_spec_type,Lsurvey,Nvox,Nk,Nrealiz,sigma02,sigma12,sigma22))
-    axs[0,0].set_ylim(0,1.2*maxvals)
-    axs[0,1].set_ylim(0,1.2*maxvals_mod0)
-    axs[0,2].set_ylim(0,1.2*maxvals_mod1)
-    axs[0,3].set_ylim(0,1.2*maxvals_mod2)
-    axs[1,0].set_ylim(0,1.2*meanmean[0])
-    axs[1,1].set_ylim(0,1.2*mean0[0])
-    axs[1,2].set_ylim(0,1.2*mean1[0])
-    axs[1,3].set_ylim(0,1.2*mean2[0])
     plt.legend()
     plt.tight_layout()
     plt.savefig(power_spec_type+"_sph_"+mode+"_"+str(Nrealiz)+"realiz.png",dpi=1000)
@@ -194,7 +180,7 @@ if test_sph_fwd:
     plt.show()
 
 ####################################################################################################################################################################################
-test_sph_interp=True
+test_sph_interp=False
 if test_sph_interp:
     print("INTERP SPH POWER SPEC")
     t0=time.time()
@@ -223,7 +209,7 @@ if test_sph_interp:
     print("interpolating a sph power spectrum took",t1-t0,"s\n")
 
 ####################################################################################################################################################################################
-test_cyl_fwd=True
+test_cyl_fwd=False
 # power_spec_type="wn"
 # power_spec_type="bpl"
 power_spec_type="pl"
@@ -277,12 +263,12 @@ if test_cyl_fwd:
             Veff2=get_Veff(custom_response,bundled2,Lsurvey,Nvox)
         if power_spec_type=="wn":
             T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
-        elif power_spec_type=="bpl":
-            if (i==0):
-                Npts_bpl=25
-                k_bpl=np.linspace(twopi/Lsurvey,twopi/Delta,Npts_bpl)
-                P_bpl=elbowy_power(k_bpl)
-            _,T,_ = generate_box(P_bpl,k_bpl,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,verbose=False) returns rgrid,T,rmags
+        # elif power_spec_type=="bpl":
+        #     if (i==0):
+        #         Npts_bpl=25
+        #         k_bpl=np.linspace(twopi/Lsurvey,twopi/Delta,Npts_bpl)
+        #         P_bpl=elbowy_power(k_bpl)
+        #     _,T,_ = generate_box(P_bpl,k_bpl,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,verbose=False) returns rgrid,T,rmags
         elif power_spec_type=="pl":
             if (i==0):
                 Npts_pl=25
@@ -355,7 +341,7 @@ if test_cyl_fwd:
     print("constructing cyl power spectra took",t1-t0,"s\n")
 
 ####################################################################################################################################################################################
-test_cyl_interp=True
+test_cyl_interp=False
 if test_cyl_interp:
     print("INTERPOLATING CYL POWER SPEC")
     t0=time.time()
