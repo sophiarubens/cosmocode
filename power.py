@@ -2,12 +2,14 @@ import numpy as np
 from scipy.interpolate import interpn,interp1d
 # from scipy.integrate import tplquad
 # import time
+# from bias_helper_fcns import custom_response2
 from numpy.fft import fftshift,ifftshift,fftn,irfftn,fftfreq
 
 pi=np.pi
 twopi=2.*pi
 maxint=  np.iinfo(np.int64  ).max
 maxfloat=np.finfo(np.float64).max
+eps=1e-30
 
 """
 this module helps connect ensemble-averaged power spectrum estimates and cosmological brighness temperature boxes for three main use cases:
@@ -20,12 +22,18 @@ class ResolutionError(Exception):
     pass
 
 def get_Veff(custom_estimator,custom_estimator_args,Lsurvey,Nvox):
+
+    # using rectangles/sums
     vec=Lsurvey*fftshift(fftfreq(Nvox))
     xgrid,ygrid,zgrid=np.meshgrid(vec,vec,vec,indexing="ij")
     sigLoS,beamfwhm_x,beamfwhm_y,r0=custom_estimator_args
     evaled_response=custom_estimator(xgrid,ygrid,zgrid,sigLoS,beamfwhm_x,beamfwhm_y,r0)
     d3r=(Lsurvey/Nvox)**3
     Veff=np.sum(evaled_response*d3r)
+    
+    # # using scipy
+    # bound=Lsurvey/2.
+    # Veff,_= tplquad(custom_response2,-bound,bound,-bound,bound,-bound,bound,args=custom_estimator_args) # hackily global from other file... obv do not leave this way if I revert to this calc strategy
     return Veff,evaled_response
 
 def P_driver(T, k, Lsurvey, primary_beam=False,primary_beam_args=False):
@@ -63,16 +71,34 @@ def P_driver(T, k, Lsurvey, primary_beam=False,primary_beam_args=False):
         evaled_response=np.ones((Nvox,Nvox,Nvox))
     else:                 # non-identity primary beam
         Veff,evaled_response=get_Veff(primary_beam,primary_beam_args,Lsurvey,Nvox)
-        evaled_response[evaled_response==0]=maxfloat #(maxfloat)**(0.25) # consistent with the "a narrower primary beam makes the effective size of your box smaller" intuition, but not sure if this is the right thing to do numerically... for example, I might need to generalize the evaled_response==0 to something like evaled_response<eps...?
-        # evaled_response[evaled_response==0]=1e-6 # some kind of eps (this is kind of the opposite of what I think I should do, but it'll be interesting to see what happens...)
+        # evaled_response[evaled_response==0]=maxfloat
+        # evaled_response[evaled_response==0]=np.sqrt(maxfloat) 
+        # evaled_response[evaled_response<eps]=maxfloat
+        # evaled_response[evaled_response==0]=1e6
+        # evaled_response[evaled_response==0]=1.
+        # evaled_response[evaled_response==0]=1e-6
+        overwrite_condition=evaled_response==0
+        num_to_overwrite=np.sum(overwrite_condition)
+        # draws_to_overwrite_with=np.random.randn(num_to_overwrite)
+        # draws_to_overwrite_with=np.random.normal(loc=1.0,size=num_to_overwrite)
+        draws_to_overwrite_with=np.random.normal(scale=Lsurvey**3,size=num_to_overwrite)
+        evaled_response[overwrite_condition]=draws_to_overwrite_with
+        # ###
+        # >>> arr=np.ones((3,5))
+        # >>> arr[1:,3:]=0.
+        # >>> entries_to_overwrite=arr<1
+        # >>> np.sum(entries_to_overwrite)
+        # 4
+        # >>> num_to_overwrite=np.sum(arr<1)
+        # >>> draws_to_overwrite_with=np.random.randn(num_to_overwrite)
+        # >>> arr[arr<1]=draws_to_overwrite_with
+        # >>> print(arr)
+        # ###
+    # print("P_driver: Veff=", Veff)
 
     # process the box values
-    T_no_primary_beam=T/evaled_response                                   # version 1: normalization ok but ringing makes me suspect an accidential inversion of the conv. thm.
-    T_tilde=        fftshift(fftn((ifftshift(T_no_primary_beam)*d3r)))    # version 1 cont'd
-    # T_tilde=fftshift(fftn(ifftshift(T)*d3r))/evaled_response**2           # version 2: try dividing outside of the FFT (wait,, this is neither here nor there convolution theorem–wise)
-    # ft_evaled_response=(fftshift(fftn(ifftshift(evaled_response))))**2 # version 3: actually try the other side of the conv thm.
-    # sq_ft_evaled_response=ft_evaled_response*np.conj(ft_evaled_response)
-    # T_tilde=fftshift(fftn(ifftshift(T)*d3r))/sq_ft_evaled_response
+    T_no_primary_beam=T/evaled_response
+    T_tilde=        fftshift(fftn((ifftshift(T_no_primary_beam)*d3r)))
     modsq_T_tilde= (T_tilde*np.conjugate(T_tilde)).real
 
     # establish Fourier duals to box coordinates (Cartesian paradigm)
@@ -185,6 +211,38 @@ def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, primary_beam=False,primary_beam_arg
     else:
         kbins=k0bins
     return P_driver(T,kbins,Lsurvey,primary_beam=primary_beam,primary_beam_args=primary_beam_args)
+
+def P_avg_over_realizations(T,mode,Lsurvey,Nk0,Nk1=0,primary_beam=False,primary_beam_args=False,Nrealiz=50,fractol=0.05):
+    """
+    philosophy:
+    * compute realizations of a power spectrum and compute the ensemble average
+    * keep adding realizations until either 
+        (a) the scatter between realizations has converged to within the specified fractional tolerance
+        (b) the number of computed realizations reaches the specified ceiling
+    """
+    realization_holder=[]
+    not_converged=True
+    i=0
+    while (not_converged and i<Nrealiz):
+        _,P=generate_P(T, mode, Lsurvey, Nk0, Nk1=Nk1,primary_beam=primary_beam,primary_beam_args=primary_beam_args)
+        realization_holder.append(P)
+        not_converged=check_convergence(realization_holder,fractol=fractol)
+        i+=1
+    
+    avg_over_realizations=np.mean(realization_holder,axis=-1)
+    return avg_over_realizations
+
+def check_convergence(realization_holder,fractol=0.05): # clear candidate for minimizing redundancy by making all the initializations class attributes instead of things shuffled around between functions, but... first, I need to get all my code working :,)
+    realiz_holder_shape=realization_holder.shape
+    n=realiz_holder_shape[-1] # sph binning: shape will be (Nk,Nrealiz_so_far); cyl binning: shape will be (Nkpar,Nkperp,Nrealiz_so_far)
+    ndims=len(realiz_holder_shape)
+    if ndims==2: # both branches: figure_of_merit is the ratio between the sample stddevs for ensembles containing the (0th through [n-1]st) and (0th through nth) realizations... if the ensemble average has converged, adding the nth realization shouldn't change the variance that much--hence examining the ratio
+        figure_of_merit=np.sqrt((n-1)/n)*np.std(realization_holder[0,:],ddof=1)/np.std(realization_holder[0,:-1],ddof=1)     # cosmic variance dominates the scatter between realizations, so focus on that, instead of more specific (and computationally intensive...) .any() or .all() comparisons
+    elif ndims==3:
+        figure_of_merit=np.sqrt((n-1)/n)*np.std(realization_holder[0,0,:],ddof=1)/np.std(realization_holder[0,0,:-1],ddof=1) # idem
+    else:
+        assert(1==0), "binning strat not recognized (too many/few dims) --"+str(ndims)
+    return figure_of_merit<fractol
 
 def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
     """

@@ -68,8 +68,8 @@ if test_sph_fwd:
             _,T2,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled2)
         elif power_spec_type=="pl":
             if (i==0):
-                idx=-1.4 # DECAYING   power law
-                # idx=2.3  # INCREASING power law
+                # idx=-1.4 # DECAYING   power law
+                idx=2.3  # INCREASING power law
                 Ptest=ktest**idx
             _,T, _=generate_box(Ptest,ktest,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,primary_beam=False,primary_beam_args=False)
             _,T0,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled0)
@@ -383,7 +383,7 @@ if test_cyl_interp:
     print("interpolating a cyl power spectrum took",t1-t0,"s\n")
 
 ####################################################################################################################################################################################
-test_bwd=True
+test_bwd=False
 if test_bwd:
     print("GENERATING BOXES FROM POWER SPECTRA")
     t0=time.time()
