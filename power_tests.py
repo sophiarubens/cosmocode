@@ -61,14 +61,15 @@ if test_sph_fwd:
                 print("realization",i)
         ktest=np.linspace(twopi/Lsurvey,twopi*Nvox/Lsurvey,Nk)
         if   power_spec_type=="wn":
-            T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
+            # T = np.random.normal(loc=0.0, scale=1.0, size=(Nvox,Nvox,Nvox))
             Ptest=np.ones(Nk)
+            _,T ,_=generate_box(Ptest,ktest,Lsurvey,Nvox)
             _,T0,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled0)
             _,T1,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled1)
             _,T2,_=generate_box(Ptest,ktest,Lsurvey,Nvox, primary_beam=custom_response,primary_beam_args=bundled2)
         elif power_spec_type=="pl":
             if (i==0):
-                # idx=-1.4 # DECAYING   power law
+                # idx=-0.9 # DECAYING   power law
                 idx=2.3  # INCREASING power law
                 Ptest=ktest**idx
             _,T, _=generate_box(Ptest,ktest,Lsurvey,Nvox) # generate_box(P,k,Lsurvey,Nvox,primary_beam=False,primary_beam_args=False)
@@ -156,7 +157,7 @@ if test_sph_fwd:
     elif (power_spec_type=="wn"):
         for i in range(2):
             for j in range(4):
-                axs[i,j].plot(kfloors,1+0*kfloors,label="fiducial")
+                axs[i,j].plot(kfloors,1+0*kfloors,label="fiducial") # like Ptest but "sampled" at kfloors
         axs[2,0].plot(kfloors,1/meanmean)
         axs[2,1].plot(kfloors,1/mean0)
         axs[2,2].plot(kfloors,1/mean1)

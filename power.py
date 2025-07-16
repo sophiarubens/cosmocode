@@ -12,10 +12,11 @@ maxfloat=np.finfo(np.float64).max
 eps=1e-30
 
 """
-this module helps connect ensemble-averaged power spectrum estimates and cosmological brighness temperature boxes for three main use cases:
-1. generate a power spectrum that describes the statistics of a brightness temperature box
-2. generate one realization of a brightness temperature box consistent with a known power spectrum
-3. regridding:          interpolate a power spectrum to k-modes of interest
+this module helps connect ensemble-averaged power spectrum estimates 
+and cosmological brighness temperature boxes for three main use cases:
+1. generate a power spectrum that describes the statistics of a cosmo box
+2. generate realizations of a cosmo box consistent with a known power spectrum
+3. interpolate a power spectrum
 """
 
 class ResolutionError(Exception):
@@ -71,29 +72,12 @@ def P_driver(T, k, Lsurvey, primary_beam=False,primary_beam_args=False):
         evaled_response=np.ones((Nvox,Nvox,Nvox))
     else:                 # non-identity primary beam
         Veff,evaled_response=get_Veff(primary_beam,primary_beam_args,Lsurvey,Nvox)
-        # evaled_response[evaled_response==0]=maxfloat
-        # evaled_response[evaled_response==0]=np.sqrt(maxfloat) 
-        # evaled_response[evaled_response<eps]=maxfloat
-        # evaled_response[evaled_response==0]=1e6
-        # evaled_response[evaled_response==0]=1.
-        # evaled_response[evaled_response==0]=1e-6
-        overwrite_condition=evaled_response==0
-        num_to_overwrite=np.sum(overwrite_condition)
+        evaled_response[evaled_response==0]=maxfloat
+        # overwrite_condition=evaled_response==0
+        # num_to_overwrite=np.sum(overwrite_condition)
         # draws_to_overwrite_with=np.random.randn(num_to_overwrite)
-        # draws_to_overwrite_with=np.random.normal(loc=1.0,size=num_to_overwrite)
-        draws_to_overwrite_with=np.random.normal(scale=Lsurvey**3,size=num_to_overwrite)
-        evaled_response[overwrite_condition]=draws_to_overwrite_with
-        # ###
-        # >>> arr=np.ones((3,5))
-        # >>> arr[1:,3:]=0.
-        # >>> entries_to_overwrite=arr<1
-        # >>> np.sum(entries_to_overwrite)
-        # 4
-        # >>> num_to_overwrite=np.sum(arr<1)
-        # >>> draws_to_overwrite_with=np.random.randn(num_to_overwrite)
-        # >>> arr[arr<1]=draws_to_overwrite_with
-        # >>> print(arr)
-        # ###
+        # evaled_response[overwrite_condition]=draws_to_overwrite_with
+
     # print("P_driver: Veff=", Veff)
 
     # process the box values
@@ -119,6 +103,22 @@ def P_driver(T, k, Lsurvey, primary_beam=False,primary_beam_args=False):
         N_modsq_T_tilde=   np.bincount(bin_indices_1d,                         minlength=Nk) # for the ensemble average: number of modsq_T_tilde values in each bin
         sum_modsq_T_tilde_truncated=sum_modsq_T_tilde[:-1]
         N_modsq_T_tilde_truncated=N_modsq_T_tilde[:-1]
+
+        # ##
+        # # try to manually override lost power... might not be as mathematically motivated as I'd hope
+        # N_voxels_per_bin=np.zeros(Nk)
+        # N_voxels_per_bin_masked=np.zeros(Nk)
+        # bin_indices_masked=np.copy(bin_indices)            # start with the original bin indices
+        # bin_indices_masked[evaled_response==maxfloat]=Nk+1 # rename voxels where the primary beam was originally effectively zero s.t. they will not be counted in the Nk loop
+        # for i in range(Nk):
+        #     N_voxels_per_bin[i]=       len(np.unique(k_box[bin_indices==       i]))
+        #     N_voxels_per_bin_masked[i]=len(np.unique(k_box[bin_indices_masked==i]))
+        # # print("N_voxels_per_bin=       ",N_voxels_per_bin)
+        # # print("N_voxels_per_bin_masked=",N_voxels_per_bin_masked)
+        # # print("N_voxels_per_bin_masked/N_voxels_per_bin=",N_voxels_per_bin_masked/N_voxels_per_bin)
+        # underest_factor=N_voxels_per_bin_masked/N_voxels_per_bin
+        # sum_modsq_T_tilde_truncated*=(underest_factor**2)
+        # ##
 
     elif (binto=="cyl"): # kpar is z-like
         kpar,kperp=k # kpar being unpacked first here DOES NOT change my treatment of kpar as a z-like coordinate in 3D arrays (look at these lines to re-convince myself: kperpmags=, modsq_T_tilde_slice=,...)
@@ -224,22 +224,29 @@ def P_avg_over_realizations(T,mode,Lsurvey,Nk0,Nk1=0,primary_beam=False,primary_
     not_converged=True
     i=0
     while (not_converged and i<Nrealiz):
-        _,P=generate_P(T, mode, Lsurvey, Nk0, Nk1=Nk1,primary_beam=primary_beam,primary_beam_args=primary_beam_args)
+        k,P=generate_P(T, mode, Lsurvey, Nk0, Nk1=Nk1,primary_beam=primary_beam,primary_beam_args=primary_beam_args)
         realization_holder.append(P)
         not_converged=check_convergence(realization_holder,fractol=fractol)
         i+=1
     
-    avg_over_realizations=np.mean(realization_holder,axis=-1)
-    return avg_over_realizations
+    arr_realiz_holder=np.array(realization_holder)
+    print("arr_realiz_holder.shape=",arr_realiz_holder.shape)
+    if i>1:
+        avg_over_realizations=np.mean(arr_realiz_holder,axis=-1)
+    else:
+        avg_over_realizations=np.reshape(arr_realiz_holder,P.shape)
+    return [k,avg_over_realizations],i
 
 def check_convergence(realization_holder,fractol=0.05): # clear candidate for minimizing redundancy by making all the initializations class attributes instead of things shuffled around between functions, but... first, I need to get all my code working :,)
-    realiz_holder_shape=realization_holder.shape
+    arr_realiz_holder=np.array(realization_holder)
+    realiz_holder_shape=arr_realiz_holder.shape
     n=realiz_holder_shape[-1] # sph binning: shape will be (Nk,Nrealiz_so_far); cyl binning: shape will be (Nkpar,Nkperp,Nrealiz_so_far)
     ndims=len(realiz_holder_shape)
+    prefac=np.sqrt((n-1)/n)
     if ndims==2: # both branches: figure_of_merit is the ratio between the sample stddevs for ensembles containing the (0th through [n-1]st) and (0th through nth) realizations... if the ensemble average has converged, adding the nth realization shouldn't change the variance that much--hence examining the ratio
-        figure_of_merit=np.sqrt((n-1)/n)*np.std(realization_holder[0,:],ddof=1)/np.std(realization_holder[0,:-1],ddof=1)     # cosmic variance dominates the scatter between realizations, so focus on that, instead of more specific (and computationally intensive...) .any() or .all() comparisons
+        figure_of_merit=prefac*np.std(arr_realiz_holder[0,:],ddof=1)/np.std(arr_realiz_holder[0,:-1],ddof=1)     # cosmic variance dominates the scatter between realizations, so focus on that, instead of more specific (and computationally intensive...) .any() or .all() comparisons
     elif ndims==3:
-        figure_of_merit=np.sqrt((n-1)/n)*np.std(realization_holder[0,0,:],ddof=1)/np.std(realization_holder[0,0,:-1],ddof=1) # idem
+        figure_of_merit=prefac*np.std(arr_realiz_holder[0,0,:],ddof=1)/np.std(arr_realiz_holder[0,0,:-1],ddof=1) # idem
     else:
         assert(1==0), "binning strat not recognized (too many/few dims) --"+str(ndims)
     return figure_of_merit<fractol
@@ -355,4 +362,5 @@ def generate_box(P,k,Lsurvey,Nvox,primary_beam=False,primary_beam_args=False):
 
     T_tilde=T_tildere+1j*T_tildeim # no symmetries yet
     T=fftshift(irfftn(T_tilde*d3k,s=(Nvox,Nvox,Nvox),axes=(0,1,2),norm="forward"))/(2.*pi)**3 # applies the symmetries automatically! -> then return in user-friendly CENTRE-origin format (net zero shift when applied sequentially with generate_P)
+    # T-=np.mean(T) # test: subtract off the monopole moment
     return kgrid,T,k_vec_for_box
