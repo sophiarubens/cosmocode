@@ -72,6 +72,7 @@ def P_driver(T, k, Lsurvey, primary_beam=False,primary_beam_args=False):
         evaled_response=np.ones((Nvox,Nvox,Nvox))
     else:                 # non-identity primary beam
         Veff,evaled_response=get_Veff(primary_beam,primary_beam_args,Lsurvey,Nvox)
+        print("Veff=",Veff)
 
         ##
         with open("evaled_resp_pre_overwrite_non_class.txt", "w") as f:
@@ -343,6 +344,7 @@ def generate_box(P,k,Lsurvey,Nvox,primary_beam=False,primary_beam_args=False):
     
     # take appropriate draws from normal distributions to populate T-tilde
     sigmas=np.sqrt(Veff*P/2)
+    print("generate_box: sigmas=",sigmas)
     sigmas=np.reshape(sigmas,(Nbins,)) # transition from the (1,Nbins) of the CAMB PS to (Nbins,)
     T_tildere=np.zeros((Nvox,Nvox,Nvox))
     T_tildeim=np.zeros((Nvox,Nvox,Nvox))

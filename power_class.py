@@ -15,7 +15,7 @@ pi=np.pi
 twopi=2.*pi
 maxfloat= np.finfo(np.float64).max
 maxint=   np.iinfo(np.int64  ).max
-nearly_zero=1./maxfloat
+nearly_zero=(1./maxfloat)**2
 
 class ResolutionError(Exception):
     pass
@@ -36,7 +36,7 @@ def extrapolation_warning(regime,want,have):
 class cosmo_stats(object):
     def __init__(self,
                  Lsurvey,                                                                # nonnegotiable for box->spec and spec->box calcs
-                 T=None,P_fid=None,Nvox=None,                                            # need one of either T or P to get started; I also check for any conflicts with Nvox
+                 T_pristine=None,T_primary=None,P_fid=None,Nvox=None,                    # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
                  primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian",  # primary beam considerations
                  Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations
                  realization_ceiling=50,frac_tol=0.05,                                   # max number of realizations
@@ -44,47 +44,52 @@ class cosmo_stats(object):
                  P_realizations=None,P_converged=None                                    # power spectra related to averaging over those from dif box realizations
                  ):                                                                      # implement later: synthesized beam considerations
         """
-        Lsurvey             :: float                      :: side length of cosmo box       :: Mpc
-        T                   :: (Nvox,Nvox,Nvox) of floats :: cosmo box                      :: K
-        P_fid               :: (Nk0_fid,) of floats       :: sph binned fiducial power spec :: K^2 Mpc^3
-        Nvox                :: float                      :: # voxels PER SIDE of cosmo box :: ---
-        primary_beam        :: callable                   :: power beam in Cartesian coords :: ---
-        primary_beam_args   :: tuple of floats            :: Gaussian: "μ"s and "σ"s        :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
-        primary_beam_type   :: string                     :: implement later: Airy etc.     :: ---
-        Nk0, Nk1            :: int                        :: # power spec bins for axis 0/1 :: ---
-        realization_ceiling :: int                        :: max # of realiz in p.s. avg    :: ---
-        frac_tol            :: float                      :: max fractional amount by which :: ---
-                                                             the p.s. avg can change w/ the 
-                                                             addition of the latest realiz. 
-                                                             and the ensemble average is 
-                                                             considered converged
-        k0bins_interp,      :: (Nk0_interp,) of floats    :: bins to which to interpolate   :: 1/Mpc
-        k1bins_interp          (Nk1_interp,) of floats       the converged power spec (prob
-                                                             set by survey considerations)
-        P_realizations      :: if Nk1==0: (Nk0,) floats   :: sph/cyl power specs for dif    :: K^2 Mpc^3
-                               if Nk1>0: (Nk0,Nk1) floats    realizations of a cosmo box 
-        P_converged         :: same as that of P_fid      :: average of P_realizations      :: idem ^
-        
-        
+        Lsurvey             :: float                       :: side length of cosmo box         :: Mpc
+        T_pristine          :: (Nvox,Nvox,Nvox) of floats  :: cosmo box (just physics/no beam) :: K
+        T_primary           :: (Nvox,Nvox,Nvox) of floats  :: cosmo box * primary beam         :: K
+        P_fid               :: (Nk0_fid,) of floats        :: sph binned fiducial power spec   :: K^2 Mpc^3
+        Nvox                :: float                       :: # voxels PER SIDE of cosmo box   :: ---
+        primary_beam        :: callable                    :: power beam in Cartesian coords   :: ---
+        primary_beam_args   :: tuple of floats             :: Gaussian: "μ"s and "σ"s          :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
+        primary_beam_type   :: string                      :: implement later: Airy etc.       :: ---
+        Nk0, Nk1            :: int                         :: # power spec bins for axis 0/1   :: ---
+        realization_ceiling :: int                         :: max # of realiz in p.s. avg      :: ---
+        frac_tol            :: float                       :: max fractional amount by which   :: ---
+                                                              the p.s. avg can change w/ the 
+                                                              addition of the latest realiz. 
+                                                              and the ensemble average is 
+                                                              considered converged
+        k0bins_interp,      :: (Nk0_interp,) of floats     :: bins to which to interpolate the :: 1/Mpc
+        k1bins_interp          (Nk1_interp,) of floats        converged power spec (prob set
+                                                              by survey considerations)
+        P_realizations      :: if Nk1==0: (Nk0,)    floats :: sph/cyl power specs for dif      :: K^2 Mpc^3
+                               if Nk1>0:  (Nk0,Nk1) floats    realizations of a cosmo box 
+        P_converged         :: same as that of P_fid       :: average of P_realizations        :: K^2 Mpc^3
         """
         # spectrum and box
         self.Lsurvey=Lsurvey
         self.P_fid=P_fid
-        if ((T is None) and (P_fid is None)):                           # must start with either a box or a fiducial power spec
+        self.T_primary=T_primary
+        self.T_pristine=T_pristine
+        if ((T_primary is None) and (T_pristine is None) and (P_fid is None)):                           # must start with either a box or a fiducial power spec
             raise NotEnoughInfoError
-        elif ((P_fid is not None) and (T is None) and (Nvox is None)): # to generate boxes from a power spec, il faut some way of determining how many voxels to use per side
+        elif ((P_fid is not None) and (T_primary is None) and (T_pristine is None) and (Nvox is None)):  # to generate boxes from a power spec, il faut some way of determining how many voxels to use per side
             raise NotEnoughInfoError
         else:                                                           # there is possibly enough info to proceed, but still need to check for conflicts
-            self.T=T
-            if ((Nvox is not None) and (T is not None)):                # possible conflict: if both Nvox and a box are passed, 
-                if (Nvox!=T.shape[0]):                                  # but Nvox and the box shape disagree,
+            if ((T_pristine is not None) and (T_primary is not None)):
+                print("WARNING: T_pristine and T_primary both passed; T_primary will be temporarily ignored and then internally overwritten to ensure consistency with primary_beam")
+                if (T_pristine.shape!=T_primary.shape):
+                    raise ConflictingInfoError
+            if ((Nvox is not None) and (T_pristine is not None)):       # possible conflict: if both Nvox and a box are passed, 
+                T_pristine_shape0=T_pristine.shape[0]
+                if (Nvox!=T_pristine.shape[0]):                         # but Nvox and the box shape disagree,
                     raise ConflictingInfoError                          # estamos en problemas
                 else:
-                    self.Nvox=self.T.shape[0]                           # otherwise, initialize the Nvox attribute
+                    self.Nvox=T_pristine_shape0                         # otherwise, initialize the Nvox attribute
             elif (Nvox is not None):                                    # if Nvox was passed but T was not, use Nvox to initialize the Nvox attribute
                 self.Nvox=Nvox
             else:                                                       # remaining case: T was passed but Nvox was not, so use the shape of T to initialize the Nvox attribute
-                self.Nvox=self.T.shape[0]
+                self.Nvox=self.T_pristine_shape0
             
             if (P_fid is not None): # no hi fa res si the fiducial power spectrum has a different dimensionality or bin width than the realizations you plan to generate
                 Pfidshape=P_fid.shape
@@ -167,14 +172,19 @@ class cosmo_stats(object):
         if (self.primary_beam is not None): # non-identity primary beam
             if self.primary_beam_type=="Gaussian":
                 self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
-                self.evaled_response=self.primary_beam(self.xx_grid,self.yy_grid,self.zz_grid,self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0) # custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0)
-                self.Veff=np.sum(self.evaled_response*self.d3r)        # rectangular sum method
-                self.evaled_response[self.evaled_response==0]=maxfloat # protect against division-by-zero errors
+                evaled_primary=self.primary_beam(self.xx_grid,self.yy_grid,self.zz_grid,self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0)
+                self.Veff=np.sum(evaled_primary*self.d3r)        # rectangular sum method
+                # self.evaled_primary[self.evaled_primary==0]=maxfloat # protect against division-by-zero errors
+                evaled_primary[evaled_primary<nearly_zero]=maxfloat # protect against division-by-zero errors
+                self.evaled_primary=evaled_primary
             else:
                 UnsupportedPrimaryBeamType
         else:                               # identity primary beam
             self.Veff=self.Lsurvey**3
-            self.evaled_response=np.ones((self.Nvox,self.Nvox,self.Nvox))
+            self.evaled_primary=np.ones((self.Nvox,self.Nvox,self.Nvox))
+        if (self.T_pristine is not None):
+            self.T_primary=self.T_pristine*self.evaled_primary
+        print("__init__: self.Veff=",self.Veff)
         
         # realization averaging
         self.realization_ceiling=realization_ceiling
@@ -189,7 +199,7 @@ class cosmo_stats(object):
             self.P_realizations=P_realizations # prev run w/o a converged average, unless, maybe, you want to re-run with a stricter convergence threshold?)
         else:
             self.P_realizations=[] 
-        if (P_converged is not None):          # maybe you have a converged power spec average from a previous calc and just want to interpolate or generate more boxes?
+        if (P_converged is not None):          # maybe you have a converged power spec average from a previous calc and just want to interpolate or generate more box realizations?
             self.P_converged=P_converged
         else:
             self.P_converged=None
@@ -216,11 +226,11 @@ class cosmo_stats(object):
         * compute the power spectrum of a known cosmological box and bin it spherically or cylindrically
         * append to the list of reconstructed P realizations (self.P_realizations)
         """
-        if (self.T is None): # power spec has to come from a box
-            self.generate_box()
+        if (self.T_pristine is None):    # power spec has to come from a box
+            self.generate_box() # populates/overwrites self.T_pristine and self.T_primary
 
-        T_no_primary_beam=  self.T/self.evaled_response
-        T_tilde=            fftshift(fftn((ifftshift(T_no_primary_beam)*self.d3r)))
+        # T_no_primary_beam=  self.T/self.evaled_primary
+        T_tilde=            fftshift(fftn((ifftshift(self.T_pristine)*self.d3r)))
         modsq_T_tilde=     (T_tilde*np.conjugate(T_tilde)).real
 
         if (self.Nk1==0): # bin to sph
@@ -308,7 +318,10 @@ class cosmo_stats(object):
         
     def generate_box(self):
         """
-        philosophy: generate a box that comprises a random realization of a known power spectrum
+        philosophy: 
+        * generate a box that comprises a random realization of a known power spectrum
+        * this always generates a "pristine" box and stores it in self.T_pristine
+        * if primary_beam is not None, self.T_beamed is also populated
         """
         assert(self.Nvox>=self.Nk0), "Nvox>=Nbins is baked into the code for now. I'll circumvent this with interpolation later, but, for now, do you really even want Nvox<Nbins?"
         if (self.P_fid is None):
@@ -334,14 +347,17 @@ class cosmo_stats(object):
         
         T_tilde=T_tilde_Re+1j*T_tilde_Im # have not yet applied the symmetry that ensures T is real-valued 
         T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvox),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: shiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
-        self.T=T
+        self.T_pristine=T
+
+        if self.primary_beam is not None:
+            self.T_primary=T*self.evaled_primary
 
     def avg_realizations(self):
         assert(self.P_fid is not None), "cannot average over numerically windowed realizations without a fiducial power spec"
         self.not_converged=True
         i=0
         while (self.not_converged and i<self.realization_ceiling):
-            self.generate_box()      # generates a new T realization from self.P_fid and stores it in self.T
+            self.generate_box()      # generates a new T realization from self.P_fid and stores it in self.T (overwrites whatever was there before, but this isn't a problem, because each T calc is just a random realization)
             self.generate_P()        # appends a P realization to self.P_realizations
             self.check_convergence() # updates self.not_converged
             i+=1
@@ -370,4 +386,4 @@ class cosmo_stats(object):
             figure_of_merit=prefac*np.std(arr_realiz_holder[0,0,:],ddof=1)/np.std(arr_realiz_holder[0,0,:-1],ddof=1) # idem
         else:
             raise NotYetImplementedError
-        self.not_converged=(figure_of_merit<self.frac_tol)
+        self.not_converged=((figure_of_merit-1.)<self.frac_tol)
