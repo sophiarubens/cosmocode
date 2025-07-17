@@ -3,11 +3,12 @@ from scipy.interpolate import interpn,interp1d
 from numpy.fft import fftshift,ifftshift,fftn,irfftn,fftfreq
 
 """
-this module helps connect ensemble-averaged power spectrum estimates 
-and cosmological brighness temperature boxes for three main use cases:
+this module helps connect ensemble-averaged power spectrum estimates and 
+cosmological brighness temperature boxes for assorted interconnected use cases:
 1. generate a power spectrum that describes the statistics of a cosmo box
 2. generate realizations of a cosmo box consistent with a known power spectrum
-3. interpolate a power spectrum
+3. iterate power spec calcs from different box realizations until convergence
+4. interpolate a power spectrum
 """
 
 pi=np.pi
@@ -17,13 +18,13 @@ maxint=   np.iinfo(np.int64  ).max
 
 class ResolutionError(Exception):
     pass
-class NotYetImplementedError(Exception):
-    pass
 class UnsupportedBinningMode(Exception):
     pass
 class UnsupportedPrimaryBeamType(Exception):
     pass
 class NotEnoughInfoError(Exception):
+    pass
+class NotYetImplementedError(Exception):
     pass
 class ConflictingInfoError(Exception): # make these inherit from each other (or something) to avoid repetitive code
     pass
@@ -32,55 +33,57 @@ def extrapolation_warning(regime,want,have):
     return None
 
 class cosmo_stats(object):
-    def __init__(self,Lsurvey,T=None,P=None,Nvox=None,primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian"):
+    def __init__(self,
+                 Lsurvey,                                                                # nonnegotiable for box->spec and spec->box calcs
+                 T=None,P_fid=None,Nvox=None,                                            # need one of either T or P to get started; I also check for any conflicts with Nvox
+                 primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian",  # primary beam considerations
+                 Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations
+                 realization_ceiling=50,frac_tol=0.05                                    # max number of realizations
+                 ):                                                                      # implement later: synthesized beam considerations
         """
-        Lsurvey           = float                      :: side length of cosmo box       :: Mpc
-        T                 = (Nvox,Nvox,Nvox) floats    :: cosmo box                      :: K
-        P                 = if Nk1=0: (Nk0,) floats    :: sph... binned power spectrum   :: K^2 Mpc^3
-                            if Nk1>0: (Nk0,Nk1) floats :: cyl... "                     " ::
-        Nvox              = float                      :: # voxels PER SIDE of cosmo box :: ---
-        primary_beam      = callable                   :: power beam in Cartesian coords :: ---
-        primary_beam_args = tuple of floats            :: Gaussian: "μ"s and "σ"s        :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
-        primary_beam_type = string                     :: implement later: Airy etc.     :: ---
+        Lsurvey           :: float                      :: side length of cosmo box       :: Mpc
+        T                 :: (Nvox,Nvox,Nvox) floats    :: cosmo box                      :: K
+        P_fid             :: if Nk1=0: (Nk0,) floats    :: sph binned power spectrum      :: K^2 Mpc^3
+                             if Nk1>0: (Nk0,Nk1) floats    cyl "                   "       
+        P_realizations    :: list of obj w/ P_fid.shape :: power specs for dif            :: idem ^
+                                                           realizations of a cosmo box 
+        P_converged       :: same as that of P_fid      :: average of P_realizations      :: idem ^
+        Nvox              :: float                      :: # voxels PER SIDE of cosmo box :: ---
+        primary_beam      :: callable                   :: power beam in Cartesian coords :: ---
+        primary_beam_args :: tuple of floats            :: Gaussian: "μ"s and "σ"s        :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
+        primary_beam_type :: string                     :: implement later: Airy etc.     :: ---
+        Nk0, Nk1          :: int                        :: # power spec bins for axis 0/1 :: ---
         """
-        self.Lsurvey=Lsurvey
-
         # spectrum and box
-        if ((T==None) and ((Nvox==None) or (P==None))):
+        self.Lsurvey=Lsurvey
+        self.P_realizations=[]
+        self.P_converged=None
+        if ((T is None) and (P_fid is None)):                           # must start with either a box or a fiducial power spec
             raise NotEnoughInfoError
-        else:
+        elif ((P_fid is not None) and (T is None) and (Nvox is None)): # to generate boxes from a power spec, il faut some way of determining how many voxels to use per side
+            raise NotEnoughInfoError
+        else:                                                           # there is possibly enough info to proceed, but still need to check for conflicts
             self.T=T
-            if ((Nvox is not None) and (Nvox!=T.shape[0])):
-                raise ConflictingInfoError
-            else:
+            if ((Nvox is not None) and (T is not None)):                # possible conflict: if both Nvox and a box are passed, 
+                if (Nvox!=T.shape[0]):                                  # but Nvox and the box shape disagree,
+                    raise ConflictingInfoError                          # estamos en problemas
+                else:
+                    self.Nvox=self.T.shape[0]                           # otherwise, initialize the Nvox attribute
+            elif (Nvox is not None):                                    # if Nvox was passed but T was not, use Nvox to initialize the Nvox attribute
+                self.Nvox=Nvox
+            else:                                                       # remaining case: T was passed but Nvox was not, so use the shape of T to initialize the Nvox attribute
                 self.Nvox=self.T.shape[0]
             
-            if (P is not None):
-                Pshape=P.shape
-                Pdims=len(Pshape)
-                if (Pdims==2):
-                    self.Nk0,self.Nk1=Pshape # interpret as kpar,kperp, but use index-y nomenclature
-                elif (Pdims==1):
-                    self.Nk0=Pshape
-                    self.Nk1=0
+            if (P_fid is not None): # no problem if the fiducial power spectrum has a different dimensionality or bin width than the realizations you generate
+                Pfidshape=P_fid.shape
+                Pfiddims=len(Pfidshape)
+                if (Pfiddims==2):
+                    raise NotYetImplementedError
+                elif (Pfiddims==1):
+                    self.fid_Nk0=Pfidshape
+                    self.fid_Nk1=0
                 else:
                     raise UnsupportedBinningMode
-
-        # primary beam
-        self.primary_beam=primary_beam
-        self.primary_beam_args=primary_beam_args
-        self.primary_beam_type=primary_beam_type
-        if (self.primary_beam is not None):
-            if self.primary_beam_type=="Gaussian":
-                self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.custom_estimator_args
-                self.evaled_response=self.primary_beam(self.xx_grid,self.yy_ygrid,self.zz_zgrid,self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0)
-            else:
-                UnsupportedPrimaryBeamType
-            self.Veff=np.sum(self.evaled_response*self.d3r) # rectangular sum method
-            self.evaled_response[self.evaled_response==0]=maxfloat # protect against division-by-zero errors
-        else: # identity primary beam
-            self.Veff=self.Lsurvey**3
-            self.evaled_response=np.ones((self.Nvox,self.Nvox,self.Nvox))
         
         # config space
         self.Delta=self.Lsurvey/self.Nvox                            # voxel side length
@@ -101,17 +104,55 @@ class cosmo_stats(object):
                                                            self.k_vec_for_box,
                                                            indexing="ij")      # box-shaped Cartesian coords   
         
-            # sph binning
+        # bins
+        self.binning_mode=binning_mode
+        self.Nk0=Nk0 # the number of bins to put in power spec realizations you construct (ok if not the same as the number of bins in the fiducial power spec)
+        self.Nk1=Nk1
+        self.kmax_box=   pi/self.Delta
+        self.kmin_box=twopi/self.Lsurvey
+        self.k0bins,self.limiting_spacing_0=self.calc_bins(self.Nk0)
+        if self.limiting_spacing_0<self.Deltak: # trying to bin more finely than the box can tell you about (guaranteed to have >=1 empty bin)
+            raise ResolutionError
+        
+        if (self.Nk1>0):
+            self.k1bins,self.limiting_spacing_1=self.calc_bins(self.Nk1)
+            if (self.limiting_spacing_1<self.Deltak): # idem ^
+                raise ResolutionError
+        else:
+            self.k1bins=None
+        
+            # voxel grids for sph binning
         self.k_grid=      np.sqrt(self.kx_grid**2+self.ky_grid**2+self.kz_grid**2)   # k magnitudes for each voxel
         self.sph_bin_indices=      np.digitize(self.k_grid,self.k0bins)              # sph bin that each voxel falls into
         self.sph_bin_indices_1d=   np.reshape(self.sph_bin_indices, (self.Nvox**3,)) # 1d version of ^ (compatible with np.bincount)
 
-            # cyl binning
-        self.kpar_column= np.abs(self.k_vec_for_box)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
-        self.kperp_slice= np.sqrt(self.kx_grid**2+self.ky_grid**2)[:,:,0]                     # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
-        self.perpbin_indices_slice=    np.digitize(self.kperp_slice,self.k1bins)              # cyl kperp bin that each voxel falls into
-        self.perpbin_indices_slice_1d= np.reshape(self.perpbin_indices_slice,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
-        self.parbin_indices_column=    np.digitize(self.kpar_column,self.k0bins)              # cyl kpar bin that each voxel falls into
+            # voxel grids for cyl binning
+        if (self.Nk1>0):
+            self.kpar_column= np.abs(self.k_vec_for_box)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
+            self.kperp_slice= np.sqrt(self.kx_grid**2+self.ky_grid**2)[:,:,0]                     # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
+            self.perpbin_indices_slice=    np.digitize(self.kperp_slice,self.k1bins)              # cyl kperp bin that each voxel falls into
+            self.perpbin_indices_slice_1d= np.reshape(self.perpbin_indices_slice,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
+            self.parbin_indices_column=    np.digitize(self.kpar_column,self.k0bins)              # cyl kpar bin that each voxel falls into
+
+        # primary beam
+        self.primary_beam=primary_beam
+        self.primary_beam_args=primary_beam_args
+        self.primary_beam_type=primary_beam_type
+        if (self.primary_beam is not None): # non-identity primary beam
+            if self.primary_beam_type=="Gaussian":
+                self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
+                self.evaled_response=self.primary_beam(self.xx_grid,self.yy_grid,self.zz_grid,self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0)
+            else:
+                UnsupportedPrimaryBeamType
+            self.Veff=np.sum(self.evaled_response*self.d3r)        # rectangular sum method
+            self.evaled_response[self.evaled_response==0]=maxfloat # protect against division-by-zero errors
+        else:                               # identity primary beam
+            self.Veff=self.Lsurvey**3
+            self.evaled_response=np.ones((self.Nvox,self.Nvox,self.Nvox))
+        
+        # considerations for averaging over realizations
+        self.realization_ceiling=realization_ceiling
+        self.frac_tol=frac_tol
 
         # placeholders (pre-condition the warnings)
         self.k0bins=None
@@ -123,47 +164,30 @@ class cosmo_stats(object):
         self.P_interp=None
 
     def calc_bins(self,Nki):
-        kmax=pi/self.Delta # no factor of two = handle the k-coordinate +/- in the box (limits the upper bound on which coordinate magnitudes the box can tell you about)
-        kmin=twopi/self.Lsurvey
-
+        """
+        philosophy: generate a set of bins spaced according to the desired scheme with max and min
+        """
         if (self.binning_mode=="log"):
-            kbins=np.logspace(np.log10(kmin),np.log10(kmax),num=Nki)
-            limiting_spacing=twopi*(10.**(kmax)-10.**(kmax-(np.log10(self.Nvox)/Nki)))
+            kbins=np.logspace(np.log10(self.kmin_box),np.log10(self.kmax_box),num=Nki)
+            limiting_spacing=twopi*(10.**(self.kmax_box)-10.**(self.kmax_box-(np.log10(self.Nvox)/Nki)))
         elif (self.binning_mode=="lin"):
-            kbins=np.linspace(kmin,kmax,Nki)
+            kbins=np.linspace(self.kmin_box,self.kmax_box,Nki)
             limiting_spacing=twopi*(0.5*self.Nvox-1)/(Nki) # version for a kmax that is "aware that" there are +/- k-coordinates in the box
         else:
             raise UnsupportedBinningMode
         return kbins,limiting_spacing # kbins            -> floors of the bins to which the power spectrum will be binned (along one axis)
                                       # limiting_spacing -> smallest spacing between adjacent bins (uniform if linear; otherwise, depends on the binning strategy)
-    
-    def establish_bins(self):
-        self.k0bins,self.limiting_spacing_0=self.calc_bins(self.Nk0)
-        if self.limiting_spacing_0<self.deltak_box: # trying to bin more finely than the box can tell you about (guaranteed to have >=1 empty bin)
-            raise ResolutionError
-        
-        if (self.Nk1>0):
-            self.k1bins,self.limiting_spacing_1=self.calc_bins(self.Nk1)
-            if (self.limiting_spacing_1<self.deltak_box): # idem ^
-                raise ResolutionError
-        else:
-            self.k1bins=None
             
-    def generate_P(self,Nk0,Nk1=0,binning_mode="lin"): # need to make sure this is only called when 
-        if (Nk0!=self.Nk0):
-            print("WARNING: overwriting Nk0 from init:"+str(self.Nk0)+" -> "+str(Nk0)+" (bins, P will also change)")
-        if (Nk1!=self.Nk1):
-            print("WARNING: overwriting Nk1 from init:"+str(self.Nk1)+" -> "+str(Nk1)+" (bins, P will also change)")
+    def generate_P(self):
+        """
+        philosophy: 
+        * compute the power spectrum of a known cosmological box and bin it spherically or cylindrically
+        * append to the list of reconstructed P realizations (self.P_realizations)
+        """
         if (self.T==None):
             raise NotEnoughInfoError # can't calculate a power spectrum if no box is present
-        if (self.P is not None):
-            print("WARNING: overwriting P")
-        
-        self.Nk0=Nk0
-        self.Nk1=Nk1
-        self.binning_mode=binning_mode
-        self.establish_bins()
 
+        
         T_no_primary_beam=  self.T/self.evaled_response
         T_tilde=            fftshift(fftn((ifftshift(T_no_primary_beam)*self.d3r)))
         modsq_T_tilde=     (T_tilde*np.conjugate(T_tilde)).real
@@ -176,17 +200,17 @@ class cosmo_stats(object):
                                            minlength=self.Nk0)       # for the ensemble avg: sum    of modsq_T_tilde values in each bin
             N_modsq_T_tilde=   np.bincount(self.sph_bin_indices_1d,
                                            minlength=self.Nk0)       # for the ensemble avg: number of modsq_T_tilde values in each bin
-            sum_modsq_T_tilde_truncated=sum_modsq_T_tilde[:-1]
-            N_modsq_T_tilde_truncated=  N_modsq_T_tilde[:-1]
+            sum_modsq_T_tilde_truncated=sum_modsq_T_tilde[:-1]       # excise sneaky corner modes: I devised my binning to only tell me about voxels w/ k<=(the largest sphere fully enclosed by the box), and my bin edges are floors. But, the highest floor corresponds to the point of intersection of the box and this largest sphere. To stick to my self-imposed "the stats are not good enough in the corners" philosophy, I must explicitly set aside the voxels that fall into the "catchall" uppermost bin. 
+            N_modsq_T_tilde_truncated=  N_modsq_T_tilde[:-1]         # idem ^
         else:             # bin to cyl
             sum_modsq_T_tilde= np.zeros((self.Nk0+1,self.Nk1+1)) # for the ensemble avg: sum    of modsq_T_tilde values in each bin  ...upon each access, update the kparBIN row of interest, but all Nkperp columns
             N_modsq_T_tilde=   np.zeros((self.Nk0+1,self.Nk1+1)) # for the ensemble avg: number of modsq_T_tilde values in each bin
             for i in range(self.Nvox): # iterate over the kpar axis of the box to capture all LoS slices
                 if (i==0): # stats for the representative "bull's eye" slice transverse to the LoS
                     slice_bin_counts=np.bincount(self.perpbin_indices_slice_1d, minlength=self.Nk1)
-                modsq_T_tilde_slice= modsq_T_tilde[:,:,i]                    # take the slice of interest of the preprocessed box values !! still treating kpar as z-like
+                modsq_T_tilde_slice= modsq_T_tilde[:,:,i]                    # take the slice of interest of the preprocessed box values !!kpar is z-like
                 modsq_T_tilde_slice_1d= np.reshape(modsq_T_tilde_slice, 
-                                                   (self.Nvox**2,))          # reshape to 1D for bincount compatibility
+                                                   (self.Nvox**2,))          # 1d for bincount compatibility
                 current_binsums= np.bincount(self.perpbin_indices_slice_1d,
                                              weights=modsq_T_tilde_slice_1d, 
                                              minlength=self.Nk1)             # this slice's update to the numerator of the ensemble average
@@ -195,14 +219,14 @@ class cosmo_stats(object):
                 sum_modsq_T_tilde[current_par_bin,:]+= current_binsums  # update the numerator   of the ensemble avg
                 N_modsq_T_tilde[  current_par_bin,:]+= slice_bin_counts # update the denominator of the ensemble avg
             
-            sum_modsq_T_tilde_truncated= sum_modsq_T_tilde[:-1,:-1]
-            N_modsq_T_tilde_truncated=   N_modsq_T_tilde[  :-1,:-1]
+            sum_modsq_T_tilde_truncated= sum_modsq_T_tilde[:-1,:-1] # excise sneaky corner modes (see the analogous operation in the sph branch for an explanation)
+            N_modsq_T_tilde_truncated=   N_modsq_T_tilde[  :-1,:-1] # idem ^
 
-        N_modsq_T_tilde_truncated[N_modsq_T_tilde_truncated==0]=maxint # avoid nans
+        N_modsq_T_tilde_truncated[N_modsq_T_tilde_truncated==0]=maxint # avoid division-by-zero errors during the division the estimator demands
 
         avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/N_modsq_T_tilde_truncated
         P=np.array(avg_modsq_T_tilde/self.Veff)
-        self.P=P
+        self.P_realizations.append(P) # prevent overwriting errors
 
     def interpolate_P(self,k_want,avoid_extrapolation=True):
         """
@@ -250,32 +274,68 @@ class cosmo_stats(object):
             P_interpolator=interp1d(self.k0bins,self.P,kind="cubic",bounds_error=avoid_extrapolation,fill_value="extrapolate")
             self.P_interp=P_interpolator(self.k0bins_interp)
         
-        def generate_box(self):
-            assert(self.Nvox>=self.Nk0), "Nvox>=Nbins is baked into the code for now. I'll circumvent this with interpolation later, but, for now, do you really even want Nvox<Nbins?"
-            if (self.P==None):
-                raise NotEnoughInfoError
-            if (self.Nk1>0):
-                raise UnsupportedBinningMode # for now, I can only generate a box from a spherically binned power spectrum
-            # not warning abt potentially overwriting T -> the only case where info would be lost is where self.P==None, and I already have a separate warning for that
-            
-            sigmas=np.sqrt(self.Veff*self.P/2) # from inverting the estimator equation and turning variances into std devs
-            sigmas=np.reshape(sigmas,(self.Nbins,))
-            T_tilde_Re=np.zeros((self.Nvox,self.Nvox,self.Nvox))
-            T_tilde_Im=np.zeros((self.Nvox,self.Nvox,self.Nvox))
+    def generate_box(self):
+        """
+        philosophy: generate a box that comprises a random realization of a known power spectrum
+        """
+        assert(self.Nvox>=self.Nk0), "Nvox>=Nbins is baked into the code for now. I'll circumvent this with interpolation later, but, for now, do you really even want Nvox<Nbins?"
+        if (self.P_fid==None):
+            raise NotEnoughInfoError
+        if (self.Nk1>0):
+            raise UnsupportedBinningMode # for now, I can only generate a box from a spherically binned power spectrum
+        # not warning abt potentially overwriting T -> the only case where info would be lost is where self.P==None, and I already have a separate warning for that
+        
+        sigmas=np.sqrt(self.Veff*self.P_fid/2) # from inverting the estimator equation and turning variances into std devs
+        sigmas=np.reshape(sigmas,(self.Nbins,))
+        T_tilde_Re=np.zeros((self.Nvox,self.Nvox,self.Nvox))
+        T_tilde_Im=np.zeros((self.Nvox,self.Nvox,self.Nvox))
 
-            for i,sig in enumerate(sigmas):
-                i_eq_bin_indices=i==self.sph_bin_indices              # mask: voxels that fall into the bin under consideration during this iteration
-                here=np.nonzero(i_eq_bin_indices)                     # all box indices where the corresponding bin index is the ith bin floor (iterable)
-                num_here=len(np.argwhere(i_eq_bin_indices))           # number of voxels in the bin currently under consideration
-                samps_Re=np.random.normal(scale=sig,size=(num_here,)) # samples for filling the current bin
-                samps_Im=np.random.normal(scale=sig,size=(num_here,))
-                if (num_here>0):
-                    T_tilde_Re[here]=samps_Re
-                    T_tilde_Im[here]=samps_Im
-            
-            T_tilde=T_tilde_Re+1j*T_tilde_Im # have not yet applied the symmetry that ensures T is real-valued 
-            T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvox),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: shiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
-            self.T=T
+        for i,sig in enumerate(sigmas):
+            i_eq_bin_indices=i==self.sph_bin_indices              # mask: voxels that fall into the bin under consideration during this iteration
+            here=np.nonzero(i_eq_bin_indices)                     # all box indices where the corresponding bin index is the ith bin floor (iterable)
+            num_here=len(np.argwhere(i_eq_bin_indices))           # number of voxels in the bin currently under consideration
+            samps_Re=np.random.normal(scale=sig,size=(num_here,)) # samples for filling the current bin
+            samps_Im=np.random.normal(scale=sig,size=(num_here,))
+            if (num_here>0):
+                T_tilde_Re[here]=samps_Re
+                T_tilde_Im[here]=samps_Im
+        
+        T_tilde=T_tilde_Re+1j*T_tilde_Im # have not yet applied the symmetry that ensures T is real-valued 
+        T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvox),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: shiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
+        self.T=T
 
-        def avg_realizations(self):
-            assert(self.P is not None), ""
+    def avg_realizations(self):
+        assert(self.P_fid is not None), "cannot average over numerically windowed realizations without a fiducial power spec"
+        self.not_converged=True
+        i=0
+        while (self.not_converged and i<self.realization_ceiling):
+            self.generate_box()      # generates a new T realization from self.P_fid and stores it in self.T
+            self.generate_P()        # appends a P realization to self.P_realizations
+            self.check_convergence() # updates self.not_converged
+            i+=1
+
+        arr_realiz_holder=np.array(self.P_realizations)
+        if (i>1):
+            self.P_converged=np.mean(arr_realiz_holder,axis=-1)
+        else:
+            self.P_converged=np.reshape(arr_realiz_holder,(self.fid_Nk0,))
+        self.num_realiz_evaled=i # not called anything to the effect of "num_realiz_converged" bc it might not have converged if i hit the realization ceiling
+
+    def check_convergence(self):
+        """
+        figure_of_merit is the ratio between the sample stddevs for ensembles containing the (0th through [n-1]st) and (0th through nth) realizations
+        if the ensemble average has converged, adding the nth realization shouldn't change the variance that much--hence examining the ratio
+        (but the scientifically rigorous thing to compare is the std dev of mean, which has the extra 1/sqrt(i))
+        """
+        arr_realiz_holder=np.array(self.P_realizations)
+        arr_realiz_holder_shape=arr_realiz_holder.shape
+        _,_,n=arr_realiz_holder_shape
+        ndims=len(arr_realiz_holder_shape)
+        prefac=np.sqrt((n-1)/n)
+        if ndims==2:
+            figure_of_merit=prefac*np.std(arr_realiz_holder[0,:],ddof=1)/np.std(arr_realiz_holder[0,:-1],ddof=1)     # cosmic variance dominates the scatter between realizations, so focus on that, instead of more specific (and computationally intensive...) .any() or .all() comparisons
+        elif ndims==3:
+            figure_of_merit=prefac*np.std(arr_realiz_holder[0,0,:],ddof=1)/np.std(arr_realiz_holder[0,0,:-1],ddof=1) # idem
+        else:
+            raise NotYetImplementedError
+        self.not_converged=(figure_of_merit<self.frac_tol)
