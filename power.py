@@ -72,16 +72,29 @@ def P_driver(T, k, Lsurvey, primary_beam=False,primary_beam_args=False):
         evaled_response=np.ones((Nvox,Nvox,Nvox))
     else:                 # non-identity primary beam
         Veff,evaled_response=get_Veff(primary_beam,primary_beam_args,Lsurvey,Nvox)
-        evaled_response[evaled_response==0]=maxfloat
-        # overwrite_condition=evaled_response==0
-        # num_to_overwrite=np.sum(overwrite_condition)
-        # draws_to_overwrite_with=np.random.randn(num_to_overwrite)
-        # evaled_response[overwrite_condition]=draws_to_overwrite_with
 
-    # print("P_driver: Veff=", Veff)
+        ##
+        with open("evaled_resp_pre_overwrite_non_class.txt", "w") as f:
+            for i, slice2d in enumerate(evaled_response):
+                np.savetxt(f, slice2d, fmt="%2d")
+                if i < Nvox - 1: # white space between slices
+                    f.write("\n")
+        ##
+
+        evaled_response[evaled_response==0]=maxfloat
+
+        ##
+        with open("evaled_resp_post_overwrite_non_class.txt", "w") as f:
+            for i, slice2d in enumerate(evaled_response):
+                np.savetxt(f, slice2d, fmt="%5.2e")
+                if i < Nvox - 1: # white space between slices
+                    f.write("\n")
+        ##
 
     # process the box values
+    print("T.min(),T.max(),np.abs(T).min(),np.abs(T).max()=",T.min(),T.max(),np.abs(T).min(),np.abs(T).max())
     T_no_primary_beam=T/evaled_response
+    print("T_no_primary_beam.min(),T_no_primary_beam.max(),np.abs(T_no_primary_beam).min(),np.abs(T_no_primary_beam).max()=",T_no_primary_beam.min(),T_no_primary_beam.max(),np.abs(T_no_primary_beam).min(),np.abs(T_no_primary_beam).max())
     T_tilde=        fftshift(fftn((ifftshift(T_no_primary_beam)*d3r)))
     modsq_T_tilde= (T_tilde*np.conjugate(T_tilde)).real
 
@@ -103,22 +116,6 @@ def P_driver(T, k, Lsurvey, primary_beam=False,primary_beam_args=False):
         N_modsq_T_tilde=   np.bincount(bin_indices_1d,                         minlength=Nk) # for the ensemble average: number of modsq_T_tilde values in each bin
         sum_modsq_T_tilde_truncated=sum_modsq_T_tilde[:-1]
         N_modsq_T_tilde_truncated=N_modsq_T_tilde[:-1]
-
-        # ##
-        # # try to manually override lost power... might not be as mathematically motivated as I'd hope
-        # N_voxels_per_bin=np.zeros(Nk)
-        # N_voxels_per_bin_masked=np.zeros(Nk)
-        # bin_indices_masked=np.copy(bin_indices)            # start with the original bin indices
-        # bin_indices_masked[evaled_response==maxfloat]=Nk+1 # rename voxels where the primary beam was originally effectively zero s.t. they will not be counted in the Nk loop
-        # for i in range(Nk):
-        #     N_voxels_per_bin[i]=       len(np.unique(k_box[bin_indices==       i]))
-        #     N_voxels_per_bin_masked[i]=len(np.unique(k_box[bin_indices_masked==i]))
-        # # print("N_voxels_per_bin=       ",N_voxels_per_bin)
-        # # print("N_voxels_per_bin_masked=",N_voxels_per_bin_masked)
-        # # print("N_voxels_per_bin_masked/N_voxels_per_bin=",N_voxels_per_bin_masked/N_voxels_per_bin)
-        # underest_factor=N_voxels_per_bin_masked/N_voxels_per_bin
-        # sum_modsq_T_tilde_truncated*=(underest_factor**2)
-        # ##
 
     elif (binto=="cyl"): # kpar is z-like
         kpar,kperp=k # kpar being unpacked first here DOES NOT change my treatment of kpar as a z-like coordinate in 3D arrays (look at these lines to re-convince myself: kperpmags=, modsq_T_tilde_slice=,...)
@@ -212,44 +209,44 @@ def generate_P(T, mode, Lsurvey, Nk0, Nk1=0, primary_beam=False,primary_beam_arg
         kbins=k0bins
     return P_driver(T,kbins,Lsurvey,primary_beam=primary_beam,primary_beam_args=primary_beam_args)
 
-def P_avg_over_realizations(T,mode,Lsurvey,Nk0,Nk1=0,primary_beam=False,primary_beam_args=False,Nrealiz=50,fractol=0.05):
-    """
-    philosophy:
-    * compute realizations of a power spectrum and compute the ensemble average
-    * keep adding realizations until either 
-        (a) the scatter between realizations has converged to within the specified fractional tolerance
-        (b) the number of computed realizations reaches the specified ceiling
-    """
-    realization_holder=[]
-    not_converged=True
-    i=0
-    while (not_converged and i<Nrealiz):
-        k,P=generate_P(T, mode, Lsurvey, Nk0, Nk1=Nk1,primary_beam=primary_beam,primary_beam_args=primary_beam_args)
-        realization_holder.append(P)
-        not_converged=check_convergence(realization_holder,fractol=fractol)
-        i+=1
+# def P_avg_over_realizations(T,mode,Lsurvey,Nk0,Nk1=0,primary_beam=False,primary_beam_args=False,Nrealiz=50,fractol=0.05):
+#     """
+#     philosophy:
+#     * compute realizations of a power spectrum and compute the ensemble average
+#     * keep adding realizations until either 
+#         (a) the scatter between realizations has converged to within the specified fractional tolerance
+#         (b) the number of computed realizations reaches the specified ceiling
+#     """
+#     realization_holder=[]
+#     not_converged=True
+#     i=0
+#     while (not_converged and i<Nrealiz):
+#         k,P=generate_P(T, mode, Lsurvey, Nk0, Nk1=Nk1,primary_beam=primary_beam,primary_beam_args=primary_beam_args)
+#         realization_holder.append(P)
+#         not_converged=check_convergence(realization_holder,fractol=fractol)
+#         i+=1
     
-    arr_realiz_holder=np.array(realization_holder)
-    print("arr_realiz_holder.shape=",arr_realiz_holder.shape)
-    if i>1:
-        avg_over_realizations=np.mean(arr_realiz_holder,axis=-1)
-    else:
-        avg_over_realizations=np.reshape(arr_realiz_holder,P.shape)
-    return [k,avg_over_realizations],i
+#     arr_realiz_holder=np.array(realization_holder)
+#     print("arr_realiz_holder.shape=",arr_realiz_holder.shape)
+#     if i>1:
+#         avg_over_realizations=np.mean(arr_realiz_holder,axis=-1)
+#     else:
+#         avg_over_realizations=np.reshape(arr_realiz_holder,P.shape)
+#     return [k,avg_over_realizations],i
 
-def check_convergence(realization_holder,fractol=0.05): # clear candidate for minimizing redundancy by making all the initializations class attributes instead of things shuffled around between functions, but... first, I need to get all my code working :,)
-    arr_realiz_holder=np.array(realization_holder)
-    realiz_holder_shape=arr_realiz_holder.shape
-    n=realiz_holder_shape[-1] # sph binning: shape will be (Nk,Nrealiz_so_far); cyl binning: shape will be (Nkpar,Nkperp,Nrealiz_so_far)
-    ndims=len(realiz_holder_shape)
-    prefac=np.sqrt((n-1)/n)
-    if ndims==2: # both branches: figure_of_merit is the ratio between the sample stddevs for ensembles containing the (0th through [n-1]st) and (0th through nth) realizations... if the ensemble average has converged, adding the nth realization shouldn't change the variance that much--hence examining the ratio
-        figure_of_merit=prefac*np.std(arr_realiz_holder[0,:],ddof=1)/np.std(arr_realiz_holder[0,:-1],ddof=1)     # cosmic variance dominates the scatter between realizations, so focus on that, instead of more specific (and computationally intensive...) .any() or .all() comparisons
-    elif ndims==3:
-        figure_of_merit=prefac*np.std(arr_realiz_holder[0,0,:],ddof=1)/np.std(arr_realiz_holder[0,0,:-1],ddof=1) # idem
-    else:
-        assert(1==0), "binning strat not recognized (too many/few dims) --"+str(ndims)
-    return figure_of_merit<fractol
+# def check_convergence(realization_holder,fractol=0.05): # clear candidate for minimizing redundancy by making all the initializations class attributes instead of things shuffled around between functions, but... first, I need to get all my code working :,)
+#     arr_realiz_holder=np.array(realization_holder)
+#     realiz_holder_shape=arr_realiz_holder.shape
+#     n=realiz_holder_shape[-1] # sph binning: shape will be (Nk,Nrealiz_so_far); cyl binning: shape will be (Nkpar,Nkperp,Nrealiz_so_far)
+#     ndims=len(realiz_holder_shape)
+#     prefac=np.sqrt((n-1)/n)
+#     if ndims==2: # both branches: figure_of_merit is the ratio between the sample stddevs for ensembles containing the (0th through [n-1]st) and (0th through nth) realizations... if the ensemble average has converged, adding the nth realization shouldn't change the variance that much--hence examining the ratio
+#         figure_of_merit=prefac*np.std(arr_realiz_holder[0,:],ddof=1)/np.std(arr_realiz_holder[0,:-1],ddof=1)     # cosmic variance dominates the scatter between realizations, so focus on that, instead of more specific (and computationally intensive...) .any() or .all() comparisons
+#     elif ndims==3:
+#         figure_of_merit=prefac*np.std(arr_realiz_holder[0,0,:],ddof=1)/np.std(arr_realiz_holder[0,0,:-1],ddof=1) # idem
+#     else:
+#         assert(1==0), "binning strat not recognized (too many/few dims) --"+str(ndims)
+#     return figure_of_merit<fractol
 
 def interpolate_P(P_have,k_have,k_want,avoid_extrapolation=True):
     """
