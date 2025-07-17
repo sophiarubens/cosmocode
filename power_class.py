@@ -108,13 +108,18 @@ class cosmo_stats(object):
         self.r_grid=np.sqrt(self.xx_grid**2+self.yy_grid**2+self.zz_grid**2)   # r magnitudes at each voxel
 
         # Fourier space
-        self.Deltak=twopi/self.Lsurvey                                     # voxel side length
-        self.d3k=self.Deltak**3                                            # volume element / voxel volume
-        self.k_vec_for_box=twopi*fftshift(fftfreq(self.Nvox,d=self.Delta))     # one Cartesian coordinate axis
-        self.kx_grid,self.ky_grid,self.kz_grid=np.meshgrid(self.k_vec_for_box,
-                                                           self.k_vec_for_box,
-                                                           self.k_vec_for_box,
-                                                           indexing="ij")      # box-shaped Cartesian coords   
+        self.Deltak=twopi/self.Lsurvey                                  # voxel side length
+        self.d3k=self.Deltak**3                                         # volume element / voxel volume
+        self.k_vec_for_box_corner=twopi*fftfreq(self.Nvox,d=self.Delta) # one Cartesian coordinate axis - non-fftshifted/ corner origin
+        self.k_vec_for_box_centre=fftshift(self.k_vec_for_box_corner)   # one Cartesian coordinate axis -     fftshifted/ centre origin
+        self.kx_grid_corner,self.ky_grid_corner,self.kz_grid_corner=np.meshgrid(self.k_vec_for_box_corner,
+                                                                                self.k_vec_for_box_corner,
+                                                                                self.k_vec_for_box_corner,
+                                                                                indexing="ij")              # box-shaped Cartesian coords
+        self.kx_grid_centre,self.ky_grid_centre,self.kz_grid_centre=np.meshgrid(self.k_vec_for_box_centre,
+                                                                                self.k_vec_for_box_centre,
+                                                                                self.k_vec_for_box_centre,
+                                                                                indexing="ij")
         
         # sensible bins according to the limits of the box
         self.binning_mode=binning_mode
@@ -134,17 +139,26 @@ class cosmo_stats(object):
             self.k1bins=None
         
             # voxel grids for sph binning
-        self.k_grid=      np.sqrt(self.kx_grid**2+self.ky_grid**2+self.kz_grid**2)   # k magnitudes for each voxel
-        self.sph_bin_indices=      np.digitize(self.k_grid,self.k0bins)              # sph bin that each voxel falls into
-        self.sph_bin_indices_1d=   np.reshape(self.sph_bin_indices, (self.Nvox**3,)) # 1d version of ^ (compatible with np.bincount)
+        self.k_grid_corner=               np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2+self.kz_grid_corner**2)   # k magnitudes for each voxel
+        self.sph_bin_indices_corner=      np.digitize(self.k_grid_corner,self.k0bins)                                     # sph bin that each voxel falls into
+        self.k_grid_centre=               np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)   # same thing but fftshifted/ centre-origin
+        self.sph_bin_indices_centre=      np.digitize(self.k_grid_centre,self.k0bins)
+        self.sph_bin_indices_1d_corner=   np.reshape(self.sph_bin_indices_corner, (self.Nvox**3,)) # 1d version of ^ (compatible with np.bincount)
+        self.sph_bin_indices_1d_centre=   np.reshape(self.sph_bin_indices_centre, (self.Nvox**3,))
 
             # voxel grids for cyl binning
         if (self.Nk1>0):
-            self.kpar_column= np.abs(self.k_vec_for_box)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
-            self.kperp_slice= np.sqrt(self.kx_grid**2+self.ky_grid**2)[:,:,0]                     # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
-            self.perpbin_indices_slice=    np.digitize(self.kperp_slice,self.k1bins)              # cyl kperp bin that each voxel falls into
-            self.perpbin_indices_slice_1d= np.reshape(self.perpbin_indices_slice,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
-            self.parbin_indices_column=    np.digitize(self.kpar_column,self.k0bins)              # cyl kpar bin that each voxel falls into
+            self.kpar_column_corner= np.abs(self.k_vec_for_box_corner)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
+            self.kperp_slice_corner= np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2)[:,:,0]              # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
+            self.perpbin_indices_slice_corner=    np.digitize(self.kperp_slice_corner,self.k1bins)              # cyl kperp bin that each voxel falls into
+            self.perpbin_indices_slice_1d_corner= np.reshape(self.perpbin_indices_slice_corner,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
+            self.parbin_indices_column_corner=    np.digitize(self.kpar_column_corner,self.k0bins)              # cyl kpar bin that each voxel falls into
+
+            self.kpar_column_centre= np.abs(self.k_vec_for_box_centre)
+            self.kperp_slice_centre= np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2)[:,:,0]
+            self.perpbin_indices_slice_centre=    np.digitize(self.kperp_slice_centre,self.k1bins)
+            self.perpbin_indices_slice_1d_centre= np.reshape(self.perpbin_indices_slice_centre,(self.Nvox**2,))
+            self.parbin_indices_column_centre=    np.digitize(self.kpar_column_centre,self.k0bins)
 
         # primary beam
         self.primary_beam=primary_beam
@@ -155,24 +169,7 @@ class cosmo_stats(object):
                 self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
                 self.evaled_response=self.primary_beam(self.xx_grid,self.yy_grid,self.zz_grid,self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0) # custom_response(X,Y,Z,sigLoS,beamfwhm_x,beamfwhm_y,r0)
                 self.Veff=np.sum(self.evaled_response*self.d3r)        # rectangular sum method
-                print("__init__, before overwriting for protection against division-by-zero errors:")
-                print("self.evaled_response.min(),self.evaled_response.max()=",self.evaled_response.min(),self.evaled_response.max())
-
-                ##
-                with open("evaled_resp_pre_overwrite_class.txt", "w") as f:
-                    for i, slice2d in enumerate(self.evaled_response):
-                        np.savetxt(f, slice2d, fmt="%2d")
-                        if i < Nvox - 1: # white space between slices
-                            f.write("\n")
-                ##
                 self.evaled_response[self.evaled_response==0]=maxfloat # protect against division-by-zero errors
-                ##
-                with open("evaled_resp_post_overwrite_class.txt", "w") as f:
-                    for i, slice2d in enumerate(self.evaled_response):
-                        np.savetxt(f, slice2d, fmt="%2d")
-                        if i < Nvox - 1: # white space between slices
-                            f.write("\n")
-                ##
             else:
                 UnsupportedPrimaryBeamType
         else:                               # identity primary beam
@@ -226,20 +223,13 @@ class cosmo_stats(object):
         T_tilde=            fftshift(fftn((ifftshift(T_no_primary_beam)*self.d3r)))
         modsq_T_tilde=     (T_tilde*np.conjugate(T_tilde)).real
 
-        print("generate_P - why is my overflow protection getting bypassed?")
-        print("self.evaled_response.min(),self.evaled_response.max()=",self.evaled_response.min(),self.evaled_response.max())
-        print("self.T.min(),self.T.max()=",self.T.min(),self.T.max())
-        print("T_no_primary_beam.min(),T_no_primary_beam.max()=",T_no_primary_beam.min(),T_no_primary_beam.max())
-        print("T_tilde.min(),T_tilde.max()=",T_tilde.min(),T_tilde.max())
-        print("modsq_T_tilde.min(),modsq_T_tilde.max()=",modsq_T_tilde.min(),modsq_T_tilde.max())
-
         if (self.Nk1==0): # bin to sph
             modsq_T_tilde_1d= np.reshape(modsq_T_tilde,    (self.Nvox**3,))
 
-            sum_modsq_T_tilde= np.bincount(self.sph_bin_indices_1d, 
+            sum_modsq_T_tilde= np.bincount(self.sph_bin_indices_1d_centre, 
                                            weights=modsq_T_tilde_1d, 
                                            minlength=self.Nk0)       # for the ensemble avg: sum    of modsq_T_tilde values in each bin
-            N_modsq_T_tilde=   np.bincount(self.sph_bin_indices_1d,
+            N_modsq_T_tilde=   np.bincount(self.sph_bin_indices_1d_centre,
                                            minlength=self.Nk0)       # for the ensemble avg: number of modsq_T_tilde values in each bin
             sum_modsq_T_tilde_truncated=sum_modsq_T_tilde[:-1]       # excise sneaky corner modes: I devised my binning to only tell me about voxels w/ k<=(the largest sphere fully enclosed by the box), and my bin edges are floors. But, the highest floor corresponds to the point of intersection of the box and this largest sphere. To stick to my self-imposed "the stats are not good enough in the corners" philosophy, I must explicitly set aside the voxels that fall into the "catchall" uppermost bin. 
             N_modsq_T_tilde_truncated=  N_modsq_T_tilde[:-1]         # idem ^
@@ -248,11 +238,11 @@ class cosmo_stats(object):
             N_modsq_T_tilde=   np.zeros((self.Nk0+1,self.Nk1+1)) # for the ensemble avg: number of modsq_T_tilde values in each bin
             for i in range(self.Nvox): # iterate over the kpar axis of the box to capture all LoS slices
                 if (i==0): # stats for the representative "bull's eye" slice transverse to the LoS
-                    slice_bin_counts=np.bincount(self.perpbin_indices_slice_1d, minlength=self.Nk1)
+                    slice_bin_counts=np.bincount(self.perpbin_indices_slice_1d_centre, minlength=self.Nk1)
                 modsq_T_tilde_slice= modsq_T_tilde[:,:,i]                    # take the slice of interest of the preprocessed box values !!kpar is z-like
                 modsq_T_tilde_slice_1d= np.reshape(modsq_T_tilde_slice, 
                                                    (self.Nvox**2,))          # 1d for bincount compatibility
-                current_binsums= np.bincount(self.perpbin_indices_slice_1d,
+                current_binsums= np.bincount(self.perpbin_indices_slice_1d_centre,
                                              weights=modsq_T_tilde_slice_1d, 
                                              minlength=self.Nk1)             # this slice's update to the numerator of the ensemble average
                 current_par_bin=self.parbin_indices_column[i]
@@ -327,15 +317,15 @@ class cosmo_stats(object):
             raise UnsupportedBinningMode # for now, I can only generate a box from a spherically binned power spectrum
         # not warning abt potentially overwriting T -> the only case where info would be lost is where self.P_fid is None, and I already have a separate warning for that
         
-        sigmas=np.sqrt(self.Veff*self.P_fid/2) # from inverting the estimator equation and turning variances into std devs
+        sigmas=np.sqrt(self.Veff*self.P_fid/2.) # from inverting the estimator equation and turning variances into std devs
+        print("generate_box: sigmas=",sigmas)
         sigmas=np.reshape(sigmas,(self.fid_Nk0,))
         T_tilde_Re=np.zeros((self.Nvox,self.Nvox,self.Nvox))
         T_tilde_Im=np.zeros((self.Nvox,self.Nvox,self.Nvox))
 
         for i,sig in enumerate(sigmas):
-            i_eq_bin_indices=i==self.sph_bin_indices              # mask: voxels that fall into the bin under consideration during this iteration
-            here=np.nonzero(i_eq_bin_indices)                     # all box indices where the corresponding bin index is the ith bin floor (iterable)
-            num_here=len(np.argwhere(i_eq_bin_indices))           # number of voxels in the bin currently under consideration
+            here=np.nonzero(i==self.sph_bin_indices_corner)              # all box indices where the corresponding bin index is the ith bin floor (iterable)
+            num_here=len(np.argwhere(i==self.sph_bin_indices_corner))    # number of voxels in the bin currently under consideration
             samps_Re=np.random.normal(scale=sig,size=(num_here,)) # samples for filling the current bin
             samps_Im=np.random.normal(scale=sig,size=(num_here,))
             if (num_here>0):
