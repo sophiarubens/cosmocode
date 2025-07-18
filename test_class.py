@@ -57,58 +57,47 @@ modulated_0=cosmo_stats(Lsurvey,
 modulated_1=cosmo_stats(Lsurvey,
                         P_fid=Ptest,Nvox=Nvox,
                         primary_beam=custom_response,primary_beam_args=bundled1,
-                        Nk0=Nk)
+                        Nk0=Nk,
+                        verbose=True)
 modulated_2=cosmo_stats(Lsurvey,
                         P_fid=Ptest,Nvox=Nvox,
                         primary_beam=custom_response,primary_beam_args=bundled2,
                         Nk0=Nk)
-# assert(1==0), "does it even make it through the __init__?"
+print("__init__ test complete")
 
-print("unmod")
 unmodulated.generate_box()
-print("mod 0")
 modulated_0.generate_box()
-print("mod 1")
 modulated_1.generate_box()
-print("mod 2")
 modulated_2.generate_box()
-# fig,axs=plt.subplots(1,3)
-# axs[0].imshow(modulated_0.T[:,:,3])
-# axs[0].set_title("modulated_0.T[:,:,3]")
-# axs[1].imshow(modulated_0.T[:,37,:])
-# axs[1].set_title("modulated_0.T[:,37,:]")
-# axs[2].imshow(modulated_0.T[18,:,:])
-# axs[2].set_title("modulated_0.T[18,:,:]")
-# plt.tight_layout()
-# plt.savefig("mod0_box_slices.png")
-# plt.show()
-# assert(1==0), "can I generate a single box?"
-
-print("unmod")
-unmodulated.generate_P() # this is a reconstruction test
-plt.figure()
-# plt.plot(unmodulated.k0bins,unmodulated.P_realizations[0],label="reconstructed") # would need to multiply unmodulated.k0bins by 2 for the curves to line up (I checked) (but, where is this coming from?)
-plt.plot(ktest,unmodulated.P_realizations[0],label="reconstructed")
-plt.plot(ktest,Ptest,label="fiducial")
-plt.legend()
-plt.xlabel("k")
-plt.ylabel("P")
-plt.savefig("test_reconstr_unmod_class.png")
+fig,axs=plt.subplots(2,3,figsize=(8,4))
+axs[0,0].imshow(modulated_1.T_pristine[:,:,3])
+axs[0,0].set_title("modulated_1.T_pristine[:,:,3]")
+axs[0,1].imshow(modulated_1.T_pristine[:,37,:])
+axs[0,1].set_title("modulated_1.T_pristine[:,37,:]")
+axs[0,2].imshow(modulated_1.T_pristine[18,:,:])
+axs[0,2].set_title("modulated_1.T_pristine[18,:,:]")
+axs[1,0].imshow(modulated_1.T_primary[:,:,3])
+axs[1,0].set_title("modulated_1.T_primary[:,:,3]")
+axs[1,1].imshow(modulated_1.T_primary[:,37,:])
+axs[1,1].set_title("modulated_1.T_primary[:,37,:]")
+axs[1,2].imshow(modulated_1.T_primary[18,:,:])
+axs[1,2].set_title("modulated_1.T_primary[18,:,:]")
+plt.tight_layout()
+plt.savefig("mod1_box_slices.png")
 plt.show()
-# assert (1==0), "can I generate a single power spec with an identity primary beam?" # (if the cosmo_stats object is not initialized with a box, as it is not here, a box will be generated before a power spec is calcualted)
+print("generate_box() test complete")
 
-print("mod 0:")
+unmodulated.generate_P() # this is a reconstruction test
 modulated_0.generate_P()
-print("mod 1:")
 modulated_1.generate_P()
-print("mod 2:")
 modulated_2.generate_P()
-fig,axs=plt.subplots(1,3)
-axs[0].plot(ktest,modulated_0.P_realizations[0])
-axs[1].plot(ktest,modulated_1.P_realizations[0])
-axs[2].plot(ktest,modulated_2.P_realizations[0],label="reconstructed")
-labels=["","","fiducial"]
-for i in range(3):
+fig,axs=plt.subplots(1,4)
+axs[0].plot(ktest,np.array(unmodulated.P_realizations[0]).reshape(Nk,))
+axs[1].plot(ktest,np.array(modulated_0.P_realizations[0]).reshape(Nk,))
+axs[2].plot(ktest,np.array(modulated_1.P_realizations[0]).reshape(Nk,))
+axs[3].plot(ktest,np.array(modulated_2.P_realizations[0]).reshape(Nk,),label="reconstructed")
+labels=["","","","fiducial"]
+for i in range(4):
     axs[i].plot(ktest,Ptest,label=labels[i])
     axs[i].set_xlabel("k")
     axs[i].set_ylabel("P")
@@ -116,11 +105,12 @@ plt.legend()
 fig.tight_layout()
 plt.savefig("test_reconstr_class.png")
 plt.show()
-assert(1==0), "can I generate a single power spec with a non-identity primary beam?"
+print("generate_P() test complete")
 
 modulated_1.avg_realizations()
-assert(1==0), "can I average over realizations? (requires generating boxes and power spectra and checking convergence)"
+print("avg_realizations() test complete")
 
+modulated_1.interpolate_P()
+print("interpolate_P() test complete")
 
-assert(1==0), "can I interpolate a converged power spec?" # could also test re-test interpolation independently by interpolating a P_fid or a single realization
 assert(1==0), "can I generalize these tests to a cylindrically binned power spec?"
