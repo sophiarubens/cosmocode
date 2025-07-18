@@ -32,18 +32,22 @@ class ConflictingInfoError(Exception): # make these inherit from each other (or 
 def extrapolation_warning(regime,want,have):
     print("WARNING: if extrapolation is permitted in the interpolate_P call, it will be conducted for {:15s} (want {:9.4}, have{:9.4})".format(regime,want,have))
     return None
+def represent(cosmo_stats_instance):
+    attributes=vars(cosmo_stats_instance)
+    representation='\n'.join("%s: %s" % item for item in attributes.items())
+    print(representation)
 
 class cosmo_stats(object):
     def __init__(self,
                  Lsurvey,                                                                # nonnegotiable for box->spec and spec->box calcs
                  T_pristine=None,T_primary=None,P_fid=None,Nvox=None,                    # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
                  primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian",  # primary beam considerations
-                 Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations
-                 realization_ceiling=1000,frac_tol=0.001,                                   # max number of realizations
+                 Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
+                 realization_ceiling=1000,frac_tol=5e-4,                                 # max number of realizations
                  k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
-                 P_realizations=None,P_converged=None,                                    # power spectra related to averaging over those from dif box realizations
-                 verbose=False
-                 ):                                                                      # implement later: synthesized beam considerations
+                 P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
+                 verbose=False                                                           # y/n: status updates for averaging over realizations
+                 ):                                                                      # implement later: synthesized beam considerations, other primary beam types, and more
         """
         Lsurvey             :: float                       :: side length of cosmo box         :: Mpc
         T_pristine          :: (Nvox,Nvox,Nvox) of floats  :: cosmo box (just physics/no beam) :: K
@@ -54,6 +58,7 @@ class cosmo_stats(object):
         primary_beam_args   :: tuple of floats             :: Gaussian: "μ"s and "σ"s          :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
         primary_beam_type   :: string                      :: implement later: Airy etc.       :: ---
         Nk0, Nk1            :: int                         :: # power spec bins for axis 0/1   :: ---
+        binning_mode        :: string                      :: lin/log sp. P_realizations bins  :: ---
         realization_ceiling :: int                         :: max # of realiz in p.s. avg      :: ---
         frac_tol            :: float                       :: max fractional amount by which   :: ---
                                                               the p.s. avg can change w/ the 
@@ -66,6 +71,7 @@ class cosmo_stats(object):
         P_realizations      :: if Nk1==0: (Nk0,)    floats :: sph/cyl power specs for dif      :: K^2 Mpc^3
                                if Nk1>0:  (Nk0,Nk1) floats    realizations of a cosmo box 
         P_converged         :: same as that of P_fid       :: average of P_realizations        :: K^2 Mpc^3
+        verbose             :: bool                        :: every 10% of realization_ceil    :: ---
         """
         # spectrum and box
         self.Lsurvey=Lsurvey
@@ -205,7 +211,11 @@ class cosmo_stats(object):
         else:
             self.P_converged=None
         self.P_interp=None                     # can't init with this because, if you had one, there'd be no point of using cosmo_stats b/c the job is already done (at best, you can provide a P_fid)
+        self.num_realiz_evaled=None
+        self.not_converged=None
 
+        # create a P_fid if there was initially a T but no P_fid (T->P_fid is deterministic)
+    
     def calc_bins(self,Nki):
         """
         philosophy: generate a set of bins spaced according to the desired scheme with max and min
@@ -221,7 +231,7 @@ class cosmo_stats(object):
         return kbins,limiting_spacing # kbins            -> floors of the bins to which the power spectrum will be binned (along one axis)
                                       # limiting_spacing -> smallest spacing between adjacent bins (uniform if linear; otherwise, depends on the binning strategy)
             
-    def generate_P(self):
+    def generate_P(self,send_to_P_fid=False):
         """
         philosophy: 
         * compute the power spectrum of a known cosmological box and bin it spherically or cylindrically
@@ -271,7 +281,10 @@ class cosmo_stats(object):
         avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/N_modsq_T_tilde_truncated
         P=np.array(avg_modsq_T_tilde/self.Veff)
         P.reshape(final_shape)
-        self.P_realizations.append([P]) # prevent overwriting errors
+        if send_to_P_fid: # if generate_P was called speficially to have a spec from which guture box realizations will be generated
+            self.P_fid=P
+        else:             # the normal case where you're just accumulating a realization
+            self.P_realizations.append([P])
         
     def generate_box(self):
         """
@@ -282,7 +295,10 @@ class cosmo_stats(object):
         """
         assert(self.Nvox>=self.Nk0), "Nvox>=Nbins is baked into the code for now. I'll circumvent this with interpolation later, but, for now, do you really even want Nvox<Nbins?"
         if (self.P_fid is None):
-            raise NotEnoughInfoError
+            try:
+                self.generate_P(store_as_P_fid=True) # T->P_fid is deterministic, so, even if you start with a random realization, it'll be helpful to have a power spec summary stat to generate future realizations
+            except: # something goes wrong in the P_fid calculation
+                raise NotEnoughInfoError
         if (self.Nk1>0):
             raise UnsupportedBinningMode # for now, I can only generate a box from a spherically binned power spectrum
         # not warning abt potentially overwriting T -> the only case where info would be lost is where self.P_fid is None, and I already have a separate warning for that
@@ -303,7 +319,7 @@ class cosmo_stats(object):
         
         T_tilde=T_tilde_Re+1j*T_tilde_Im # have not yet applied the symmetry that ensures T is real-valued 
         T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvox),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: shiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
-        self.T_pristine=T                     # need to overwrite both versions!
+        self.T_pristine=T 
         self.T_primary=T*self.evaled_primary
 
     def avg_realizations(self):
@@ -320,10 +336,15 @@ class cosmo_stats(object):
                     print("realization",i)
 
         arr_realiz_holder=np.array(self.P_realizations)
-        if (arr_realiz_holder.shape[-1]>1):
-            self.P_converged=np.mean(arr_realiz_holder,axis=-1)
+        if (arr_realiz_holder.shape[0]>1):
+            P_converged=np.mean(arr_realiz_holder,axis=0)
         else:
-            self.P_converged=np.reshape(arr_realiz_holder,(self.fid_Nk0,))
+            P_converged=arr_realiz_holder
+
+        if (self.Nk1>0):
+            self.P_converged=np.reshape(P_converged,(self.Nk0,self.Nk1))
+        else:
+            self.P_converged=np.reshape(P_converged,(self.Nk0,))
         self.num_realiz_evaled=i # not called anything to the effect of "num_realiz_converged" bc it might not have converged if i hit the realization ceiling
 
     def check_convergence(self):
@@ -333,14 +354,14 @@ class cosmo_stats(object):
         (but the scientifically rigorous thing to compare is the std dev of mean, which has the extra 1/sqrt(i))
         """
         arr_realiz_holder=np.array(self.P_realizations)
-        arr_realiz_holder_shape=arr_realiz_holder.shape
+        arr_realiz_holder_shape=arr_realiz_holder.shape # for sph: nrealiz,1,Nk0
         n=arr_realiz_holder_shape[0]
         ndims=len(arr_realiz_holder_shape)
         prefac=np.sqrt((n-1)/n)
         if ndims==2:
-            figure_of_merit=1.-prefac*np.std(arr_realiz_holder[:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:],ddof=1)
+            figure_of_merit=np.abs(1.-prefac*np.std(arr_realiz_holder[:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:],ddof=1))
         elif ndims==3:
-            figure_of_merit=1.-prefac*np.std(arr_realiz_holder[:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:],ddof=1) # idem NEED TO FIX TO REFLECT MY NEW UNDERSTANDING OF THE INDEXING
+            figure_of_merit=np.abs(1.-prefac*np.std(arr_realiz_holder[:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:],ddof=1)) # idem NEED TO FIX TO REFLECT MY NEW UNDERSTANDING OF THE INDEXING
         else:
             raise NotYetImplementedError
         self.not_converged=(figure_of_merit>self.frac_tol)
@@ -385,7 +406,7 @@ class cosmo_stats(object):
             self.P_interp=interpn((self.k0bins,self.k1bins),self.P_converged,(self.k0_interp_grid,self.k1_interp_grid),method="cubic",bounds_error=avoid_extrapolation,fill_value=None)
         else:
             k_have_lo=self.k0bins[0]
-            k_have_hi=self.k1bins[-1]
+            k_have_hi=self.k0bins[-1]
             k_want_lo=self.k0bins_interp[0]
             k_want_hi=self.k0bins_interp[-1]
             if (k_want_lo<k_have_lo):
