@@ -160,17 +160,17 @@ class cosmo_stats(object):
 
             # voxel grids for cyl binning
         if (self.Nk1>0):
-            self.kpar_column_corner= np.abs(self.k_vec_for_box_corner)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
-            self.kperp_slice_corner= np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2)[:,:,0]              # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
-            self.perpbin_indices_slice_corner=    np.digitize(self.kperp_slice_corner,self.k1bins)              # cyl kperp bin that each voxel falls into
-            self.perpbin_indices_slice_1d_corner= np.reshape(self.perpbin_indices_slice_corner,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
-            self.parbin_indices_column_corner=    np.digitize(self.kpar_column_corner,self.k0bins)              # cyl kpar bin that each voxel falls into
+            # self.kpar_column_corner= np.abs(self.k_vec_for_box_corner)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
+            # self.kperp_slice_corner= np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2)[:,:,0]              # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
+            # self.perpbin_indices_slice_corner=    np.digitize(self.kperp_slice_corner,self.k1bins)              # cyl kperp bin that each voxel falls into
+            # self.perpbin_indices_slice_1d_corner= np.reshape(self.perpbin_indices_slice_corner,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
+            # self.parbin_indices_column_corner=    np.digitize(self.kpar_column_corner,self.k0bins)              # cyl kpar bin that each voxel falls into
 
-            self.kpar_column_centre= np.abs(self.k_vec_for_box_centre)
-            self.kperp_slice_centre= np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2)[:,:,0]
-            self.perpbin_indices_slice_centre=    np.digitize(self.kperp_slice_centre,self.k1bins)
-            self.perpbin_indices_slice_1d_centre= np.reshape(self.perpbin_indices_slice_centre,(self.Nvox**2,))
-            self.parbin_indices_column_centre=    np.digitize(self.kpar_column_centre,self.k0bins)
+            self.kpar_column_centre= np.abs(self.k_vec_for_box_centre)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
+            self.kperp_slice_centre= np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2)[:,:,0]              # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
+            self.perpbin_indices_slice_centre=    np.digitize(self.kperp_slice_centre,self.k1bins)              # cyl kperp bin that each voxel falls into
+            self.perpbin_indices_slice_1d_centre= np.reshape(self.perpbin_indices_slice_centre,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
+            self.parbin_indices_column_centre=    np.digitize(self.kpar_column_centre,self.k0bins)              # cyl kpar bin that each voxel falls into
 
         # primary beam
         self.primary_beam=primary_beam
@@ -267,7 +267,7 @@ class cosmo_stats(object):
                 current_binsums= np.bincount(self.perpbin_indices_slice_1d_centre,
                                              weights=modsq_T_tilde_slice_1d, 
                                              minlength=self.Nk1)             # this slice's update to the numerator of the ensemble average
-                current_par_bin=self.parbin_indices_column[i]
+                current_par_bin=self.parbin_indices_column_centre[i]
 
                 sum_modsq_T_tilde[current_par_bin,:]+= current_binsums  # update the numerator   of the ensemble avg
                 N_modsq_T_tilde[  current_par_bin,:]+= slice_bin_counts # update the denominator of the ensemble avg
@@ -299,7 +299,7 @@ class cosmo_stats(object):
                 self.generate_P(store_as_P_fid=True) # T->P_fid is deterministic, so, even if you start with a random realization, it'll be helpful to have a power spec summary stat to generate future realizations
             except: # something goes wrong in the P_fid calculation
                 raise NotEnoughInfoError
-        if (self.Nk1>0):
+        if (self.fid_Nk1>0):
             raise UnsupportedBinningMode # for now, I can only generate a box from a spherically binned power spectrum
         # not warning abt potentially overwriting T -> the only case where info would be lost is where self.P_fid is None, and I already have a separate warning for that
         
@@ -354,13 +354,13 @@ class cosmo_stats(object):
         (but the scientifically rigorous thing to compare is the std dev of mean, which has the extra 1/sqrt(i))
         """
         arr_realiz_holder=np.array(self.P_realizations)
-        arr_realiz_holder_shape=arr_realiz_holder.shape # for sph: nrealiz,1,Nk0
+        arr_realiz_holder_shape=arr_realiz_holder.shape
         n=arr_realiz_holder_shape[0]
         ndims=len(arr_realiz_holder_shape)
         prefac=np.sqrt((n-1)/n)
-        if ndims==2:
-            figure_of_merit=np.abs(1.-prefac*np.std(arr_realiz_holder[:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:],ddof=1))
-        elif ndims==3:
+        if ndims==4:   # catches cyl b/c realiz holder has shape (nrealiz_so_far,1,Nk0,Nk1)
+            figure_of_merit=np.abs(1.-prefac*np.std(arr_realiz_holder[:,:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:,:],ddof=1))
+        elif ndims==3: # catches sph b/c realiz holder has shape (nrealiz_so_far,1,Nk0)
             figure_of_merit=np.abs(1.-prefac*np.std(arr_realiz_holder[:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:],ddof=1)) # idem NEED TO FIX TO REFLECT MY NEW UNDERSTANDING OF THE INDEXING
         else:
             raise NotYetImplementedError
