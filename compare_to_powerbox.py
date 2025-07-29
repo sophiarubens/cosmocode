@@ -71,7 +71,10 @@ plt.show()
 T_cs_realizations_means=np.zeros(Nrealiz)
 T_cs_realizations_stds= np.zeros(Nrealiz)
 P_cs_summed=np.zeros((N,N,N))
-k_fid=np.linspace(twopi/L,pi*L/N)
+# k_fid=np.linspace(twopi/L,pi*L/N)     # 50:  0.2133
+# k_fid=np.linspace(twopi/L,pi*L/N,500) # 500: 0.5419
+# k_fid=np.linspace(twopi/L,pi*N/L,N)   # 54:  0.4495 (same as the number of voxels per side at the time)
+k_fid=np.linspace(twopi/L,pi*N/L,51)    # 51:  0.4397
 cs= cosmo_stats(Lsurvey=L,P_fid=k_fid**idx,Nvox=N,Nk0=num_modes,realization_ceiling=Nrealiz)
 for i in range(Nrealiz):
     cs.generate_box()

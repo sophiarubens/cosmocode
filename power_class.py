@@ -154,34 +154,20 @@ class cosmo_stats(object):
         
             # voxel grids for sph binning
         self.k_grid_corner=               np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2+self.kz_grid_corner**2)   # k magnitudes for each voxel (need for the generate_box direction)
-        sph_bin_indices_corner=      np.digitize(self.k_grid_corner,self.k0bins)                                     # sph bin that each voxel falls into
-        # sph_bin_indices_corner[sph_bin_indices_corner==Nk0]-=1
-        self.sph_bin_indices_corner=sph_bin_indices_corner
+        self.sph_bin_indices_corner=      np.digitize(self.k_grid_corner,self.k0bins)                                     # sph bin that each voxel falls into
         self.sph_bin_indices_1d_corner=   np.reshape(self.sph_bin_indices_corner, (self.Nvox**3,)) # 1d version of ^ (compatible with np.bincount)
         
         self.k_grid_centre=               np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)   # same thing but fftshifted/ centre-origin (need for the generate_P direction)
-        sph_bin_indices_centre=      np.digitize(self.k_grid_centre,self.k0bins)
-        # sph_bin_indices_centre[sph_bin_indices_centre==Nk0]-=1
-        self.sph_bin_indices_centre=sph_bin_indices_centre
+        self.sph_bin_indices_centre=      np.digitize(self.k_grid_centre,self.k0bins)
         self.sph_bin_indices_1d_centre=   np.reshape(self.sph_bin_indices_centre, (self.Nvox**3,))
 
             # voxel grids for cyl binning
         if (self.Nk1>0):
             self.kpar_column_centre= np.abs(self.k_vec_for_box_centre)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
             self.kperp_slice_centre= np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2)[:,:,0]              # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
-            perpbin_indices_slice_centre=    np.digitize(self.kperp_slice_centre,self.k1bins)              # cyl kperp bin that each voxel falls into
-            perpbin_indices_slice_centre[perpbin_indices_slice_centre==Nk1]-=1
-            self.perpbin_indices_slice_centre=perpbin_indices_slice_centre
+            self.perpbin_indices_slice_centre=    np.digitize(self.kperp_slice_centre,self.k1bins)              # cyl kperp bin that each voxel falls into
             self.perpbin_indices_slice_1d_centre= np.reshape(self.perpbin_indices_slice_centre,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
-            parbin_indices_column_centre=    np.digitize(self.kpar_column_centre,self.k0bins)              # cyl kpar bin that each voxel falls into
-            parbin_indices_column_centre[parbin_indices_column_centre==Nk0]-=1
-            self.parbin_indices_column_centre=parbin_indices_column_centre
-
-        with open("sph_bin_indices_corner.txt", "w") as f:
-            for i, slice2d in enumerate(self.sph_bin_indices_corner):
-                np.savetxt(f, slice2d, fmt="%2d")
-                if i < Nvox - 1: # white space between slices
-                    f.write("\n")
+            self.parbin_indices_column_centre=    np.digitize(self.kpar_column_centre,self.k0bins)              # cyl kpar bin that each voxel falls into
 
         # primary beam
         self.primary_beam=primary_beam
@@ -330,6 +316,7 @@ class cosmo_stats(object):
         
         T_tilde=T_tilde_Re+1j*T_tilde_Im # have not yet applied the symmetry that ensures T is real-valued 
         T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvox),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: fftshiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
+        T-=np.mean(T) # subtract monopole moment to make things more akin to what powerbox does (EXPERIMENT) (I KNOW THIS WILL MAKE MY RECONSTRUCTION TESTS LOOK DIFFERENT THAN I ULTIMATELY WANT THEM TO)
         self.T_pristine=T 
         self.T_primary=T*self.evaled_primary
 
