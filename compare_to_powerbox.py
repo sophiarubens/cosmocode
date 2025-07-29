@@ -8,36 +8,99 @@ import time
 import powerbox as pbox
 from powerbox.powerbox import _magnitude_grid
 from powerbox.dft import fft,ifft # normalization and Fourier dual characterized by (a,b)=(0,2pi) (the cosmology convention), although the numpy convention is (a,b)=(1,1)
+# useful
+pi=np.pi
+twopi=2.*pi
 
-# Parameters of the field
-# L = 10. # this example seems precisely tuned to give ~machine precision errors (pseudorandom other things I've tried do not yield such results)
-# N = 512
-L = 126
-N = 512
+# box and spec conditioning
+# L = 126
+# N = 512 # ~11 s/realiz
+L=126
+N=54
 dx = L/N
+num_modes=15
+fac=99
 
-# POWERBOX BOX GEN
-x = np.arange(-L/2,L/2,dx)[:N] # The 1D field grid
-r = _magnitude_grid(x,dim=3)   # The magnitude of the co-ordinates on a 3D grid
-field = np.exp(-np.pi*r**2)    # Create the field
+############################## NON-DETERMINISTIC DIRECTION
+Nrealiz=500
+idx=-0.9 # -0.9 0. 2.3
 
-# Generate the k-space field, the 1D k-space grid, and the 3D magnitude grid.
-k_field, k, rk = fft(field,L=L,          # Pass the field to transform, and its size
-                     ret_cubegrid=True   # Tell it to return the grid of magnitudes.
-                    )
-k_arr=np.array(k)
-
-# Plot the field minus the analytic result
-inspect=13
-plt.figure()
-plt.imshow(np.abs(k_field)[:,:,inspect]-np.exp(-np.pi*rk**2)[:,:,inspect],extent=(k_arr.min(),k_arr.max(),k_arr.min(),k_arr.max()))
-plt.colorbar()
-plt.title("powerbox Gaussian residuals")
-plt.savefig("powerbox_fft_residuals.png")
+T_pb_realizations_means=np.zeros(Nrealiz)
+T_pb_realizations_stds= np.zeros(Nrealiz)
+P_pb_summed=      np.zeros((N,N,N))
+t0=time.time()
+t1=time.time()
+for i in range(Nrealiz):
+    pb= pbox.PowerBox(N=N,dim=3,
+                      pk = lambda k: k**idx, # fiducial power spec
+                      boxlength = L          # determines units of k
+                     )
+    T_pb= pb.delta_x()
+    T_pb_realizations_means[i]=np.mean(T_pb)
+    T_pb_realizations_stds[i]= np.std( T_pb)
+    P_pb=pb.power_array()
+    P_pb_summed+=P_pb
+T_pb_mean=np.mean(T_pb_realizations_means)
+T_pb_std= np.mean(T_pb_realizations_stds)
+P_pb=P_pb_summed/Nrealiz
+print("T_pb_mean= {:6.4} \nT_pb_std= {:6.4}".format(T_pb_mean,T_pb_std))
+nrow,ncol=3,6
+vmi=np.min(P_pb)
+vma=np.percentile(P_pb,fac)
+fig,axs=plt.subplots(nrow,ncol,figsize=(20,9))
+for i in range(nrow):
+    for j in range(ncol):
+        if i==0:
+            im=axs[i,j].imshow(P_pb[j*N//ncol,:,:],vmin=vmi,vmax=vma)
+            title="P_pb["+str(j*N//ncol)+",:,:]"
+        elif i==1:
+            im=axs[i,j].imshow(P_pb[:,j*N//ncol,:],vmin=vmi,vmax=vma)
+            title="P_pb[:,"+str(j*N//ncol)+",:]"
+        else:
+            im=axs[i,j].imshow(P_pb[:,:,j*N//ncol],vmin=vmi,vmax=vma)
+            title="P_pb[:,:,"+str(j*N//ncol)+"]"
+        axs[i,j].set_title(title)
+fig.colorbar(im)
+plt.suptitle("selected slices of powerbox unbinned power spectra")
+plt.savefig("slices_pb_unbinned_spectra.png")
 plt.show()
 
-# MY BOX GEN (ANALOGOUS CASE)
+# need to pick the k-modes at which I sample the fiducial power spec to match those that powerbox provides internally
+# otherwise, it will be hard to separate this implementation difference from actual algorithm issues
+# that's the thing: powerbox does not go in the box->spec direction; you provide a functional form and it computes box realizations.
+T_cs_realizations_means=np.zeros(Nrealiz)
+T_cs_realizations_stds= np.zeros(Nrealiz)
+P_cs_summed=np.zeros((N,N,N))
+k_fid=np.linspace(twopi/L,pi*L/N)
+cs= cosmo_stats(Lsurvey=L,P_fid=k_fid**idx,Nvox=N,Nk0=num_modes,realization_ceiling=Nrealiz)
+for i in range(Nrealiz):
+    cs.generate_box()
+    T_cs_realizations_means[i]=np.mean(cs.T_pristine)
+    T_cs_realizations_stds[i]= np.std(cs.T_pristine)
+    cs.generate_P()
+    P_cs_summed+=cs.unbinned_P
+T_cs_mean=np.mean(T_cs_realizations_means)
+T_cs_std= np.mean(T_cs_realizations_stds)
+P_cs=P_cs_summed/Nrealiz
+print("T_cs_mean= {:6.4} \nT_cs_std= {:6.4}".format(T_cs_mean,T_cs_std))
+fig,axs=plt.subplots(nrow,ncol,figsize=(20,9))
+vmi=np.min(P_cs)
+vma=np.percentile(P_cs,fac)
+for i in range(nrow):
+    for j in range(ncol):
+        if i==0:
+            im=axs[i,j].imshow(P_cs[j*N//ncol,:,:],vmin=vmi,vmax=vma)
+            title="P_cs["+str(j*N//ncol)+",:,:]"
+        elif i==1:
+            im=axs[i,j].imshow(P_cs[:,j*N//ncol,:],vmin=vmi,vmax=vma)
+            title="P_cs[:,"+str(j*N//ncol)+",:]"
+        else:
+            im=axs[i,j].imshow(P_cs[:,:,j*N//ncol],vmin=vmi,vmax=vma)
+            title="P_cs[:,:,"+str(j*N//ncol)+"]"
+        axs[i,j].set_title(title)
+fig.colorbar(im)
+plt.suptitle("selected slices of cosmo_stats unbinned power spectra")
+plt.savefig("slices_cs_unbinned_spectra.png")
+plt.show()
 
-# ACCUMULATE REALIZATIONS OF POWERBOX WAY VS MY WAY
-
-# COMPARE MOMENTS OF POWERBOX WAY VS MY WAY
+# and check the pb version against the unbinned power spec I get from my code

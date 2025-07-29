@@ -6,11 +6,11 @@ import time
 # import powerbox
 
 Lsurvey=126 # 63
-Nvox=52 # 10 
+Nvox=53 # 10 
 Nk = 11 # 8
 Nk1=13
 mode="lin"
-Nrealiz=50
+Nrealiz=500
 
 t0=time.time()
 colours=plt.cm.Blues(np.linspace(0.2,1,Nrealiz))
@@ -43,9 +43,9 @@ bundled2=(sigLoS2,beamfwhm_x,beamfwhm_y,r20,)
 #                  verbose=False                                                           # y/n: status updates for averaging over realizations
 #                  ):                                                                      # implement later: synthesized beam considerations, other primary beam types, and more
 
-# idx=-0.9 # DECAYING   power law
+idx=-0.9 # DECAYING   power law
 # idx=2.3  # INCREASING power law
-idx=0 # flat power spec / white noise box
+# idx=0 # flat power spec / white noise box
 ktest=np.linspace(twopi/Lsurvey,pi*Nvox/Lsurvey,Nk)
 test_interp_bins=np.linspace(twopi/Lsurvey,pi*Nvox/Lsurvey,2*Nk)
 test_interp_bins_1=np.linspace(twopi/Lsurvey,pi*Nvox/Lsurvey,3*Nk//2)
@@ -55,39 +55,34 @@ titles=["unmodulated","modulation broad in config space","modulation medium in c
 labelsr=["","","","reconstructed"]
 labelsf=["","","","fiducial"]
 
-spherical_test_suite=False
+################################################################################################################################################################################################################
+spherical_test_suite=True
 if spherical_test_suite:
     unmodulated=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins)
+                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz)
     modulated_0=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled0,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins)
+                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz)
     modulated_1=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled1,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins)
+                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz)
     modulated_2=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled2,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins)
+                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz)
     cases=      [ unmodulated,  modulated_0,  modulated_1,  modulated_2 ]
     print("__init__ test complete")
-
-    # represent(unmodulated)
-    # represent(modulated_0)
-    # represent(modulated_1)
-    # represent(modulated_2)
-    print("__repr__ test complete")
 
     unmodulated.generate_box()
     modulated_0.generate_box()
@@ -117,7 +112,7 @@ if spherical_test_suite:
     modulated_0.generate_P()
     modulated_1.generate_P()
     modulated_2.generate_P()
-    fig,axs=plt.subplots(1,4,figsize=(15,5))
+    fig,axs=plt.subplots(1,4,figsize=(15,5)) # INSPECT BINNED POWER SPEC
     for i,case in enumerate(cases):
         axs[i].plot(case.k0bins,np.array(case.P_realizations[0]).reshape(Nk,),label=labelsr[i])
         axs[i].set_title(titles[i])
@@ -129,6 +124,16 @@ if spherical_test_suite:
     fig.tight_layout()
     plt.savefig("test_reconstr_"+str(idx)+"_class.png")
     plt.show()
+    fig,axs=plt.subplots(1,4,figsize=(15,5)) # INSPECT **UN**BINNED POWER SPEC
+    for i,case in enumerate(cases):
+        im=axs[i].imshow(case.unbinned_P[:,:,Nvox//2]) # is this centred the way I want it to be?
+        axs[i].set_title(titles[i])
+        plt.colorbar(im,ax=axs[i])
+    plt.legend()
+    plt.suptitle("UNBINNED - single realization reconstruction tests - slices")
+    fig.tight_layout()
+    plt.savefig("UNBINNED_test_reconstr_"+str(idx)+"_class_slices.png")
+    plt.show()
     print("generate_P() test complete")
 
     unmodulated.avg_realizations()
@@ -138,7 +143,7 @@ if spherical_test_suite:
     fig,axs=plt.subplots(1,4,figsize=(15,5))
     for i,case in enumerate(cases):
         axs[i].plot(case.k0bins,np.array(case.P_converged),label=labelsr[i])
-        axs[i].set_title(titles[i])
+        axs[i].set_title(titles[i]+"\n"+str(case.num_realiz_evaled)+"realiz")
         axs[i].plot(ktest,Ptest,label=labelsf[i])
         axs[i].set_xlabel("k")
         axs[i].set_ylabel("P")
@@ -153,9 +158,9 @@ if spherical_test_suite:
     modulated_0.interpolate_P(avoid_extrapolation=False)
     modulated_1.interpolate_P(avoid_extrapolation=False)
     modulated_2.interpolate_P(avoid_extrapolation=False)
-    print("unmodulated.num_realiz_evaled,modulated_0.num_realiz_evaled,modulated_1.num_realiz_evaled,modulated_2.num_realix_evaled=",unmodulated.num_realiz_evaled,modulated_0.num_realiz_evaled,modulated_1.num_realiz_evaled,modulated_2.num_realiz_evaled)
-    fig,axs=plt.subplots(1,4,figsize=(15,5))
+    print("unmodulated.num_realiz_evaled,modulated_0.num_realiz_evaled,modulated_1.num_realiz_evaled,modulated_2.num_z_evaled=",unmodulated.num_realiz_evaled,modulated_0.num_realiz_evaled,modulated_1.num_realiz_evaled,modulated_2.num_realiz_evaled)
     labelsi=["","","","interpolated"]
+    fig,axs=plt.subplots(1,4,figsize=(15,5))
     for i,case in enumerate(cases):
         axs[i].scatter(case.k0bins,       np.array(case.P_converged),label=labelsr[i])
         axs[i].scatter(case.k0bins_interp,np.array(case.P_interp),   label=labelsi[i])
@@ -170,35 +175,36 @@ if spherical_test_suite:
     plt.show()
     print("interpolate_P() test complete")
 
-cylindrical_test_suite=True
+################################################################################################################################################################################################################
+cylindrical_test_suite=False
 if cylindrical_test_suite:
     unmodulated=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1)
+                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz)
     modulated_0=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled0,
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1)
+                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz)
     modulated_1=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled1,
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1)
+                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz)
     modulated_2=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled2,
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1)
+                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz)
     
     cases=      [ unmodulated,  modulated_0,  modulated_1,  modulated_2 ]
     print("__init__ test complete")
@@ -243,7 +249,7 @@ if cylindrical_test_suite:
     fig.tight_layout()
     plt.savefig("CYL_BRANCH_avg_realizations_"+str(idx)+"_class.png")
     plt.show()
-    # print("generate_P() test complete")
+    print("generate_P() test complete")
 
     unmodulated.avg_realizations()
     modulated_0.avg_realizations()
@@ -253,7 +259,7 @@ if cylindrical_test_suite:
     for i,case in enumerate(cases):
         im=axs[i].imshow(case.P_converged)
         plt.colorbar(im,ax=axs[i])
-        axs[i].set_title(titles[i])
+        axs[i].set_title(titles[i]+"\n"+str(case.num_realiz_evaled)+"realiz")
         axs[i].set_ylabel("k$_{||}$ index")
         axs[i].set_xlabel("k$_\perp$ index")
     plt.legend()

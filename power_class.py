@@ -27,6 +27,8 @@ class NotEnoughInfoError(Exception):
     pass
 class NotYetImplementedError(Exception):
     pass
+class PathologicalError(Exception):
+    pass
 class ConflictingInfoError(Exception): # make these inherit from each other (or something) to avoid repetitive code
     pass
 def extrapolation_warning(regime,want,have):
@@ -46,7 +48,7 @@ class cosmo_stats(object):
                  realization_ceiling=1000,frac_tol=5e-4,                                 # max number of realizations
                  k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
                  P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
-                 verbose=False                                                           # y/n: status updates for averaging over realizations
+                 verbose=False                                                           # status updates for averaging over realizations
                  ):                                                                      # implement later: synthesized beam considerations, other primary beam types, and more
         """
         Lsurvey             :: float                       :: side length of cosmo box         :: Mpc
@@ -133,7 +135,7 @@ class cosmo_stats(object):
                                                                                 self.k_vec_for_box_centre,
                                                                                 indexing="ij")
         
-        # sensible bins according to the limits of the box
+        # binning considerations
         self.binning_mode=binning_mode
         self.Nk0=Nk0 # the number of bins to put in power spec realizations you construct (ok if not the same as the number of bins in the fiducial power spec)
         self.Nk1=Nk1
@@ -151,26 +153,35 @@ class cosmo_stats(object):
             self.k1bins=None
         
             # voxel grids for sph binning
-        self.k_grid_corner=               np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2+self.kz_grid_corner**2)   # k magnitudes for each voxel
-        self.sph_bin_indices_corner=      np.digitize(self.k_grid_corner,self.k0bins)                                     # sph bin that each voxel falls into
-        self.k_grid_centre=               np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)   # same thing but fftshifted/ centre-origin
-        self.sph_bin_indices_centre=      np.digitize(self.k_grid_centre,self.k0bins)
+        self.k_grid_corner=               np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2+self.kz_grid_corner**2)   # k magnitudes for each voxel (need for the generate_box direction)
+        sph_bin_indices_corner=      np.digitize(self.k_grid_corner,self.k0bins)                                     # sph bin that each voxel falls into
+        # sph_bin_indices_corner[sph_bin_indices_corner==Nk0]-=1
+        self.sph_bin_indices_corner=sph_bin_indices_corner
         self.sph_bin_indices_1d_corner=   np.reshape(self.sph_bin_indices_corner, (self.Nvox**3,)) # 1d version of ^ (compatible with np.bincount)
+        
+        self.k_grid_centre=               np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)   # same thing but fftshifted/ centre-origin (need for the generate_P direction)
+        sph_bin_indices_centre=      np.digitize(self.k_grid_centre,self.k0bins)
+        # sph_bin_indices_centre[sph_bin_indices_centre==Nk0]-=1
+        self.sph_bin_indices_centre=sph_bin_indices_centre
         self.sph_bin_indices_1d_centre=   np.reshape(self.sph_bin_indices_centre, (self.Nvox**3,))
 
             # voxel grids for cyl binning
         if (self.Nk1>0):
-            # self.kpar_column_corner= np.abs(self.k_vec_for_box_corner)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
-            # self.kperp_slice_corner= np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2)[:,:,0]              # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
-            # self.perpbin_indices_slice_corner=    np.digitize(self.kperp_slice_corner,self.k1bins)              # cyl kperp bin that each voxel falls into
-            # self.perpbin_indices_slice_1d_corner= np.reshape(self.perpbin_indices_slice_corner,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
-            # self.parbin_indices_column_corner=    np.digitize(self.kpar_column_corner,self.k0bins)              # cyl kpar bin that each voxel falls into
-
             self.kpar_column_centre= np.abs(self.k_vec_for_box_centre)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
             self.kperp_slice_centre= np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2)[:,:,0]              # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
-            self.perpbin_indices_slice_centre=    np.digitize(self.kperp_slice_centre,self.k1bins)              # cyl kperp bin that each voxel falls into
+            perpbin_indices_slice_centre=    np.digitize(self.kperp_slice_centre,self.k1bins)              # cyl kperp bin that each voxel falls into
+            perpbin_indices_slice_centre[perpbin_indices_slice_centre==Nk1]-=1
+            self.perpbin_indices_slice_centre=perpbin_indices_slice_centre
             self.perpbin_indices_slice_1d_centre= np.reshape(self.perpbin_indices_slice_centre,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
-            self.parbin_indices_column_centre=    np.digitize(self.kpar_column_centre,self.k0bins)              # cyl kpar bin that each voxel falls into
+            parbin_indices_column_centre=    np.digitize(self.kpar_column_centre,self.k0bins)              # cyl kpar bin that each voxel falls into
+            parbin_indices_column_centre[parbin_indices_column_centre==Nk0]-=1
+            self.parbin_indices_column_centre=parbin_indices_column_centre
+
+        with open("sph_bin_indices_corner.txt", "w") as f:
+            for i, slice2d in enumerate(self.sph_bin_indices_corner):
+                np.savetxt(f, slice2d, fmt="%2d")
+                if i < Nvox - 1: # white space between slices
+                    f.write("\n")
 
         # primary beam
         self.primary_beam=primary_beam
@@ -181,7 +192,6 @@ class cosmo_stats(object):
                 self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
                 evaled_primary=self.primary_beam(self.xx_grid,self.yy_grid,self.zz_grid,self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0)
                 self.Veff=np.sum(evaled_primary*self.d3r)        # rectangular sum method
-                # self.evaled_primary[self.evaled_primary==0]=maxfloat # protect against division-by-zero errors
                 evaled_primary[evaled_primary<nearly_zero]=maxfloat # protect against division-by-zero errors
                 self.evaled_primary=evaled_primary
             else:
@@ -214,7 +224,6 @@ class cosmo_stats(object):
         self.num_realiz_evaled=None
         self.not_converged=None
 
-        # create a P_fid if there was initially a T but no P_fid (T->P_fid is deterministic)
     
     def calc_bins(self,Nki):
         """
@@ -240,11 +249,11 @@ class cosmo_stats(object):
         if (self.T_pristine is None):    # power spec has to come from a box
             self.generate_box() # populates/overwrites self.T_pristine and self.T_primary
 
-        # T_no_primary_beam=  self.T/self.evaled_primary
         T_tilde=            fftshift(fftn((ifftshift(self.T_pristine)*self.d3r)))
         modsq_T_tilde=     (T_tilde*np.conjugate(T_tilde)).real
+        modsq_T_tilde[:,:,self.Nvox//2]*=2 # attempt to fix the line of sight stripe numerically (study the formerly stripy plot) (LOOKS OKAY FOR ODD NVOX/SIDE) (there is a corner-L that remains stripy this way for EVEN Nvox/side, but that follows from the math iirc)
 
-        if (self.Nk1==0): # bin to sph
+        if (self.Nk1==0):   # bin to sph
             modsq_T_tilde_1d= np.reshape(modsq_T_tilde,    (self.Nvox**3,))
 
             sum_modsq_T_tilde= np.bincount(self.sph_bin_indices_1d_centre, 
@@ -255,7 +264,7 @@ class cosmo_stats(object):
             sum_modsq_T_tilde_truncated=sum_modsq_T_tilde[:-1]       # excise sneaky corner modes: I devised my binning to only tell me about voxels w/ k<=(the largest sphere fully enclosed by the box), and my bin edges are floors. But, the highest floor corresponds to the point of intersection of the box and this largest sphere. To stick to my self-imposed "the stats are not good enough in the corners" philosophy, I must explicitly set aside the voxels that fall into the "catchall" uppermost bin. 
             N_modsq_T_tilde_truncated=  N_modsq_T_tilde[:-1]         # idem ^
             final_shape=(self.Nk0,)
-        else:             # bin to cyl
+        elif (self.Nk0!=0): # bin to cyl
             sum_modsq_T_tilde= np.zeros((self.Nk0+1,self.Nk1+1)) # for the ensemble avg: sum    of modsq_T_tilde values in each bin  ...upon each access, update the kparBIN row of interest, but all Nkperp columns
             N_modsq_T_tilde=   np.zeros((self.Nk0+1,self.Nk1+1)) # for the ensemble avg: number of modsq_T_tilde values in each bin
             for i in range(self.Nvox): # iterate over the kpar axis of the box to capture all LoS slices
@@ -278,13 +287,14 @@ class cosmo_stats(object):
 
         N_modsq_T_tilde_truncated[N_modsq_T_tilde_truncated==0]=maxint # avoid division-by-zero errors during the division the estimator demands
 
-        avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/N_modsq_T_tilde_truncated
+        avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/N_modsq_T_tilde_truncated # actual estimator math
         P=np.array(avg_modsq_T_tilde/self.Veff)
         P.reshape(final_shape)
-        if send_to_P_fid: # if generate_P was called speficially to have a spec from which guture box realizations will be generated
+        if send_to_P_fid: # if generate_P was called speficially to have a spec from which all future box realizations will be generated
             self.P_fid=P
         else:             # the normal case where you're just accumulating a realization
             self.P_realizations.append([P])
+        self.unbinned_P=modsq_T_tilde/self.Veff # box-shaped, but calculated according to the power spectrum estimator equation
         
     def generate_box(self):
         """
@@ -293,7 +303,7 @@ class cosmo_stats(object):
         * this always generates a "pristine" box and stores it in self.T_pristine
         * if primary_beam is not None, self.T_beamed is also populated
         """
-        assert(self.Nvox>=self.Nk0), "Nvox>=Nbins is baked into the code for now. I'll circumvent this with interpolation later, but, for now, do you really even want Nvox<Nbins?"
+        assert(self.Nvox>=self.Nk0), PathologicalError
         if (self.P_fid is None):
             try:
                 self.generate_P(store_as_P_fid=True) # T->P_fid is deterministic, so, even if you start with a random realization, it'll be helpful to have a power spec summary stat to generate future realizations
@@ -304,21 +314,22 @@ class cosmo_stats(object):
         # not warning abt potentially overwriting T -> the only case where info would be lost is where self.P_fid is None, and I already have a separate warning for that
         
         sigmas=np.sqrt(self.Veff*self.P_fid/2.) # from inverting the estimator equation and turning variances into std devs
-        sigmas=np.reshape(sigmas,(self.fid_Nk0,))
+        sigmas=np.append(sigmas,sigmas[-1]) # use the same sigma for corner points
+        sigmas=np.reshape(sigmas,(self.fid_Nk0+1,))
         T_tilde_Re=np.zeros((self.Nvox,self.Nvox,self.Nvox))
         T_tilde_Im=np.zeros((self.Nvox,self.Nvox,self.Nvox))
 
         for i,sig in enumerate(sigmas):
             here=np.nonzero(i==self.sph_bin_indices_corner)              # all box indices where the corresponding bin index is the ith bin floor (iterable)
             num_here=len(np.argwhere(i==self.sph_bin_indices_corner))    # number of voxels in the bin currently under consideration
-            samps_Re=np.random.normal(scale=sig,size=(num_here,)) # samples for filling the current bin
+            samps_Re=np.random.normal(scale=sig,size=(num_here,))        # samples for filling the current bin
             samps_Im=np.random.normal(scale=sig,size=(num_here,))
             if (num_here>0):
                 T_tilde_Re[here]=samps_Re
                 T_tilde_Im[here]=samps_Im
         
         T_tilde=T_tilde_Re+1j*T_tilde_Im # have not yet applied the symmetry that ensures T is real-valued 
-        T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvox),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: shiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
+        T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvox),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: fftshiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
         self.T_pristine=T 
         self.T_primary=T*self.evaled_primary
 
@@ -329,7 +340,7 @@ class cosmo_stats(object):
         while (self.not_converged and i<self.realization_ceiling):
             self.generate_box()      # generates a new T realization from self.P_fid and stores it in self.T (overwrites whatever was there before, but this isn't a problem, because each T calc is just a random realization)
             self.generate_P()        # appends a P realization to self.P_realizations
-            self.check_convergence() # updates self.not_converged
+            # self.check_convergence() # updates self.not_converged
             i+=1
             if self.verbose:
                 if (i%(self.realization_ceiling//10)==0):
@@ -361,12 +372,12 @@ class cosmo_stats(object):
         if ndims==4:   # catches cyl b/c realiz holder has shape (nrealiz_so_far,1,Nk0,Nk1)
             figure_of_merit=np.abs(1.-prefac*np.std(arr_realiz_holder[:,:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:,:],ddof=1))
         elif ndims==3: # catches sph b/c realiz holder has shape (nrealiz_so_far,1,Nk0)
-            figure_of_merit=np.abs(1.-prefac*np.std(arr_realiz_holder[:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:],ddof=1)) # idem NEED TO FIX TO REFLECT MY NEW UNDERSTANDING OF THE INDEXING
+            figure_of_merit=np.abs(1.-prefac*np.std(arr_realiz_holder[:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:],ddof=1))
         else:
             raise NotYetImplementedError
         self.not_converged=(figure_of_merit>self.frac_tol)
 
-    def interpolate_P(self,avoid_extrapolation=True):
+    def interpolate_P(self,avoid_extrapolation=True,kind="cubic"):
         """
         notes
         * default behaviour upon requesting extrapolation: 
@@ -403,7 +414,7 @@ class cosmo_stats(object):
             if (kperp_want_hi>kperp_have_hi):
                 extrapolation_warning("high kperp", kperp_want_hi, kperp_have_hi)
             self.k0_interp_grid,self.k1_interp_grid=np.meshgrid(self.k0bins_interp,self.k1bins_interp,indexing="ij")
-            self.P_interp=interpn((self.k0bins,self.k1bins),self.P_converged,(self.k0_interp_grid,self.k1_interp_grid),method="cubic",bounds_error=avoid_extrapolation,fill_value=None)
+            self.P_interp=interpn((self.k0bins,self.k1bins),self.P_converged,(self.k0_interp_grid,self.k1_interp_grid),method=kind,bounds_error=avoid_extrapolation,fill_value=None)
         else:
             k_have_lo=self.k0bins[0]
             k_have_hi=self.k0bins[-1]
@@ -413,5 +424,5 @@ class cosmo_stats(object):
                 extrapolation_warning("low k",k_want_lo,k_have_lo)
             if (k_want_hi>k_have_hi):
                 extrapolation_warning("high k",k_want_hi,k_have_hi)
-            P_interpolator=interp1d(self.k0bins,self.P_converged,kind="cubic",bounds_error=avoid_extrapolation,fill_value="extrapolate")
+            P_interpolator=interp1d(self.k0bins,self.P_converged,kind=kind,bounds_error=avoid_extrapolation,fill_value="extrapolate")
             self.P_interp=P_interpolator(self.k0bins_interp)
