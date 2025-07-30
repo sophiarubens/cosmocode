@@ -10,7 +10,7 @@ Nvox=53 # 10
 Nk = 11 # 8
 Nk1=13
 mode="lin"
-Nrealiz=500
+Nrealiz=100
 
 t0=time.time()
 colours=plt.cm.Blues(np.linspace(0.2,1,Nrealiz))
@@ -45,9 +45,9 @@ bundled2=(sigLoS2,beamfwhm_x,beamfwhm_y,r20,)
 #                  no_monopole=False                                                       # consideration when generating boxes
 #                  ): 
 
-idx=-0.9 # DECAYING   power law
+# idx=-0.9 # DECAYING   power law
 # idx=2.3  # INCREASING power law
-# idx=0 # flat power spec / white noise box
+idx=0 # flat power spec / white noise box
 ktest=np.linspace(twopi/Lsurvey,pi*Nvox/Lsurvey,Nk)
 test_interp_bins=np.linspace(twopi/Lsurvey,pi*Nvox/Lsurvey,2*Nk)
 test_interp_bins_1=np.linspace(twopi/Lsurvey,pi*Nvox/Lsurvey,3*Nk//2)
@@ -156,10 +156,10 @@ if spherical_test_suite:
     plt.show()
     print("avg_realizations() test complete")
 
-    unmodulated.interpolate_P(avoid_extrapolation=False)
-    modulated_0.interpolate_P(avoid_extrapolation=False)
-    modulated_1.interpolate_P(avoid_extrapolation=False)
-    modulated_2.interpolate_P(avoid_extrapolation=False)
+    unmodulated.interpolate_P()
+    modulated_0.interpolate_P()
+    modulated_1.interpolate_P()
+    modulated_2.interpolate_P()
     print("unmodulated.num_realiz_evaled,modulated_0.num_realiz_evaled,modulated_1.num_realiz_evaled,modulated_2.num_z_evaled=",unmodulated.num_realiz_evaled,modulated_0.num_realiz_evaled,modulated_1.num_realiz_evaled,modulated_2.num_realiz_evaled)
     labelsi=["","","","interpolated"]
     fig,axs=plt.subplots(1,4,figsize=(15,5))
@@ -271,10 +271,10 @@ if cylindrical_test_suite:
     plt.show()
     print("avg_realizations() test complete")
 
-    unmodulated.interpolate_P(avoid_extrapolation=False)
-    modulated_0.interpolate_P(avoid_extrapolation=False)
-    modulated_1.interpolate_P(avoid_extrapolation=False)
-    modulated_2.interpolate_P(avoid_extrapolation=False)
+    unmodulated.interpolate_P()
+    modulated_0.interpolate_P()
+    modulated_1.interpolate_P()
+    modulated_2.interpolate_P()
     fig,axs=plt.subplots(1,4,figsize=(15,5))
     for i,case in enumerate(cases):
         im=axs[i].imshow(case.P_interp)

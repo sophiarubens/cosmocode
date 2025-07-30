@@ -23,7 +23,9 @@ fac=99
 
 ############################## NON-DETERMINISTIC DIRECTION
 Nrealiz=500
-idx=-0.9 # -0.9 0. 2.3
+# idx=-0.9
+# idx=0.
+idx=2.3
 
 T_pb_realizations_means=np.zeros(Nrealiz)
 T_pb_realizations_stds= np.zeros(Nrealiz)
@@ -62,7 +64,7 @@ for i in range(nrow):
         axs[i,j].set_title(title)
 fig.colorbar(im)
 plt.suptitle("selected slices of powerbox unbinned power spectra")
-plt.savefig("slices_pb_unbinned_spectra.png")
+plt.savefig("slices_pb_unbinned_spectra_"+str(idx)+".png")
 plt.show()
 
 # need to pick the k-modes at which I sample the fiducial power spec to match those that powerbox provides internally
@@ -75,7 +77,7 @@ P_cs_summed=np.zeros((N,N,N))
 # k_fid=np.linspace(twopi/L,pi*L/N,500) # 500: 0.5419
 # k_fid=np.linspace(twopi/L,pi*N/L,N)   # 54:  0.4495 (same as the number of voxels per side at the time)
 k_fid=np.linspace(twopi/L,pi*N/L,51)    # 51:  0.4397
-cs= cosmo_stats(Lsurvey=L,P_fid=k_fid**idx,Nvox=N,Nk0=num_modes,realization_ceiling=Nrealiz,k_fid=k_fid)
+cs= cosmo_stats(Lsurvey=L,P_fid=k_fid**idx,Nvox=N,Nk0=num_modes,realization_ceiling=Nrealiz,k_fid=k_fid,no_monopole=True)
 for i in range(Nrealiz):
     cs.generate_box()
     T_cs_realizations_means[i]=np.mean(cs.T_pristine)
@@ -103,7 +105,42 @@ for i in range(nrow):
         axs[i,j].set_title(title)
 fig.colorbar(im)
 plt.suptitle("selected slices of cosmo_stats unbinned power spectra")
-plt.savefig("slices_cs_unbinned_spectra.png")
+plt.savefig("slices_cs_unbinned_spectra_"+str(idx)+".png")
 plt.show()
 
-# and check the pb version against the unbinned power spec I get from my code
+P_fid_box_ctr=np.fft.fftshift(cs.P_fid_box)
+fig,axs=plt.subplots(nrow,ncol,figsize=(20,9))
+for i in range(nrow):
+    for j in range(ncol):
+        if i==0:
+            im=axs[i,j].imshow(P_cs[j*N//ncol,:,:]/P_fid_box_ctr[j*N//ncol,:,:],vmin=vmi,vmax=vma)
+            title="P_cs["+str(j*N//ncol)+",:,:]"
+        elif i==1:
+            im=axs[i,j].imshow(P_cs[:,j*N//ncol,:]/P_fid_box_ctr[:,j*N//ncol,:],vmin=vmi,vmax=vma)
+            title="P_cs[:,"+str(j*N//ncol)+",:]"
+        else:
+            im=axs[i,j].imshow(P_cs[:,:,j*N//ncol]/P_fid_box_ctr[:,:,j*N//ncol],vmin=vmi,vmax=vma)
+            title="P_cs[:,:,"+str(j*N//ncol)+"]"
+        axs[i,j].set_title(title)
+fig.colorbar(im)
+plt.suptitle("selected slices of cosmo_stats unbinned power spectra: RATIO w/ fiducial")
+plt.savefig("slices_RATIO_cs_unbinned_spectra_"+str(idx)+".png")
+plt.show()
+
+fig,axs=plt.subplots(nrow,ncol,figsize=(20,9))
+for i in range(nrow):
+    for j in range(ncol):
+        if i==0:
+            im=axs[i,j].imshow(P_cs[j*N//ncol,:,:]-P_fid_box_ctr[j*N//ncol,:,:],vmin=vmi,vmax=vma)
+            title="P_cs["+str(j*N//ncol)+",:,:]"
+        elif i==1:
+            im=axs[i,j].imshow(P_cs[:,j*N//ncol,:]-P_fid_box_ctr[:,j*N//ncol,:],vmin=vmi,vmax=vma)
+            title="P_cs[:,"+str(j*N//ncol)+",:]"
+        else:
+            im=axs[i,j].imshow(P_cs[:,:,j*N//ncol]-P_fid_box_ctr[:,:,j*N//ncol],vmin=vmi,vmax=vma)
+            title="P_cs[:,:,"+str(j*N//ncol)+"]"
+        axs[i,j].set_title(title)
+fig.colorbar(im)
+plt.suptitle("selected slices of cosmo_stats unbinned power spectra: DIFFERENCE w/ fiducial")
+plt.savefig("slices_DIFFERENCE_cs_unbinned_spectra_"+str(idx)+".png")
+plt.show()
