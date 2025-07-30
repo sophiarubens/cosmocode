@@ -6,7 +6,7 @@ import time
 # import powerbox
 
 Lsurvey=126 # 63
-Nvox=53 # 10 
+Nvox=54 # 10 
 Nk = 11 # 8
 Nk1=13
 mode="lin"
@@ -37,7 +37,7 @@ bundled2=(sigLoS2,beamfwhm_x,beamfwhm_y,r20,)
 #                  T_pristine=None,T_primary=None,P_fid=None,Nvox=None,                    # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
 #                  primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian",  # primary beam considerations
 #                  Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
-#                  realization_ceiling=1000,frac_tol=5e-4,                                 # max number of realizations
+#                  frac_tol=5e-4,                                                          # max number of realizations
 #                  k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
 #                  P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
 #                  verbose=False,                                                          # status updates for averaging over realizations
@@ -64,25 +64,25 @@ if spherical_test_suite:
                             P_fid=Ptest,Nvox=Nvox,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz,k_fid=ktest)
+                            k0bins_interp=test_interp_bins,k_fid=ktest)
     modulated_0=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled0,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz,k_fid=ktest)
+                            k0bins_interp=test_interp_bins,k_fid=ktest)
     modulated_1=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled1,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz,k_fid=ktest)
+                            k0bins_interp=test_interp_bins,k_fid=ktest)
     modulated_2=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled2,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz,k_fid=ktest)
+                            k0bins_interp=test_interp_bins,k_fid=ktest)
     cases=      [ unmodulated,  modulated_0,  modulated_1,  modulated_2 ]
     print("__init__ test complete")
 
@@ -145,7 +145,7 @@ if spherical_test_suite:
     fig,axs=plt.subplots(1,4,figsize=(15,5))
     for i,case in enumerate(cases):
         axs[i].plot(case.k0bins,np.array(case.P_converged),label=labelsr[i])
-        axs[i].set_title(titles[i]+"\n"+str(case.num_realiz_evaled)+"realiz")
+        axs[i].set_title(titles[i]+"\n"+str(case.realization_ceiling)+"realiz")
         axs[i].plot(ktest,Ptest,label=labelsf[i])
         axs[i].set_xlabel("k")
         axs[i].set_ylabel("P")
@@ -160,7 +160,7 @@ if spherical_test_suite:
     modulated_0.interpolate_P()
     modulated_1.interpolate_P()
     modulated_2.interpolate_P()
-    print("unmodulated.num_realiz_evaled,modulated_0.num_realiz_evaled,modulated_1.num_realiz_evaled,modulated_2.num_z_evaled=",unmodulated.num_realiz_evaled,modulated_0.num_realiz_evaled,modulated_1.num_realiz_evaled,modulated_2.num_realiz_evaled)
+    print("unmodulated.realization_ceiling,modulated_0.realization_ceiling,modulated_1.realization_ceiling,modulated_2.num_z_evaled=",unmodulated.realization_ceiling,modulated_0.realization_ceiling,modulated_1.realization_ceiling,modulated_2.realization_ceiling)
     labelsi=["","","","interpolated"]
     fig,axs=plt.subplots(1,4,figsize=(15,5))
     for i,case in enumerate(cases):
@@ -178,35 +178,35 @@ if spherical_test_suite:
     print("interpolate_P() test complete")
 
 ################################################################################################################################################################################################################
-cylindrical_test_suite=False
+cylindrical_test_suite=True
 if cylindrical_test_suite:
     unmodulated=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz,k_fid=ktest)
+                            k1bins_interp=test_interp_bins_1,k_fid=ktest)
     modulated_0=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled0,
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz,k_fid=ktest)
+                            k1bins_interp=test_interp_bins_1,k_fid=ktest)
     modulated_1=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled1,
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz,k_fid=ktest)
+                            k1bins_interp=test_interp_bins_1,k_fid=ktest)
     modulated_2=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled2,
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz,k_fid=ktest)
+                            k1bins_interp=test_interp_bins_1,k_fid=ktest)
     
     cases=      [ unmodulated,  modulated_0,  modulated_1,  modulated_2 ]
     print("__init__ test complete")
@@ -261,7 +261,7 @@ if cylindrical_test_suite:
     for i,case in enumerate(cases):
         im=axs[i].imshow(case.P_converged)
         plt.colorbar(im,ax=axs[i])
-        axs[i].set_title(titles[i]+"\n"+str(case.num_realiz_evaled)+"realiz")
+        axs[i].set_title(titles[i]+"\n"+str(case.realization_ceiling)+"realiz")
         axs[i].set_ylabel("k$_{||}$ index")
         axs[i].set_xlabel("k$_\perp$ index")
     plt.legend()

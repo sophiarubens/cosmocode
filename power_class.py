@@ -8,7 +8,7 @@ cosmological brighness temperature boxes for assorted interconnected use cases:
 1. generate a power spectrum that describes the statistics of a cosmo box
 2. generate realizations of a cosmo box consistent with a known power spectrum
 3. iterate power spec calcs from different box realizations until convergence
-4. interpolate a power spectrum
+4. interpolate a power spectrum (sph, cyl, or sph->grid)
 """
 
 pi=np.pi
@@ -45,7 +45,7 @@ class cosmo_stats(object):
                  T_pristine=None,T_primary=None,P_fid=None,Nvox=None,                    # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
                  primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian",  # primary beam considerations
                  Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
-                 realization_ceiling=1000,frac_tol=5e-4,                                 # max number of realizations
+                 frac_tol=0.1,                                                           # max number of realizations
                  k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
                  P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
                  verbose=False,                                                          # status updates for averaging over realizations
@@ -60,10 +60,9 @@ class cosmo_stats(object):
         Nvox                :: float                       :: # voxels PER SIDE of cosmo box   :: ---
         primary_beam        :: callable                    :: power beam in Cartesian coords   :: ---
         primary_beam_args   :: tuple of floats             :: Gaussian: "μ"s and "σ"s          :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
-        primary_beam_type   :: str                         :: implement later: Airy etc.       :: ---
+        primary_beam_type   :: str                         :: implement soon: Airy etc.        :: ---
         Nk0, Nk1            :: int                         :: # power spec bins for axis 0/1   :: ---
         binning_mode        :: str                         :: lin/log sp. P_realizations bins  :: ---
-        realization_ceiling :: int                         :: max # of realiz in p.s. avg      :: ---
         frac_tol            :: float                       :: max fractional amount by which   :: ---
                                                               the p.s. avg can change w/ the 
                                                               addition of the latest realiz. 
@@ -136,8 +135,8 @@ class cosmo_stats(object):
         self.kx_grid_corner,self.ky_grid_corner,self.kz_grid_corner=np.meshgrid(self.k_vec_for_box_corner,
                                                                                 self.k_vec_for_box_corner,
                                                                                 self.k_vec_for_box_corner,
-                                                                                indexing="ij")              # box-shaped Cartesian coords
-        self.kmag_grid_corner=               np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2+self.kz_grid_corner**2)   # k magnitudes for each voxel (need for the generate_box direction)
+                                                                                indexing="ij")               # box-shaped Cartesian coords
+        self.kmag_grid_corner= np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2+self.kz_grid_corner**2) # k magnitudes for each voxel (need for the generate_box direction)
         self.kx_grid_centre,self.ky_grid_centre,self.kz_grid_centre=np.meshgrid(self.k_vec_for_box_centre,
                                                                                 self.k_vec_for_box_centre,
                                                                                 self.k_vec_for_box_centre,
@@ -150,10 +149,6 @@ class cosmo_stats(object):
         if self.P_fid is not None:
             assert(self.k_fid is not None), "interpolating a 1D P_fid to box k-magnitudes requires knowledge of k_fid"
             self.P_fid_interp_1d_to_3d()
-            # kmag_grid_corner_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
-            # P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
-            # P_interp_flat=P_fid_interpolator(kmag_grid_corner_flat)
-            # self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
         
         # binning considerations
         self.binning_mode=binning_mode
@@ -208,8 +203,8 @@ class cosmo_stats(object):
             self.T_primary=self.T_pristine*self.evaled_primary
         
         # strictness control for realization averaging
-        self.realization_ceiling=realization_ceiling
         self.frac_tol=frac_tol
+        self.realization_ceiling=int(np.round(self.frac_tol**-2))
         self.verbose=verbose
 
         # P_converged interpolation bins
@@ -226,7 +221,6 @@ class cosmo_stats(object):
         else:
             self.P_converged=None
         self.P_interp=None                     # can't init with this because, if you had one, there'd be no point of using cosmo_stats b/c the job is already done (at best, you can provide a P_fid)
-        self.num_realiz_evaled=None
         self.not_converged=None
 
     def calc_bins(self,Nki):
@@ -331,7 +325,7 @@ class cosmo_stats(object):
         T_tilde=T_tilde_Re+1j*T_tilde_Im # have not yet applied the symmetry that ensures T is real-valued 
         T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvox),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: fftshiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
         if self.no_monopole:
-            T-=np.mean(T) # subtract monopole moment to make things more akin to what powerbox does (EXPERIMENT) (I KNOW THIS WILL MAKE MY RECONSTRUCTION TESTS LOOK DIFFERENT THAN I ULTIMATELY WANT THEM TO)
+            T-=np.mean(T) # subtract monopole moment to make things more akin to what powerbox does
         self.T_pristine=T 
         self.T_primary=T*self.evaled_primary
 
@@ -339,11 +333,9 @@ class cosmo_stats(object):
         assert(self.P_fid is not None), "cannot average over numerically windowed realizations without a fiducial power spec"
         self.not_converged=True
         i=0
-        while (self.not_converged and i<self.realization_ceiling):
-            self.generate_box()      # generates a new T realization from self.P_fid and stores it in self.T (overwrites whatever was there before, but this isn't a problem, because each T calc is just a random realization)
-            self.generate_P()        # appends a P realization to self.P_realizations
-            # self.check_convergence() # updates self.not_converged
-            i+=1
+        for i in range(self.realization_ceiling):
+            self.generate_box()
+            self.generate_P()
             if self.verbose:
                 if (i%(self.realization_ceiling//10)==0):
                     print("realization",i)
@@ -358,26 +350,6 @@ class cosmo_stats(object):
             self.P_converged=np.reshape(P_converged,(self.Nk0,self.Nk1))
         else:
             self.P_converged=np.reshape(P_converged,(self.Nk0,))
-        self.num_realiz_evaled=i # not called anything to the effect of "num_realiz_converged" bc it might not have converged if i hit the realization ceiling
-
-    def check_convergence(self):
-        """
-        figure_of_merit is the ratio between the sample stddevs for ensembles containing the (0th through [n-1]st) and (0th through nth) realizations
-        if the ensemble average has converged, adding the nth realization shouldn't change the variance that much--hence examining the ratio
-        (but the scientifically rigorous thing to compare is the std dev of mean, which has the extra 1/sqrt(i))
-        """
-        arr_realiz_holder=np.array(self.P_realizations)
-        arr_realiz_holder_shape=arr_realiz_holder.shape
-        n=arr_realiz_holder_shape[0]
-        ndims=len(arr_realiz_holder_shape)
-        prefac=np.sqrt((n-1)/n)
-        if ndims==4:   # catches cyl b/c realiz holder has shape (nrealiz_so_far,1,Nk0,Nk1)
-            figure_of_merit=np.abs(1.-prefac*np.std(arr_realiz_holder[:,:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:,:],ddof=1))
-        elif ndims==3: # catches sph b/c realiz holder has shape (nrealiz_so_far,1,Nk0)
-            figure_of_merit=np.abs(1.-prefac*np.std(arr_realiz_holder[:,:,:],ddof=1)/np.std(arr_realiz_holder[:-1,:,:],ddof=1))
-        else:
-            raise NotYetImplementedError
-        self.not_converged=(figure_of_merit>self.frac_tol)
 
     def interpolate_P(self):
         """
