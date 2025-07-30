@@ -37,11 +37,13 @@ bundled2=(sigLoS2,beamfwhm_x,beamfwhm_y,r20,)
 #                  T_pristine=None,T_primary=None,P_fid=None,Nvox=None,                    # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
 #                  primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian",  # primary beam considerations
 #                  Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
-#                  realization_ceiling=1000,frac_tol=0.001,                                # max number of realizations
+#                  realization_ceiling=1000,frac_tol=5e-4,                                 # max number of realizations
 #                  k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
 #                  P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
-#                  verbose=False                                                           # y/n: status updates for averaging over realizations
-#                  ):                                                                      # implement later: synthesized beam considerations, other primary beam types, and more
+#                  verbose=False,                                                          # status updates for averaging over realizations
+#                  k_fid=None,kind="cubic",avoid_extrapolation=False,                      # helper vars for converting a 1d fid power spec to a box sampling
+#                  no_monopole=False                                                       # consideration when generating boxes
+#                  ): 
 
 idx=-0.9 # DECAYING   power law
 # idx=2.3  # INCREASING power law
@@ -62,25 +64,25 @@ if spherical_test_suite:
                             P_fid=Ptest,Nvox=Nvox,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz)
+                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz,k_fid=ktest)
     modulated_0=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled0,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz)
+                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz,k_fid=ktest)
     modulated_1=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled1,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz)
+                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz,k_fid=ktest)
     modulated_2=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled2,
                             Nk0=Nk,
                             verbose=True,
-                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz)
+                            k0bins_interp=test_interp_bins,realization_ceiling=Nrealiz,k_fid=ktest)
     cases=      [ unmodulated,  modulated_0,  modulated_1,  modulated_2 ]
     print("__init__ test complete")
 
@@ -183,28 +185,28 @@ if cylindrical_test_suite:
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz)
+                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz,k_fid=ktest)
     modulated_0=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled0,
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz)
+                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz,k_fid=ktest)
     modulated_1=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled1,
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz)
+                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz,k_fid=ktest)
     modulated_2=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             primary_beam=custom_response,primary_beam_args=bundled2,
                             Nk0=Nk,Nk1=Nk1,
                             verbose=True,
                             k0bins_interp=test_interp_bins,
-                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz)
+                            k1bins_interp=test_interp_bins_1,realization_ceiling=Nrealiz,k_fid=ktest)
     
     cases=      [ unmodulated,  modulated_0,  modulated_1,  modulated_2 ]
     print("__init__ test complete")

@@ -49,7 +49,8 @@ class cosmo_stats(object):
                  k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
                  P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
                  verbose=False,                                                          # status updates for averaging over realizations
-                 k_fid=None,kind="cubic",avoid_extrapolation=False                       # helper vars for converting a 1d fid power spec to a box sampling
+                 k_fid=None,kind="cubic",avoid_extrapolation=False,                      # helper vars for converting a 1d fid power spec to a box sampling
+                 no_monopole=False                                                       # consideration when generating boxes
                  ):                                                                      # implement later: synthesized beam considerations, other primary beam types, and more
         """
         Lsurvey             :: float                       :: side length of cosmo box         :: Mpc
@@ -78,12 +79,14 @@ class cosmo_stats(object):
         k_fid               :: (Nk0_fid,) of floats        :: modes where P_fid is sampled     :: 1/Mpc
         kind                :: str                         :: interp type                      :: ---
         avoid_extrapolation :: bool                        :: when calling scipy interpolators :: ---
+        no_monopole         :: bool                        :: y/n subtr. from generated boxes  :: ---
         """
         # spectrum and box
         self.Lsurvey=Lsurvey
         self.P_fid=P_fid
         self.T_primary=T_primary
         self.T_pristine=T_pristine
+        self.no_monopole=no_monopole
         if ((T_primary is None) and (T_pristine is None) and (P_fid is None)):                           # must start with either a box or a fiducial power spec
             raise NotEnoughInfoError
         elif ((P_fid is not None) and (T_primary is None) and (T_pristine is None) and (Nvox is None)):  # to generate boxes from a power spec, il faut some way of determining how many voxels to use per side
@@ -104,7 +107,7 @@ class cosmo_stats(object):
             else:                                                       # remaining case: T was passed but Nvox was not, so use the shape of T to initialize the Nvox attribute
                 self.Nvox=self.T_pristine_shape0
             
-            if (P_fid is not None): # no hi fa res si the fiducial power spectrum has a different dimensionality or bin width than the realizations you plan to generate
+            if (P_fid is not None): # no hi fa res si the fiducial power spectrum has a different dimensionality or bin width than the realizations you plan to generate (boxes will be generated from a grid-interpolated P_fid, anyway)
                 Pfidshape=P_fid.shape
                 Pfiddims=len(Pfidshape)
                 if (Pfiddims==2):
@@ -146,10 +149,11 @@ class cosmo_stats(object):
         self.avoid_extrapolation=avoid_extrapolation
         if self.P_fid is not None:
             assert(self.k_fid is not None), "interpolating a 1D P_fid to box k-magnitudes requires knowledge of k_fid"
-            kmag_grid_corner_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
-            P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
-            P_interp_flat=P_fid_interpolator(kmag_grid_corner_flat)
-            self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
+            self.P_fid_interp_1d_to_3d()
+            # kmag_grid_corner_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
+            # P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
+            # P_interp_flat=P_fid_interpolator(kmag_grid_corner_flat)
+            # self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
         
         # binning considerations
         self.binning_mode=binning_mode
@@ -239,6 +243,12 @@ class cosmo_stats(object):
             raise UnsupportedBinningMode
         return kbins,limiting_spacing # kbins            -> floors of the bins to which the power spectrum will be binned (along one axis)
                                       # limiting_spacing -> smallest spacing between adjacent bins (uniform if linear; otherwise, depends on the binning strategy)
+    
+    def P_fid_interp_1d_to_3d(self):
+        kmag_grid_corner_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
+        P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
+        P_interp_flat=P_fid_interpolator(kmag_grid_corner_flat)
+        self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
             
     def generate_P(self,send_to_P_fid=False):
         """
@@ -292,7 +302,8 @@ class cosmo_stats(object):
         P.reshape(final_shape)
         if send_to_P_fid: # if generate_P was called speficially to have a spec from which all future box realizations will be generated
             self.P_fid=P
-        else:             # the normal case where you're just accumulating a realization
+            self.P_fid_interp_1d_to_3d() # generate interpolated values of the newly established 1D P_fid over the k-magnitudes of the box
+        else:             # the "normal" case where you're just accumulating a realization
             self.P_realizations.append([P])
         self.unbinned_P=modsq_T_tilde/self.Veff # box-shaped, but calculated according to the power spectrum estimator equation
         
@@ -316,27 +327,11 @@ class cosmo_stats(object):
         assert(self.P_fid_box is not None)
         sigmas=np.sqrt(self.Veff*self.P_fid_box/2.) # from inverting the estimator equation and turning variances into std devs
         T_tilde_Re,T_tilde_Im=np.random.normal(loc=0.*sigmas,scale=sigmas,size=np.insert(sigmas.shape,0,2))
-        # ############
-        # ############ WORKING-ISH (QUALITATIVE POWER LEVELS PRESERVED, BUT STD OF FINAL BOX VALUES IS TOO SENSITIVE TO HOW MANY MODES YOU PUT IN THE SPHERICALLY BINNED P_FID) VERSION AS OF 17:14 29.07.2025
-        # sigmas=np.append(sigmas,sigmas[-1]) # use the same sigma for corner points
-        # sigmas=np.reshape(sigmas,(self.fid_Nk0+1,))
-        # T_tilde_Re=np.zeros((self.Nvox,self.Nvox,self.Nvox))
-        # T_tilde_Im=np.zeros((self.Nvox,self.Nvox,self.Nvox))
-
-        # for i,sig in enumerate(sigmas):
-        #     here=np.nonzero(i==self.sph_bin_indices_corner)              # all box indices where the corresponding bin index is the ith bin floor (iterable)
-        #     num_here=len(np.argwhere(i==self.sph_bin_indices_corner))    # number of voxels in the bin currently under consideration
-        #     samps_Re=np.random.normal(scale=sig,size=(num_here,))        # samples for filling the current bin
-        #     samps_Im=np.random.normal(scale=sig,size=(num_here,))
-        #     if (num_here>0):
-        #         T_tilde_Re[here]=samps_Re
-        #         T_tilde_Im[here]=samps_Im
-        # ############
-        # ############
         
         T_tilde=T_tilde_Re+1j*T_tilde_Im # have not yet applied the symmetry that ensures T is real-valued 
         T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvox),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: fftshiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
-        T-=np.mean(T) # subtract monopole moment to make things more akin to what powerbox does (EXPERIMENT) (I KNOW THIS WILL MAKE MY RECONSTRUCTION TESTS LOOK DIFFERENT THAN I ULTIMATELY WANT THEM TO)
+        if self.no_monopole:
+            T-=np.mean(T) # subtract monopole moment to make things more akin to what powerbox does (EXPERIMENT) (I KNOW THIS WILL MAKE MY RECONSTRUCTION TESTS LOOK DIFFERENT THAN I ULTIMATELY WANT THEM TO)
         self.T_pristine=T 
         self.T_primary=T*self.evaled_primary
 
