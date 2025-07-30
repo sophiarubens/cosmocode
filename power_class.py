@@ -48,7 +48,8 @@ class cosmo_stats(object):
                  realization_ceiling=1000,frac_tol=5e-4,                                 # max number of realizations
                  k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
                  P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
-                 verbose=False                                                           # status updates for averaging over realizations
+                 verbose=False,                                                          # status updates for averaging over realizations
+                 k_fid=None,kind="cubic",avoid_extrapolation=False                       # helper vars for converting a 1d fid power spec to a box sampling
                  ):                                                                      # implement later: synthesized beam considerations, other primary beam types, and more
         """
         Lsurvey             :: float                       :: side length of cosmo box         :: Mpc
@@ -58,9 +59,9 @@ class cosmo_stats(object):
         Nvox                :: float                       :: # voxels PER SIDE of cosmo box   :: ---
         primary_beam        :: callable                    :: power beam in Cartesian coords   :: ---
         primary_beam_args   :: tuple of floats             :: Gaussian: "μ"s and "σ"s          :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
-        primary_beam_type   :: string                      :: implement later: Airy etc.       :: ---
+        primary_beam_type   :: str                         :: implement later: Airy etc.       :: ---
         Nk0, Nk1            :: int                         :: # power spec bins for axis 0/1   :: ---
-        binning_mode        :: string                      :: lin/log sp. P_realizations bins  :: ---
+        binning_mode        :: str                         :: lin/log sp. P_realizations bins  :: ---
         realization_ceiling :: int                         :: max # of realiz in p.s. avg      :: ---
         frac_tol            :: float                       :: max fractional amount by which   :: ---
                                                               the p.s. avg can change w/ the 
@@ -74,6 +75,9 @@ class cosmo_stats(object):
                                if Nk1>0:  (Nk0,Nk1) floats    realizations of a cosmo box 
         P_converged         :: same as that of P_fid       :: average of P_realizations        :: K^2 Mpc^3
         verbose             :: bool                        :: every 10% of realization_ceil    :: ---
+        k_fid               :: (Nk0_fid,) of floats        :: modes where P_fid is sampled     :: 1/Mpc
+        kind                :: str                         :: interp type                      :: ---
+        avoid_extrapolation :: bool                        :: when calling scipy interpolators :: ---
         """
         # spectrum and box
         self.Lsurvey=Lsurvey
@@ -130,10 +134,22 @@ class cosmo_stats(object):
                                                                                 self.k_vec_for_box_corner,
                                                                                 self.k_vec_for_box_corner,
                                                                                 indexing="ij")              # box-shaped Cartesian coords
+        self.kmag_grid_corner=               np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2+self.kz_grid_corner**2)   # k magnitudes for each voxel (need for the generate_box direction)
         self.kx_grid_centre,self.ky_grid_centre,self.kz_grid_centre=np.meshgrid(self.k_vec_for_box_centre,
                                                                                 self.k_vec_for_box_centre,
                                                                                 self.k_vec_for_box_centre,
                                                                                 indexing="ij")
+        
+        # if P_fid was passed, establish its values on the k grid (helpful when generating a box)
+        self.k_fid=k_fid
+        self.kind=kind
+        self.avoid_extrapolation=avoid_extrapolation
+        if self.P_fid is not None:
+            assert(self.k_fid is not None), "interpolating a 1D P_fid to box k-magnitudes requires knowledge of k_fid"
+            kmag_grid_corner_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
+            P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
+            P_interp_flat=P_fid_interpolator(kmag_grid_corner_flat)
+            self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
         
         # binning considerations
         self.binning_mode=binning_mode
@@ -153,8 +169,7 @@ class cosmo_stats(object):
             self.k1bins=None
         
             # voxel grids for sph binning
-        self.k_grid_corner=               np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2+self.kz_grid_corner**2)   # k magnitudes for each voxel (need for the generate_box direction)
-        self.sph_bin_indices_corner=      np.digitize(self.k_grid_corner,self.k0bins)                                     # sph bin that each voxel falls into
+        self.sph_bin_indices_corner=      np.digitize(self.kmag_grid_corner,self.k0bins)                                  # sph bin that each voxel falls into
         self.sph_bin_indices_1d_corner=   np.reshape(self.sph_bin_indices_corner, (self.Nvox**3,)) # 1d version of ^ (compatible with np.bincount)
         
         self.k_grid_centre=               np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)   # same thing but fftshifted/ centre-origin (need for the generate_P direction)
@@ -210,7 +225,6 @@ class cosmo_stats(object):
         self.num_realiz_evaled=None
         self.not_converged=None
 
-    
     def calc_bins(self,Nki):
         """
         philosophy: generate a set of bins spaced according to the desired scheme with max and min
@@ -299,20 +313,26 @@ class cosmo_stats(object):
             raise UnsupportedBinningMode # for now, I can only generate a box from a spherically binned power spectrum
         # not warning abt potentially overwriting T -> the only case where info would be lost is where self.P_fid is None, and I already have a separate warning for that
         
-        sigmas=np.sqrt(self.Veff*self.P_fid/2.) # from inverting the estimator equation and turning variances into std devs
-        sigmas=np.append(sigmas,sigmas[-1]) # use the same sigma for corner points
-        sigmas=np.reshape(sigmas,(self.fid_Nk0+1,))
-        T_tilde_Re=np.zeros((self.Nvox,self.Nvox,self.Nvox))
-        T_tilde_Im=np.zeros((self.Nvox,self.Nvox,self.Nvox))
+        assert(self.P_fid_box is not None)
+        sigmas=np.sqrt(self.Veff*self.P_fid_box/2.) # from inverting the estimator equation and turning variances into std devs
+        T_tilde_Re,T_tilde_Im=np.random.normal(loc=0.*sigmas,scale=sigmas,size=np.insert(sigmas.shape,0,2))
+        # ############
+        # ############ WORKING-ISH (QUALITATIVE POWER LEVELS PRESERVED, BUT STD OF FINAL BOX VALUES IS TOO SENSITIVE TO HOW MANY MODES YOU PUT IN THE SPHERICALLY BINNED P_FID) VERSION AS OF 17:14 29.07.2025
+        # sigmas=np.append(sigmas,sigmas[-1]) # use the same sigma for corner points
+        # sigmas=np.reshape(sigmas,(self.fid_Nk0+1,))
+        # T_tilde_Re=np.zeros((self.Nvox,self.Nvox,self.Nvox))
+        # T_tilde_Im=np.zeros((self.Nvox,self.Nvox,self.Nvox))
 
-        for i,sig in enumerate(sigmas):
-            here=np.nonzero(i==self.sph_bin_indices_corner)              # all box indices where the corresponding bin index is the ith bin floor (iterable)
-            num_here=len(np.argwhere(i==self.sph_bin_indices_corner))    # number of voxels in the bin currently under consideration
-            samps_Re=np.random.normal(scale=sig,size=(num_here,))        # samples for filling the current bin
-            samps_Im=np.random.normal(scale=sig,size=(num_here,))
-            if (num_here>0):
-                T_tilde_Re[here]=samps_Re
-                T_tilde_Im[here]=samps_Im
+        # for i,sig in enumerate(sigmas):
+        #     here=np.nonzero(i==self.sph_bin_indices_corner)              # all box indices where the corresponding bin index is the ith bin floor (iterable)
+        #     num_here=len(np.argwhere(i==self.sph_bin_indices_corner))    # number of voxels in the bin currently under consideration
+        #     samps_Re=np.random.normal(scale=sig,size=(num_here,))        # samples for filling the current bin
+        #     samps_Im=np.random.normal(scale=sig,size=(num_here,))
+        #     if (num_here>0):
+        #         T_tilde_Re[here]=samps_Re
+        #         T_tilde_Im[here]=samps_Im
+        # ############
+        # ############
         
         T_tilde=T_tilde_Re+1j*T_tilde_Im # have not yet applied the symmetry that ensures T is real-valued 
         T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvox),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: fftshiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
@@ -364,7 +384,7 @@ class cosmo_stats(object):
             raise NotYetImplementedError
         self.not_converged=(figure_of_merit>self.frac_tol)
 
-    def interpolate_P(self,avoid_extrapolation=True,kind="cubic"):
+    def interpolate_P(self):
         """
         notes
         * default behaviour upon requesting extrapolation: 
@@ -401,7 +421,7 @@ class cosmo_stats(object):
             if (kperp_want_hi>kperp_have_hi):
                 extrapolation_warning("high kperp", kperp_want_hi, kperp_have_hi)
             self.k0_interp_grid,self.k1_interp_grid=np.meshgrid(self.k0bins_interp,self.k1bins_interp,indexing="ij")
-            self.P_interp=interpn((self.k0bins,self.k1bins),self.P_converged,(self.k0_interp_grid,self.k1_interp_grid),method=kind,bounds_error=avoid_extrapolation,fill_value=None)
+            self.P_interp=interpn((self.k0bins,self.k1bins),self.P_converged,(self.k0_interp_grid,self.k1_interp_grid),method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
         else:
             k_have_lo=self.k0bins[0]
             k_have_hi=self.k0bins[-1]
@@ -411,5 +431,5 @@ class cosmo_stats(object):
                 extrapolation_warning("low k",k_want_lo,k_have_lo)
             if (k_want_hi>k_have_hi):
                 extrapolation_warning("high k",k_want_hi,k_have_hi)
-            P_interpolator=interp1d(self.k0bins,self.P_converged,kind=kind,bounds_error=avoid_extrapolation,fill_value="extrapolate")
+            P_interpolator=interp1d(self.k0bins,self.P_converged,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
             self.P_interp=P_interpolator(self.k0bins_interp)
