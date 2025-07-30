@@ -42,6 +42,9 @@ class NvoxPracticalityError(Exception):
 class NumericalDeltaError(Exception):
     pass
 
+def Gaussian_primary(X,Y,Z,sigLoS,fwhm_x,fwhm_y,r0):
+    return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/fwhm_x)**2+(Y/fwhm_y)**2)/r0**2)
+
 class window_calcs(object):
     def __init__(self,
                  kpar_surv,kperp_surv,                                  # set by survey properties
@@ -70,17 +73,21 @@ class window_calcs(object):
         init_and_box_tol, CAMB_tol :: floats                       :: how much wider do you want the k-ranges  :: ---
                                                                       of preceding steps to be? (frac tols)
         """
+        # cylindrically binned survey k-modes and box considerations
         self.kpar_surv=kpar_surv
         self.Nkpar_surv=len(kpar_surv)
+        self.deltakpar_surv=  self.kpar_surv  - self.kpar_surv[ self.Nkpar_surv// 2] 
         self.kperp_surv=kperp_surv
         self.Nkperp_surv=len(kperp_surv)
+        self.deltakperp_surv= self.kperp_surv - self.kperp_surv[self.Nkperp_surv//2]
 
         self.kmin_surv=np.sqrt(kpar_surv[ 0]**2+kperp_surv[ 0]**2)
         self.kmax_surv=np.sqrt(kpar_surv[-1]**2+kperp_surv[-1]**2)
-        self.Lsurvbox= twopi/self.kmin
+        self.Lsurvbox= twopi/self.kmin                  ### CHECK THAT NO FACTOR OF TWO IS MISSING
         self.Nvoxbox=  int(self.Lsurvbox*self.kmax/pi)
         self.NvoxPracticalityWarning(self.Nvoxbox)
 
+        # primary beam considerations
         if (primary_beam_type.lower()=="gaussian"):
             self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0= self.primary_beam_args
             self.epsLoS,self.epsx,self.epsy=             self.primary_beam_uncs
@@ -91,6 +98,7 @@ class window_calcs(object):
         self.primary_beam_args=primary_beam_args
         self.primary_beam_uncs=primary_beam_uncs
         
+        # forecasting considerations
         self.pars_set_cosmo=pars_set_cosmo
         self.pars_forecast=pars_forecast
         self.z=z
@@ -101,10 +109,7 @@ class window_calcs(object):
         self.bw=nu_ctr*evol_restriction_threshold # previously called NDeltanu
         self.Nchan=int(self.bw/self.Deltanu)
 
-        self.kpargrid,self.kperpgrid,self.Pcyl=self.unbin_to_Pcyl(self)
-        self.Pcylshape=self.Pcyl.shape
-
-        ##
+        # numerical protections for assorted k-ranges
         limiting_spacing_surv=np.min([ self.kpar[1]-self.kpar[0], self.kperp[1]-self.kperp[0]])
         kmin_box_and_init=(1-init_and_box_tol)*self.kmin_surv
         kmax_box_and_init=(1+init_and_box_tol)*self.kmax_surv
@@ -134,11 +139,8 @@ class window_calcs(object):
         print("box vec:         I jump straight to the r-grid so this doesn't live in a variable thus far")
         print("init par & perp: ",self.kpartrue_init[0],"-",self.kpartrue_init[-1],"&",self.kperptrue_init[0],"-",self.kperptrue_init[-1])
         print("surv par & perp: ",self.kpar[0],"-",self.kpar[-1],"&",self.kperp[0],"-",self.kperp[-1])
-        ##
-
-        """
-        interpolate a spherically binned CAMB MPS to provide MPS values for a cylindrically binned k-grid of interest (nkpar x nkperp)
-        """
+        
+        # interp a sph binned CAMB/etc. MPS to get values over a cylindrically binned k-grid of interest
         k,Psph=self.get_mps(self.kmin_surv,self.kmax_surv)
         Psph=Psph.reshape((Psph.shape[1],))
         kpargrid,kperpgrid=np.meshgrid(self.kpar_surv,self.kperp_surv,indexing="ij")
@@ -183,54 +185,23 @@ class window_calcs(object):
         ns=pars_set_cosmo[4]
 
         pars_set_cosmo=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0)
-        # camb.dark_energy.DarkEnergyEqnOfState.set_params(w=, wa=)
         pars_set_cosmo.InitPower.set_params(As=As,ns=ns,r=0)
         pars_set_cosmo.set_matter_power(redshifts=z, kmax=maxkh*h)
         results = camb.get_results(pars_set_cosmo)
         pars_set_cosmo.NonLinear = model.NonLinear_none
         kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=self.n_sph_modes)
         return kh,pk
-    
-    ##
-    def unbin_to_Pcyl(self):  
-        """
-        interpolate a spherically binned CAMB MPS to provide MPS values for a cylindrically binned k-grid of interest (nkpar x nkperp)
-        """
-        k,Psph=self.get_mps(self.kpar_surv,self.kperp_surv)
-        Psph=Psph.reshape((Psph.shape[1],))
-        kpargrid,kperpgrid=np.meshgrid(self.kpar_surv,self.kperp_surv,indexing="ij")
-        Pcyl=np.zeros((self.Nkpar_surv,self.Nkperp_surv))
-        for i,kpar_val in enumerate(self.kpar_surv):
-            for j,kperp_val in enumerate(self.kperp_surv):
-                k_of_interest=np.sqrt(kpar_val**2+kperp_val**2)
-                idx_closest_k=np.argmin(np.abs(k-k_of_interest)) # k-scalar in the CAMB MPS closest to the k-magnitude indicated by the kpar-kperp combination for that point in cylindrically binned Fourier space
-                if (idx_closest_k==0): # start of array
-                    idx_2nd_closest_k=1 # use hi
-                elif (idx_closest_k==self.n_sph_modes-1): # end of array
-                    idx_2nd_closest_k=self.n_sph_modes-2 # use lo
-                else: # middle of array -> check if hi or lo is closer
-                    k_neighb_lo=k[idx_closest_k-1]
-                    k_neighb_hi=k[idx_closest_k+1]
-                    if (np.abs(k_neighb_lo-k_of_interest)<np.abs(k_neighb_hi-k_of_interest)): # use k_neighb_lo
-                        idx_2nd_closest_k=idx_closest_k-1
-                    else:
-                        idx_2nd_closest_k=idx_closest_k+1
-                k_closest=k[idx_closest_k]
-                k_2nd_closest=k[idx_2nd_closest_k]
-                interp_slope=(Psph[idx_2nd_closest_k]-Psph[idx_closest_k])/(k_2nd_closest-k_closest)
-                Pcyl[i,j]=interp_slope*(k_of_interest-k_closest)
-        self.kpargrid_surv=kpargrid
-        self.kperpgrid_surv=kperpgrid
-        self.Pcyl=Pcyl
-    ##
 
     def get_padding(self,n):
-            padding=n-1
-            padding_lo=int(np.ceil(padding / 2))
-            padding_hi=padding-padding_lo
-            return padding_lo,padding_hi
+        padding=n-1
+        padding_lo=int(np.ceil(padding / 2))
+        padding_hi=padding-padding_lo
+        return padding_lo,padding_hi
     
     def calc_Pcont_cyl(self):
+        """
+        calculate the cylindrically binned "contaminant power," following from the true and perceived window functions
+        """
         self.calc_Wcont()
         if (self.Pcylshape!=self.Wcontshape):
             if(self.Pcylshape.T!=self.Wcontshape):
@@ -240,33 +211,33 @@ class window_calcs(object):
         pad0lo,pad0hi=self.get_padding(s0)
         pad1lo,pad1hi=self.get_padding(s1)
         Wcontp=np.pad(self.Wcont,((pad0lo,pad0hi),(pad1lo,pad1hi)),"edge")
-        self.Pcont_cyl=convolve(Wcontp,self.Pcyl,mode="valid")
+        self.Pcont_cyl=convolve(Wcontp,self.Pcyl,mode="valid") ### same update as calc_Pcont_asym
     
+    def W_cyl_binned(self,beam_pars_to_use):
+        """
+        wrapper to multiply the LoS and flat sky approximation sky plane terms of the cylindrically binned window function, for the grid described by the k-parallel and k-perp modes of the survey of interest
+        """
+        self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0
+        sigLoS_use,fwhm_x_use,_,r0_use=beam_pars_to_use
+        par_vec=np.exp(-self.deltakpar_surv**2*sigLoS_use**2)
+        perp_vec=np.exp(-(r0_use*fwhm_x_use*self.deltakperp_surv)**2/(2.*ln2))
+        par_arr,perp_arr=np.meshgrid(par_vec,perp_vec,indexing="ij")
+        meshed=par_arr*perp_arr
+        raw_sum=np.sum(meshed)
+        if raw_sum!=0.:
+            return meshed/raw_sum
+        else:
+            return meshed
+
     def calc_Wcont(self):
         """
         calculate the "contaminant" windowing amplitude that will help give rise to the so-called "contaminant power"
         (ignores fwhmy and epsfwhmy because of the limits of analytical cylindrical math, although they need to be passed when initializing the class object to avoid unpacking errors)
         """
-        deltakpar=  self.kpar  - self.kpar[ self.Nkpar// 2] 
-        deltakperp= self.kperp - self.kperp[self.Nkperp//2]
-        par_vec_tr=  np.exp(-deltakpar**2* self.sigLoS                 **2)
-        perp_vec_tr= np.exp(-(self.r0*self.fwhmx*                  deltakperp)**2/(2.*ln2))
-        par_vec_th=  np.exp(-deltakpar**2*(self.sigLoS*(1-self.epsLoS))**2)
-        perp_vec_th= np.exp(-(self.r0*self.fwhmx*(1-self.epsfwhmx)*deltakperp)**2/(2.*ln2))
-
-        self.Wtr=self.stitch_normalize(par_vec_tr,perp_vec_tr)
-        self.Wth=self.stitch_normalize(par_vec_th,perp_vec_th)
+        self.Wtr=self.W_cyl_binned(self.primary_beam_args)
+        self.Wth=self.W_cyl_binned(self.perturbed_primary_beam_args)
         self.Wcont=self.Wtr-self.Wth
         self.Wcontshape=self.Wcont.shape
-    
-    def stitch_normalize(vec1,vec2):
-        arr1,arr2=np.meshgrid(vec1,vec2,indexing="ij")
-        meshed=arr1*arr2
-        rawsum=np.sum(meshed)
-        if (rawsum!=0):
-            return meshed/rawsum
-        else:
-            return meshed
     
     def NvoxPracticalityWarning(Nvox,threshold_lo=75,threshold_hi=200):
         prefix="WARNING: the specified survey requires Nvox="
@@ -291,52 +262,18 @@ class window_calcs(object):
                        Nk0=nkpar_box,Nk1=nkperp_box,
                        frac_tol=frac_tol,
                        k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
-                       k_fid=)
-        th=cosmo_stats()
+                       k_fid=self.ksph)
+        th=cosmo_stats(self.Lsurvbox,
+                       P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
+                       primary_beam=Gaussian_primary,primary_beam_args=self.perturbed_primary_beam_args,
+                       Nk0=nkpar_box,Nk1=nkperp_box,
+                       frac_tol=frac_tol,
+                       k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
+                       k_fid=self.ksph)
         
-        Ptrue_realizations=   np.zeros((Nkpar_surv,Nkperp_surv,n_realiz))
-        Pthought_realizations=np.zeros((Nkpar_surv,Nkperp_surv,n_realiz))
-        bundled_args=(sigLoS,beamfwhm_x,beamfwhm_y,r0,)
-        for i in range(n_realiz):
-            t2=time.time()
-            _,Tbox,rmags=generate_box(Ptruesph,ksph,Lsurvbox,Nvoxbox,custom_estimator2=custom_response,custom_estimator_args=bundled_args) #generate_box(P,k,Lsurvey,Nvox,custom_estimator2=False,custom_estimator_args=None) 
-            t3=time.time()
-            # print(">> Pcont calc: generated box from pspec - realization",i,t3-t2)
-            if (i==0):
-                t4=time.time()
-                X,Y,Z=np.meshgrid(rmags,rmags,rmags,indexing="ij")
-                response_true=    custom_response(X,Y,Z, sigLoS,           beamfwhm_x,          beamfwhm_y,          r0)
-                response_thought= custom_response(X,Y,Z, sigLoS*(1-epsLoS),beamfwhm_x*(1-eps_x),beamfwhm_y*(1-eps_y),r0)
-                t5=time.time()
-                # print(">> Pcont calc: generated responses",t5-t4)
-            t6=time.time()
-            T_x_true_resp=   Tbox* response_true
-            T_x_thought_resp=Tbox* response_thought
-            t7=time.time()
-            # print(">> Pcont calc: multiplied box and instrument response - realization",i,t7-t6)
-            ktrue_init,    Ptrue_init=    generate_P(T_x_true_resp,    "lin",Lsurvbox,nkpar_box,Nk1=nkperp_box, custom_estimator2=custom_response2,custom_estimator_args=bundled_args) # WAS LIN BUT NUMERICS WERE BAD
-            kpartrue_init,kperptrue_init=ktrue_init
-            limiting_spacing_init=np.min([kpartrue_init[1]-kpartrue_init[0],kperptrue_init[1]-kperptrue_init[0]])
-            t8=time.time()
-            kthought_init, Pthought_init= generate_P(T_x_thought_resp, "lin",Lsurvbox,nkpar_box,Nk1=nkperp_box, custom_estimator2=custom_response2,custom_estimator_args=bundled_args)
-            k_survey=(kpar,kperp)
-            t9=time.time()
-            # print(">> Pcont calc: generated pspecs from modulated boxes - realization",i,t9-t7)
-            _,   Ptrue= interpolate_P(Ptrue_init,    ktrue_init,    k_survey, avoid_extrapolation=False) # the returned k are the same as the k-modes passed in k_survey
-            _,Pthought= interpolate_P(Pthought_init, kthought_init, k_survey, avoid_extrapolation=False)
-            t10=time.time()
-            # print(">> Pcont calc: re-binned pspecs to k-modes of interest - realization",i,t10-t9)
-            Ptrue_realizations[:,:,i]=    Ptrue
-            Pthought_realizations[:,:,i]= Pthought
-            t11=time.time()
-            print(">> Pcont calc: generated modulated power spectra - realization",i,t11-t2)
-            
-        Ptrue=    np.mean(Ptrue_realizations,    axis=-1)
-        Pthought= np.mean(Pthought_realizations, axis=-1)
-        Pthought=0 # FOR DIAGNOSTIC PURPOSES WHILE AVOIDING RESTRUCTURING MY CODE: CALL IT PCONT BUT REALLY HAVE IT REFLECT PTRUE
-        t12=time.time()
-        print(">> Pcont calc: averaged over statistical realizations to obtain Ptrue and Pthought",t12-t11)
-        Pcont=Ptrue-Pthought
-        t13=time.time()
-        print(">> Pcont calc: subtracted Pthought from Ptrue",t13-t12)
-        return Pcont
+        tr.avg_realizations()
+        th.avg_realizations()
+        
+        self.Ptrue=    tr.P_converged
+        self.Pthought= th.P_converged
+        self.Pcont_cyl=self.Ptrue_cyl-self.Pthought_cyl ### same update as calc_Pcont_asym
