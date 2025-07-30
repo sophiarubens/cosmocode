@@ -27,6 +27,7 @@ pi=np.pi
 twopi=2.*pi
 ln2=np.log(2)
 nu_rest_21=1420.405751768 # MHz
+scale=1e-9
 
 h_Planck18=H0_Planck18/100.
 Omegamh2_Planck18=Omegam_Planck18*h_Planck18**2
@@ -49,7 +50,7 @@ class window_calcs(object):
                  z,n_sph_modes,dpar,                                    # conditioning the CAMB/etc. call
                  nu_ctr,delta_nu,                                       # for the survey of interest
                  evol_restriction_threshold=1./15.,                     # misc. numerical considerations
-                 init_and_box_tol=0.05,CAMB_tol=0.05                    # 
+                 init_and_box_tol=0.05,CAMB_tol=0.05                    # considerations for k-modes at different steps
                 ):
         """
         kpar_surv,kperp_surv       :: (Nkpar,),(Nkperp,) of floats :: mono incr. cyl binned curvey modes       :: 1/Mpc
@@ -81,8 +82,9 @@ class window_calcs(object):
         self.NvoxPracticalityWarning(self.Nvoxbox)
 
         if (primary_beam_type.lower()=="gaussian"):
-            self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
-            self.epsLoS,self.epsx,self.epsy
+            self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0= self.primary_beam_args
+            self.epsLoS,self.epsx,self.epsy=             self.primary_beam_uncs
+            self.perturbed_primary_beam_args=(self.sigLoS*(1-self.epsLoS),self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy),self.r0)
         else:
             raise NotYetImplementedError
         self.primary_beam_type=primary_beam_type
@@ -108,19 +110,119 @@ class window_calcs(object):
         kmax_box_and_init=(1+init_and_box_tol)*self.kmax_surv
         kmin_CAMB=(1-CAMB_tol)*kmin_box_and_init
         kmax_CAMB=(1+CAMB_tol)*kmax_box_and_init
-        ksph,Ptruesph=get_mps(pars_set_cosmo,z,minkh=kmin_CAMB,maxkh=kmax_CAMB,n_sph_modes=n_sph_modes) # TESTING WHAT HAPPENS WHEN I DON'T DIVIDE BY h
-        limiting_spacing_CAMB_sm=ksph[1]-ksph[0]
-        limiting_spacing_CAMB_lg=ksph[-1]-ksph[-2]
+        self.ksph,self.Ptruesph=self.get_mps(kmin_CAMB,kmax_CAMB)
+        limiting_spacing_CAMB_sm=self.ksph[1]-self.ksph[0]
+        limiting_spacing_CAMB_lg=self.ksph[-1]-self.ksph[-2]
         limiting_spacing_box_sm=2./(self.Nvoxbox*self.Lsurvbox*np.sqrt(3)*((np.sqrt(3)/2)-(1./self.Nvoxbox)))
         limiting_spacing_box_lg=self.Nvoxbox/(2.*self.Lsurvbox)
-        Deltabox=self.Lsurvbox/self.Nvoxbox
-        sky_plane_sigmas=self.r0*np.array([self.beamfwhm_x,self.beamfwhm_y])/np.sqrt(2*np.log(2))
-        all_sigmas=np.concatenate((sky_plane_sigmas,[self.sigLoS]))
-        if (np.any(all_sigmas<Deltabox)):
-            raise NumericalDeltaError
-        Nkpar_surv=len(kpar)
-        Nkperp_surv=len(kperp)
+        self.Deltabox=self.Lsurvbox/self.Nvoxbox
+        if primary_beam_type.lower()=="gaussian":
+            self.sky_plane_sigmas=self.r0*np.array([self.beamfwhm_x,self.beamfwhm_y])/np.sqrt(2*np.log(2))
+            self.all_sigmas=np.concatenate((self.sky_plane_sigmas,[self.sigLoS]))
+            if (np.any(self.all_sigmas<self.Deltabox)):
+                raise NumericalDeltaError
+        else:
+            raise NotYetImplementedError
+        print("END OF ITERATION 0 - COMPARISONS")
+        print("\nLIMITING SPACINGS")
+        print("limiting_spacing_CAMB=",limiting_spacing_CAMB_sm,"-",limiting_spacing_CAMB_lg)
+        print("limiting_spacing_box= ",limiting_spacing_box_sm,"-",limiting_spacing_box_lg)
+        print("limiting_spacing_surv=",limiting_spacing_surv)
+
+        print("\nMINS AND MAXES:")
+        print("CAMB:           ",self.ksph[0],"-",self.ksph[-1])
+        print("box vec:         I jump straight to the r-grid so this doesn't live in a variable thus far")
+        print("init par & perp: ",self.kpartrue_init[0],"-",self.kpartrue_init[-1],"&",self.kperptrue_init[0],"-",self.kperptrue_init[-1])
+        print("surv par & perp: ",self.kpar[0],"-",self.kpar[-1],"&",self.kperp[0],"-",self.kperp[-1])
         ##
+
+        """
+        interpolate a spherically binned CAMB MPS to provide MPS values for a cylindrically binned k-grid of interest (nkpar x nkperp)
+        """
+        k,Psph=self.get_mps(self.kmin_surv,self.kmax_surv)
+        Psph=Psph.reshape((Psph.shape[1],))
+        kpargrid,kperpgrid=np.meshgrid(self.kpar_surv,self.kperp_surv,indexing="ij")
+        Pcyl=np.zeros((self.Nkpar_surv,self.Nkperp_surv))
+        for i,kpar_val in enumerate(self.kpar_surv):
+            for j,kperp_val in enumerate(self.kperp_surv):
+                k_of_interest=np.sqrt(kpar_val**2+kperp_val**2)
+                idx_closest_k=np.argmin(np.abs(k-k_of_interest)) # k-scalar in the CAMB MPS closest to the k-magnitude indicated by the kpar-kperp combination for that point in cylindrically binned Fourier space
+                if (idx_closest_k==0): # start of array
+                    idx_2nd_closest_k=1 # use hi
+                elif (idx_closest_k==self.n_sph_modes-1): # end of array
+                    idx_2nd_closest_k=self.n_sph_modes-2 # use lo
+                else: # middle of array -> check if hi or lo is closer
+                    k_neighb_lo=k[idx_closest_k-1]
+                    k_neighb_hi=k[idx_closest_k+1]
+                    if (np.abs(k_neighb_lo-k_of_interest)<np.abs(k_neighb_hi-k_of_interest)): # use k_neighb_lo
+                        idx_2nd_closest_k=idx_closest_k-1
+                    else:
+                        idx_2nd_closest_k=idx_closest_k+1
+                k_closest=k[idx_closest_k]
+                k_2nd_closest=k[idx_2nd_closest_k]
+                interp_slope=(Psph[idx_2nd_closest_k]-Psph[idx_closest_k])/(k_2nd_closest-k_closest)
+                Pcyl[i,j]=interp_slope*(k_of_interest-k_closest)
+        self.kpargrid_surv=kpargrid
+        self.kperpgrid_surv=kperpgrid
+        self.Pcyl=Pcyl
+
+    def get_mps(self,minkh=1e-4,maxkh=1):
+        """
+        get matter power spectrum from CAMB
+
+        args
+        minkh = min value of k/h at which to calculate the MPS
+        maxkh = max value of k/h at which to calculate the MPS 
+        """
+        z=[z]
+        H0=pars_set_cosmo[0]
+        h=H0/100.
+        ombh2=pars_set_cosmo[1]
+        omch2=pars_set_cosmo[2]
+        As=pars_set_cosmo[3]*scale
+        ns=pars_set_cosmo[4]
+
+        pars_set_cosmo=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0)
+        # camb.dark_energy.DarkEnergyEqnOfState.set_params(w=, wa=)
+        pars_set_cosmo.InitPower.set_params(As=As,ns=ns,r=0)
+        pars_set_cosmo.set_matter_power(redshifts=z, kmax=maxkh*h)
+        results = camb.get_results(pars_set_cosmo)
+        pars_set_cosmo.NonLinear = model.NonLinear_none
+        kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=self.n_sph_modes)
+        return kh,pk
+    
+    ##
+    def unbin_to_Pcyl(self):  
+        """
+        interpolate a spherically binned CAMB MPS to provide MPS values for a cylindrically binned k-grid of interest (nkpar x nkperp)
+        """
+        k,Psph=self.get_mps(self.kpar_surv,self.kperp_surv)
+        Psph=Psph.reshape((Psph.shape[1],))
+        kpargrid,kperpgrid=np.meshgrid(self.kpar_surv,self.kperp_surv,indexing="ij")
+        Pcyl=np.zeros((self.Nkpar_surv,self.Nkperp_surv))
+        for i,kpar_val in enumerate(self.kpar_surv):
+            for j,kperp_val in enumerate(self.kperp_surv):
+                k_of_interest=np.sqrt(kpar_val**2+kperp_val**2)
+                idx_closest_k=np.argmin(np.abs(k-k_of_interest)) # k-scalar in the CAMB MPS closest to the k-magnitude indicated by the kpar-kperp combination for that point in cylindrically binned Fourier space
+                if (idx_closest_k==0): # start of array
+                    idx_2nd_closest_k=1 # use hi
+                elif (idx_closest_k==self.n_sph_modes-1): # end of array
+                    idx_2nd_closest_k=self.n_sph_modes-2 # use lo
+                else: # middle of array -> check if hi or lo is closer
+                    k_neighb_lo=k[idx_closest_k-1]
+                    k_neighb_hi=k[idx_closest_k+1]
+                    if (np.abs(k_neighb_lo-k_of_interest)<np.abs(k_neighb_hi-k_of_interest)): # use k_neighb_lo
+                        idx_2nd_closest_k=idx_closest_k-1
+                    else:
+                        idx_2nd_closest_k=idx_closest_k+1
+                k_closest=k[idx_closest_k]
+                k_2nd_closest=k[idx_2nd_closest_k]
+                interp_slope=(Psph[idx_2nd_closest_k]-Psph[idx_closest_k])/(k_2nd_closest-k_closest)
+                Pcyl[i,j]=interp_slope*(k_of_interest-k_closest)
+        self.kpargrid_surv=kpargrid
+        self.kperpgrid_surv=kperpgrid
+        self.Pcyl=Pcyl
+    ##
 
     def get_padding(self,n):
             padding=n-1
@@ -174,7 +276,7 @@ class window_calcs(object):
             print(prefix+"{:4}, which is suspiciously coarse".format(Nvox))
         return None
 
-    def calc_Pcont_asym(self,nkpar_box=15,nkperp_box=18,n_realiz=5,init_and_box_tol=0.05,CAMB_tol=0.05):
+    def calc_Pcont_asym(self,nkpar_box=15,nkperp_box=18,frac_tol=0.1):
         """
         calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
         (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
@@ -182,6 +284,15 @@ class window_calcs(object):
         returns
         contaminant power, calculated as the difference of subtracted spectra with config space–multiplied "true" and "thought" instrument responses
         """
+
+        tr=cosmo_stats(self.Lsurvbox,
+                       P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
+                       primary_beam=Gaussian_primary,primary_beam_args=self.primary_beam_args,
+                       Nk0=nkpar_box,Nk1=nkperp_box,
+                       frac_tol=frac_tol,
+                       k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
+                       k_fid=)
+        th=cosmo_stats()
         
         Ptrue_realizations=   np.zeros((Nkpar_surv,Nkperp_surv,n_realiz))
         Pthought_realizations=np.zeros((Nkpar_surv,Nkperp_surv,n_realiz))
@@ -219,19 +330,7 @@ class window_calcs(object):
             Pthought_realizations[:,:,i]= Pthought
             t11=time.time()
             print(">> Pcont calc: generated modulated power spectra - realization",i,t11-t2)
-            if i==0:
-                print("END OF ITERATION 0 - COMPARISONS")
-                print("\nLIMITING SPACINGS")
-                print("limiting_spacing_CAMB=",limiting_spacing_CAMB_sm,"-",limiting_spacing_CAMB_lg)
-                print("limiting_spacing_box= ",limiting_spacing_box_sm,"-",limiting_spacing_box_lg)
-                print("limiting_spacing_init=",limiting_spacing_init)
-                print("limiting_spacing_surv=",limiting_spacing_surv)
-
-                print("\nMINS AND MAXES:")
-                print("CAMB:           ",ksph[0],"-",ksph[-1])
-                print("box vec:         I jump straight to the r-grid so this doesn't live in a variable thus far")
-                print("init par & perp: ",kpartrue_init[0],"-",kpartrue_init[-1],"&",kperptrue_init[0],"-",kperptrue_init[-1])
-                print("surv par & perp: ",kpar[0],"-",kpar[-1],"&",kperp[0],"-",kperp[-1])
+            
         Ptrue=    np.mean(Ptrue_realizations,    axis=-1)
         Pthought= np.mean(Pthought_realizations, axis=-1)
         Pthought=0 # FOR DIAGNOSTIC PURPOSES WHILE AVOIDING RESTRUCTURING MY CODE: CALL IT PCONT BUT REALLY HAVE IT REFLECT PTRUE
