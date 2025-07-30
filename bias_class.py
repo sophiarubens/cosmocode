@@ -43,6 +43,9 @@ class NumericalDeltaError(Exception):
     pass
 
 def Gaussian_primary(X,Y,Z,sigLoS,fwhm_x,fwhm_y,r0):
+    """
+    (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
+    """
     return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/fwhm_x)**2+(Y/fwhm_y)**2)/r0**2)
 
 class window_calcs(object):
@@ -53,10 +56,15 @@ class window_calcs(object):
                  z,n_sph_modes,dpar,                                    # conditioning the CAMB/etc. call
                  nu_ctr,delta_nu,                                       # for the survey of interest
                  evol_restriction_threshold=1./15.,                     # misc. numerical considerations
-                 init_and_box_tol=0.05,CAMB_tol=0.05                    # considerations for k-modes at different steps
+                 init_and_box_tol=0.05,CAMB_tol=0.05,                   # considerations for k-modes at different steps
+                 ftol_deriv=1e-6,eps=1e-16,maxiter=5,                   # precision control for numerical derivatives
+                 uncs=None,                                             # for Fisher-type calcs
+                 Nkpar_box=15,Nkperp_box=18,frac_tol_conv=0.1,
+                 pars_forecast_names=None
                 ):
         """
-        kpar_surv,kperp_surv       :: (Nkpar,),(Nkperp,) of floats :: mono incr. cyl binned curvey modes       :: 1/Mpc
+        kpar_surv,kperp_surv       :: (Nkpar_surv,),(Nkperp_surv,) :: mono incr. cyl binned curvey modes       :: 1/Mpc
+                                      of floats
         primary_beam               :: callable                     :: power beam in Cartesian coords           :: ---
         primary_beam_type          :: str                          :: implement soon: Airy etc.                :: ---
         primary_beam_args          :: (N_args,) of floats          :: Gaussian: "μ"s and "σ"s                  :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
@@ -72,6 +80,13 @@ class window_calcs(object):
         evol_restriction_threshold :: float                        :: ~$\frac{\Delta z}{z}$ w/in survey box    :: ---
         init_and_box_tol, CAMB_tol :: floats                       :: how much wider do you want the k-ranges  :: ---
                                                                       of preceding steps to be? (frac tols)
+        ftol_deriv                      :: float                        :: frac tol relating to scale of fcn range  :: ---
+        eps                        :: float                        :: tiny offset factor to protect against    :: --- 
+                                                                      numerical division-by-zero errors
+        maxiter                    :: int                          :: maximum # of times to let the step size  :: ---
+                                                                      optimization recurse before giving up
+        uncs                       :: (Nkpar_surv,Nkperp_surv) of  :: unc in power spec @each cyl survey mode  :: K^2 Mpc^3 (same as power)
+                                      floats
         """
         # cylindrically binned survey k-modes and box considerations
         self.kpar_surv=kpar_surv
@@ -100,7 +115,9 @@ class window_calcs(object):
         
         # forecasting considerations
         self.pars_set_cosmo=pars_set_cosmo
+        self.N_pars_set_cosmo=len(pars_set_cosmo)
         self.pars_forecast=pars_forecast
+        self.N_pars_forecast=len(pars_forecast)
         self.z=z
         self.n_sph_modes=n_sph_modes
         self.dpar=dpar
@@ -140,9 +157,50 @@ class window_calcs(object):
         print("init par & perp: ",self.kpartrue_init[0],"-",self.kpartrue_init[-1],"&",self.kperptrue_init[0],"-",self.kperptrue_init[-1])
         print("surv par & perp: ",self.kpar[0],"-",self.kpar[-1],"&",self.kperp[0],"-",self.kperp[-1])
         
-        # interp a sph binned CAMB/etc. MPS to get values over a cylindrically binned k-grid of interest
-        k,Psph=self.get_mps(self.kmin_surv,self.kmax_surv)
-        Psph=Psph.reshape((Psph.shape[1],))
+        # considerations for power spectra binned to survey k-modes
+        _,_,self.Pcyl=self.unbin_to_Pcyl(self.pars_set_cosmo) # unbin_to_Pcyl(self,pars_to_use)
+        self.uncs=uncs
+
+        # precision control for numerical derivatives
+        self.ftol_deriv=ftol_deriv
+        self.eps=eps
+        self.maxiter=maxiter
+
+        # considerations for power spectrum binning directly from the box
+        self.Nkpar_box=Nkpar_box
+        self.Nkperp_box=Nkperp_box
+        self.frac_tol_conv=frac_tol_conv
+        
+        # considerations for printing the calculated bias results
+        self.pars_forecast_names=pars_forecast_names
+        assert (len(pars_forecast)==len(pars_forecast_names))
+
+    def get_mps(self,minkh=1e-4,maxkh=1):
+        """
+        get matter power spectrum from CAMB
+        """
+        z=[z]
+        H0=pars_set_cosmo[0]
+        h=H0/100.
+        ombh2=pars_set_cosmo[1]
+        omch2=pars_set_cosmo[2]
+        As=pars_set_cosmo[3]*scale
+        ns=pars_set_cosmo[4]
+
+        pars_set_cosmo=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0)
+        pars_set_cosmo.InitPower.set_params(As=As,ns=ns,r=0)
+        pars_set_cosmo.set_matter_power(redshifts=z, kmax=maxkh*h)
+        results = camb.get_results(pars_set_cosmo)
+        pars_set_cosmo.NonLinear = model.NonLinear_none
+        kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=self.n_sph_modes)
+        return kh,pk
+    
+    def unbin_to_Pcyl(self,pars_to_use):
+        """
+        interpolate a spherically binned CAMB MPS to provide MPS values for a cylindrically binned k-grid of interest (nkpar x nkperp)
+        """
+        k,Psph_use=self.get_mps(pars_to_use,minkh=self.kmin_surv,maxkh=self.kmax_surv)
+        Psph_use=Psph_use.reshape((Psph_use.shape[1],))
         kpargrid,kperpgrid=np.meshgrid(self.kpar_surv,self.kperp_surv,indexing="ij")
         Pcyl=np.zeros((self.Nkpar_surv,self.Nkperp_surv))
         for i,kpar_val in enumerate(self.kpar_surv):
@@ -162,35 +220,9 @@ class window_calcs(object):
                         idx_2nd_closest_k=idx_closest_k+1
                 k_closest=k[idx_closest_k]
                 k_2nd_closest=k[idx_2nd_closest_k]
-                interp_slope=(Psph[idx_2nd_closest_k]-Psph[idx_closest_k])/(k_2nd_closest-k_closest)
+                interp_slope=(Psph_use[idx_2nd_closest_k]-Psph_use[idx_closest_k])/(k_2nd_closest-k_closest)
                 Pcyl[i,j]=interp_slope*(k_of_interest-k_closest)
-        self.kpargrid_surv=kpargrid
-        self.kperpgrid_surv=kperpgrid
-        self.Pcyl=Pcyl
-
-    def get_mps(self,minkh=1e-4,maxkh=1):
-        """
-        get matter power spectrum from CAMB
-
-        args
-        minkh = min value of k/h at which to calculate the MPS
-        maxkh = max value of k/h at which to calculate the MPS 
-        """
-        z=[z]
-        H0=pars_set_cosmo[0]
-        h=H0/100.
-        ombh2=pars_set_cosmo[1]
-        omch2=pars_set_cosmo[2]
-        As=pars_set_cosmo[3]*scale
-        ns=pars_set_cosmo[4]
-
-        pars_set_cosmo=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0)
-        pars_set_cosmo.InitPower.set_params(As=As,ns=ns,r=0)
-        pars_set_cosmo.set_matter_power(redshifts=z, kmax=maxkh*h)
-        results = camb.get_results(pars_set_cosmo)
-        pars_set_cosmo.NonLinear = model.NonLinear_none
-        kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=self.n_sph_modes)
-        return kh,pk
+        return kpargrid,kperpgrid,Pcyl
 
     def get_padding(self,n):
         padding=n-1
@@ -247,27 +279,26 @@ class window_calcs(object):
             print(prefix+"{:4}, which is suspiciously coarse".format(Nvox))
         return None
 
-    def calc_Pcont_asym(self,nkpar_box=15,nkperp_box=18,frac_tol=0.1):
+    def calc_Pcont_asym(self):
         """
         calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
         (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
 
-        returns
         contaminant power, calculated as the difference of subtracted spectra with config space–multiplied "true" and "thought" instrument responses
         """
 
         tr=cosmo_stats(self.Lsurvbox,
                        P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
                        primary_beam=Gaussian_primary,primary_beam_args=self.primary_beam_args,
-                       Nk0=nkpar_box,Nk1=nkperp_box,
-                       frac_tol=frac_tol,
+                       Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
+                       frac_tol=self.frac_tol_conv,
                        k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                        k_fid=self.ksph)
         th=cosmo_stats(self.Lsurvbox,
                        P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
                        primary_beam=Gaussian_primary,primary_beam_args=self.perturbed_primary_beam_args,
-                       Nk0=nkpar_box,Nk1=nkperp_box,
-                       frac_tol=frac_tol,
+                       Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
+                       frac_tol=self.frac_tol_conv,
                        k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                        k_fid=self.ksph)
         
@@ -277,3 +308,82 @@ class window_calcs(object):
         self.Ptrue=    tr.P_converged
         self.Pthought= th.P_converged
         self.Pcont_cyl=self.Ptrue_cyl-self.Pthought_cyl ### same update as calc_Pcont_asym
+
+    def cyl_partial(self,n):  
+        """        
+        cylindrically binned matter power spectrum partial WRT one cosmo parameter (nkpar x nkperp)
+        """
+        done=False
+        iter=0
+        dparn=self.dpar[n]
+        pcopy=self.pars_set_cosmo.copy()
+        pndispersed=pcopy[n]+np.linspace(-2,2,5)*dparn
+
+        P0=np.mean(np.abs(self.Pcyl))+self.eps
+        tol=self.ftol_deriv*P0 # generalizes tol=ftol*f0 from 512
+
+        pcopy=self.pars_set_cosmo.copy()
+        pcopy[n]=pcopy[n]+2*dparn # unbin_to_Pcyl(self,pars_to_use)
+        _,_,Pcyl_2plus=self.unbin_to_Pcyl(self,pcopy)
+        pcopy=self.pars_set_cosmo.copy()
+        pcopy[n]=pcopy[n]-2*dparn
+        _,_,Pcyl_2minu=self.unbin_to_Pcyl(self,pcopy)
+        deriv1=(Pcyl_2plus-Pcyl_2minu)/(4*self.dpar[n])
+
+        pcopy=self.pars_set_cosmo.copy()
+        pcopy[n]=pcopy[n]+dparn
+        _,_,Pcyl_plus=self.unbin_to_Pcyl(self,pcopy)
+        pcopy=self.pars_set_cosmo.copy()
+        pcopy[n]=pcopy[n]-dparn
+        _,_,Pcyl_minu=self.unbin_to_Pcyl(self,pcopy)
+        deriv2=(Pcyl_plus-Pcyl_minu)/(2*self.dpar[n])
+
+        while (done==False):
+            if (np.any(Pcyl_plus-Pcyl_minu)<tol): # consider relaxing this to np.any if it ever seems like too strict a condition?!
+                estimate=(4*deriv2-deriv1)/3
+                return estimate # higher-order estimate
+            else:
+                pnmean=np.mean(np.abs(pndispersed)) # the np.abs part should be redundant because, by this point, all the k-mode values and their corresponding dpns and Ps should be nonnegative, but anyway... numerical stability or something idk
+                Psecond=np.abs(2*self.Pcyl-Pcyl_minu-Pcyl_plus)/self.dpar[n]**2
+                dparn=np.sqrt(self.eps*pnmean*P0/Psecond)
+                iter+=1
+                if iter==self.maxiter:
+                    print("failed to converge in {:d} iterations".format(self.maxiter))
+                    fallback=(4*deriv2-deriv1)/3
+                    print("RETURNING fallback")
+                    return fallback
+
+    def build_cyl_partials(self):
+        """
+        builds a (N_pars_forecast,Nkpar,Nkperp) array of the partials of the cylindrically binned MPS WRT each cosmo param in the forecast
+        """
+        V=np.zeros((self.N_pars_forecast,self.Nkpar,self.Nkperp))
+        for n in range(self.N_pars_set_cosmo):
+            V[n,:,:]=self.cyl_partial(n)
+        self.partials=V
+
+    def bias(self):
+        V=0.*self.partials
+        for i in range(self.N_pars_forecast):
+            V[i,:,:]=self.partials[i,:,:]/self.unc # elementwise division for an nkpar x nkperp slice
+        V_completely_transposed=np.transpose(V_axes=(0,1,2))
+        F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
+        print("computed F")
+        if (self.fwhm_x==self.fwhm_y):
+            self.calc_Pcont_cyl()
+        else:
+            self.calc_Pcont_asym() 
+            
+        print("computed Pcont")
+        Pcont_div_sigma=self.Pcont/self.unc
+        B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)
+        print("computed B")
+        self.bias=(np.linalg.inv(F)@B).reshape((F.shape[0],))
+        print("computed b")
+
+    def printparswbiases(self):
+        print("\n\nbias calculation results for the survey described above.................................")
+        print("........................................................................................")
+        for p,par in enumerate(self.pars_set_cosmo):
+            print('{:12} = {:-10.3e} with bias {:-12.5e} (fraction = {:-10.3e})'.format(self.pars_forecast_names[p], par, self.biases[p], self.biases[p]/par))
+        return None
