@@ -345,8 +345,7 @@ class window_calcs(object):
         """        
         cylindrically binned matter power spectrum partial WRT one cosmo parameter (nkpar x nkperp)
         """
-        done=False
-        iter=0
+        print("self.iter=",self.iter)
         dparn=self.dpar[n]
         pcopy=self.pars_set_cosmo.copy()
         pndispersed=pcopy[n]+np.linspace(-2,2,5)*dparn
@@ -354,8 +353,7 @@ class window_calcs(object):
         P0=np.mean(np.abs(self.Pcyl))+self.eps
         tol=self.ftol_deriv*P0 # generalizes tol=ftol*f0 from 512
 
-        pcopy=self.pars_set_cosmo.copy()
-        pcopy[n]=pcopy[n]+2*dparn # unbin_to_Pcyl(self,pars_to_use)
+        pcopy[n]=pcopy[n]+2*dparn # don't need to generate a fresh copy immediately before b/c the initial copy hasn't been modified yet
         _,_,Pcyl_2plus=self.unbin_to_Pcyl(pcopy)
         pcopy=self.pars_set_cosmo.copy()
         pcopy[n]=pcopy[n]-2*dparn
@@ -370,20 +368,27 @@ class window_calcs(object):
         _,_,Pcyl_minu=self.unbin_to_Pcyl(pcopy)
         deriv2=(Pcyl_plus-Pcyl_minu)/(2*self.dpar[n])
 
-        while (done==False):
-            if (np.any(Pcyl_plus-Pcyl_minu)<tol): # consider relaxing this to np.any if it ever seems like too strict a condition?!
-                estimate=(4*deriv2-deriv1)/3
-                return estimate # higher-order estimate
-            else:
-                pnmean=np.mean(np.abs(pndispersed)) # the np.abs part should be redundant because, by this point, all the k-mode values and their corresponding dpns and Ps should be nonnegative, but anyway... numerical stability or something idk
-                Psecond=np.abs(2*self.Pcyl-Pcyl_minu-Pcyl_plus)/self.dpar[n]**2
-                dparn=np.sqrt(self.eps*pnmean*P0/Psecond)
-                iter+=1
-                if iter==self.maxiter:
-                    print("failed to converge in {:d} iterations".format(self.maxiter))
-                    fallback=(4*deriv2-deriv1)/3
-                    print("RETURNING fallback")
-                    return fallback
+        Pcyl_dif=Pcyl_plus-Pcyl_minu
+        print("np.min(Pcyl_dif),np.max(Pcyl_dif),np.mean(Pcyl_dif),np.std(Pcyl_dif)=",np.min(Pcyl_dif),np.max(Pcyl_dif),np.mean(Pcyl_dif),np.std(Pcyl_dif))
+        if (np.mean(Pcyl_dif)<tol): # consider relaxing this to np.any if it ever seems like too strict a condition?!
+            estimate=(4*deriv2-deriv1)/3
+            self.iter=0 # reset for next time
+            return estimate # higher-order estimate
+        else:
+            pnmean=np.mean(np.abs(pndispersed)) # the np.abs part should be redundant because, by this point, all the k-mode values and their corresponding dpns and Ps should be nonnegative, but anyway... numerical stability or something idk
+            Psecond=np.abs(np.mean(2*self.Pcyl-Pcyl_minu-Pcyl_plus))/self.dpar[n]**2
+            print("old dparn=",dparn)
+            dparn=np.sqrt(self.eps*pnmean*P0/Psecond)
+            print("new dparn=",dparn)
+            self.dpar[n]=dparn # send along knowledge of the updated step size
+            self.iter+=1
+            self.cyl_partial(n) # recurse
+            if self.iter==self.maxiter:
+                print("failed to converge in {:d} iterations".format(self.maxiter))
+                fallback=(4*deriv2-deriv1)/3
+                print("RETURNING fallback")
+                self.iter=0 # still need to reset for next time
+                return fallback
 
     def build_cyl_partials(self):
         """
@@ -391,6 +396,8 @@ class window_calcs(object):
         """
         V=np.zeros((self.N_pars_forecast,self.Nkpar_surv,self.Nkperp_surv))
         for n in range(self.N_pars_set_cosmo):
+            print("about to build nth partial: n=",n)
+            self.iter=0 # bc starting a new partial deriv calc.
             V[n,:,:]=self.cyl_partial(n)
         self.partials=V
 
