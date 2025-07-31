@@ -124,7 +124,7 @@ class window_calcs(object):
         self.r0=comoving_distance(self.z_ctr)
         if (primary_beam_type.lower()=="gaussian"):
             self.primary_beam_args=np.array([self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0]) # UPDATING ARGS NOW THAT THE FULL SET HAS BEEN SPECIFIED
-            self.perturbed_primary_beam_args=np.append(self.primary_beam_args,self.r0)
+            self.perturbed_primary_beam_args=np.append(self.perturbed_primary_beam_args,self.r0)
         else:
             raise NotYetImplementedError
         self.nu_lo=self.nu_ctr-self.bw/2.
@@ -356,18 +356,18 @@ class window_calcs(object):
 
         pcopy=self.pars_set_cosmo.copy()
         pcopy[n]=pcopy[n]+2*dparn # unbin_to_Pcyl(self,pars_to_use)
-        _,_,Pcyl_2plus=self.unbin_to_Pcyl(self,pcopy)
+        _,_,Pcyl_2plus=self.unbin_to_Pcyl(pcopy)
         pcopy=self.pars_set_cosmo.copy()
         pcopy[n]=pcopy[n]-2*dparn
-        _,_,Pcyl_2minu=self.unbin_to_Pcyl(self,pcopy)
+        _,_,Pcyl_2minu=self.unbin_to_Pcyl(pcopy)
         deriv1=(Pcyl_2plus-Pcyl_2minu)/(4*self.dpar[n])
 
         pcopy=self.pars_set_cosmo.copy()
         pcopy[n]=pcopy[n]+dparn
-        _,_,Pcyl_plus=self.unbin_to_Pcyl(self,pcopy)
+        _,_,Pcyl_plus=self.unbin_to_Pcyl(pcopy)
         pcopy=self.pars_set_cosmo.copy()
         pcopy[n]=pcopy[n]-dparn
-        _,_,Pcyl_minu=self.unbin_to_Pcyl(self,pcopy)
+        _,_,Pcyl_minu=self.unbin_to_Pcyl(pcopy)
         deriv2=(Pcyl_plus-Pcyl_minu)/(2*self.dpar[n])
 
         while (done==False):
