@@ -173,7 +173,6 @@ class window_calcs(object):
                 raise NumericalDeltaError
         else:
             raise NotYetImplementedError
-        print("END OF ITERATION 0 - COMPARISONS")
         print("\nLIMITING SPACINGS")
         print("limiting_spacing_CAMB=",limiting_spacing_CAMB_sm,"-",limiting_spacing_CAMB_lg)
         print("limiting_spacing_box= ",limiting_spacing_box_sm,"-",limiting_spacing_box_lg)
@@ -267,11 +266,11 @@ class window_calcs(object):
         calculate the cylindrically binned "contaminant power," following from the true and perceived window functions
         """
         self.calc_Wcont()
-        if (self.Pcylshape!=self.Wcontshape):
-            if(self.Pcylshape.T!=self.Wcontshape):
+        if (self.Pcyl.shape!=self.Wcont.shape):
+            if(self.Pcyl.shape.T!=self.Wcont.shape):
                 assert(1==0), "window and power spec shapes must match"
             self.Wcont=self.Wcont.T # force P and Wcont to have the same shapes
-        s0,s1=self.Pcylshape # by now, P and Wcont have the same shapes
+        s0,s1=self.Pcyl.shape # by now, P and Wcont have the same shapes
         pad0lo,pad0hi=self.get_padding(s0)
         pad1lo,pad1hi=self.get_padding(s1)
         Wcontp=np.pad(self.Wcont,((pad0lo,pad0hi),(pad1lo,pad1hi)),"edge")
@@ -337,42 +336,6 @@ class window_calcs(object):
         tr.avg_realizations()
         th.avg_realizations()
 
-        # plt.figure()
-        # plt.plot(tr.k_fid,np.reshape(tr.P_fid,tr.k_fid.shape))
-        # plt.xlabel("k")
-        # plt.ylabel("P")
-        # plt.title("fiducial P in true beam calc in window_calcs")
-        # plt.savefig("window_calcs_P_fid_check.png")
-        # plt.show()
-
-        # ##
-        # P_interp=tr.P_fid_box
-        # fig,axs=plt.subplots(3,4)
-        # vn=np.min(P_interp)
-        # vx=np.max(P_interp)
-        # for j in range(4):
-        #     frac=j*tr.Nvox//3
-        #     if frac==tr.Nvox:
-        #         frac-=1
-        #     im=axs[0,j].imshow(P_interp[frac,:,:],vmin=vn,vmax=vx)
-        #     axs[0,j].set_xlabel("k_y")
-        #     axs[0,j].set_ylabel("k_z")
-        #     axs[0,j].set_title("["+str(frac)+",:,:]")
-        #     im=axs[1,j].imshow(P_interp[:,frac,:],vmin=vn,vmax=vx)
-        #     axs[1,j].set_xlabel("k_x")
-        #     axs[1,j].set_ylabel("k_z")
-        #     axs[1,j].set_title("[:,"+str(frac)+",:]")
-        #     im=axs[2,j].imshow(P_interp[:,:,frac],vmin=vn,vmax=vx)
-        #     axs[2,j].set_xlabel("k_x")
-        #     axs[2,j].set_ylabel("k_y")
-        #     axs[2,j].set_title("[:,:,"+str(frac)+"]")
-        # fig.colorbar(im)
-        # plt.suptitle("slices of grid-interpolated P_fid")
-        # plt.tight_layout()
-        # plt.savefig("slices_of_grid_interpolated_P_fid.png")
-        # plt.show()
-        # ##
-        
         self.Ptrue_cyl=    tr.P_converged
         self.Pthought_cyl= th.P_converged
         self.Pcont_cyl=    self.Ptrue_cyl-self.Pthought_cyl ### same update as calc_Pcont_sym
@@ -447,13 +410,18 @@ class window_calcs(object):
         V_completely_transposed=np.transpose(V,axes=(2,1,0))
         F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
         print("computed F")
-        
-        interp_holder=cosmo_stats(self.Lsurvbox,P_fid=self.Pcont_cyl,Nvox=self.Nvoxbox,
-                                  Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
-                                  k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv) #,                             
-                                #   k_fid=(self.,self.)) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial (or, at least, that's what I need to make happen)
-        interp_holder.interpolate_P(use_P_fid=True)
-        self.Pcont_cyl_surv=interp_holder.P_interp
+        if (not np.all(self.Pcont_cyl.shape==self.uncs.shape)):
+            print("self.Pcont_cyl.shape=",self.Pcont_cyl.shape)
+            interp_holder=cosmo_stats(self.Lsurvbox,P_fid=self.Pcont_cyl,Nvox=self.Nvoxbox,
+                                    Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
+                                    k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial (or, at least, that's what I need to make happen)
+            print("self.Pcont_cyl.shape=",self.Pcont_cyl.shape)
+            print("self.uncs.shape=",self.uncs.shape)
+            interp_holder.interpolate_P(use_P_fid=True)
+            self.Pcont_cyl_surv=interp_holder.P_interp
+        else: # no interpolation necessary
+            self.Pcont_cyl_surv=self.Pcont_cyl
+        print("self.Pcont_cyl_surv.shape=",self.Pcont_cyl_surv.shape)
         print("interpolated Pcont to survey modes")
         Pcont_div_sigma=self.Pcont_cyl_surv/self.uncs
         B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)

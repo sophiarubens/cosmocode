@@ -413,6 +413,8 @@ class cosmo_stats(object):
             if (kperp_want_hi>kperp_have_hi):
                 extrapolation_warning("high kperp", kperp_want_hi, kperp_have_hi)
             self.k0_interp_grid,self.k1_interp_grid=np.meshgrid(self.k0bins_interp,self.k1bins_interp,indexing="ij")
+            print("self.k0_interp_grid.shape,self.k1_interp_grid.shape=",self.k0_interp_grid.shape,self.k1_interp_grid.shape)
+            print("self.k0bins.shape,self.k1bins.shape,self.P_converged.shape=",self.k0bins.shape,self.k1bins.shape,self.P_converged.shape)
             self.P_interp=interpn((self.k0bins,self.k1bins),self.P_converged,(self.k0_interp_grid,self.k1_interp_grid),method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
         else:
             k_have_lo=self.k0bins[0]

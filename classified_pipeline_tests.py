@@ -99,6 +99,7 @@ an_bundled_gaussian_primary_args=[sig_LoS,beam_fwhm0,beam_fwhm0]
 an_bundled_gaussian_primary_uncs=[epsLoS_test,epsbeam0_test,epsbeam0_test]
 
 ############################## actual pipeline test ########################################################################################################################
+print("analytical")
 an_window=window_calcs(bminCHORD,bmaxCHORD,
                        ceil,
                        "Gaussian",an_bundled_gaussian_primary_args,an_bundled_gaussian_primary_uncs,
@@ -110,6 +111,7 @@ an_window.print_survey_characteristics()
 an_window.bias()
 an_window.print_results()
 
+print("numerical")
 nu_window=window_calcs(bminCHORD,bmaxCHORD,
                        ceil,
                        "Gaussian",nu_bundled_gaussian_primary_args,nu_bundled_gaussian_primary_uncs,
