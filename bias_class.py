@@ -345,7 +345,6 @@ class window_calcs(object):
         """        
         cylindrically binned matter power spectrum partial WRT one cosmo parameter (nkpar x nkperp)
         """
-        print("self.iter=",self.iter)
         dparn=self.dpar[n]
         pcopy=self.pars_set_cosmo.copy()
         pndispersed=pcopy[n]+np.linspace(-2,2,5)*dparn
@@ -369,7 +368,6 @@ class window_calcs(object):
         deriv2=(Pcyl_plus-Pcyl_minu)/(2*self.dpar[n])
 
         Pcyl_dif=Pcyl_plus-Pcyl_minu
-        print("np.min(Pcyl_dif),np.max(Pcyl_dif),np.mean(Pcyl_dif),np.std(Pcyl_dif)=",np.min(Pcyl_dif),np.max(Pcyl_dif),np.mean(Pcyl_dif),np.std(Pcyl_dif))
         if (np.mean(Pcyl_dif)<tol): # consider relaxing this to np.any if it ever seems like too strict a condition?!
             estimate=(4*deriv2-deriv1)/3
             self.iter=0 # reset for next time
@@ -377,9 +375,7 @@ class window_calcs(object):
         else:
             pnmean=np.mean(np.abs(pndispersed)) # the np.abs part should be redundant because, by this point, all the k-mode values and their corresponding dpns and Ps should be nonnegative, but anyway... numerical stability or something idk
             Psecond=np.abs(np.mean(2*self.Pcyl-Pcyl_minu-Pcyl_plus))/self.dpar[n]**2
-            print("old dparn=",dparn)
             dparn=np.sqrt(self.eps*pnmean*P0/Psecond)
-            print("new dparn=",dparn)
             self.dpar[n]=dparn # send along knowledge of the updated step size
             self.iter+=1
             self.cyl_partial(n) # recurse
@@ -396,7 +392,6 @@ class window_calcs(object):
         """
         V=np.zeros((self.N_pars_forecast,self.Nkpar_surv,self.Nkperp_surv))
         for n in range(self.N_pars_set_cosmo):
-            print("about to build nth partial: n=",n)
             self.iter=0 # bc starting a new partial deriv calc.
             V[n,:,:]=self.cyl_partial(n)
         self.partials=V

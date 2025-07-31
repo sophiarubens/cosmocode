@@ -321,6 +321,9 @@ class cosmo_stats(object):
         # not warning abt potentially overwriting T -> the only case where info would be lost is where self.P_fid is None, and I already have a separate warning for that
         
         assert(self.P_fid_box is not None)
+        print("self.Veff, np.min(self.P_fid_box)=",self.Veff, np.min(self.P_fid_box))
+        if (self.Veff<0 or np.any(self.P_fid_box)<0):
+            raise PathologicalError
         sigmas=np.sqrt(self.Veff*self.P_fid_box/2.) # from inverting the estimator equation and turning variances into std devs
         T_tilde_Re,T_tilde_Im=np.random.normal(loc=0.*sigmas,scale=sigmas,size=np.insert(sigmas.shape,0,2))
         
