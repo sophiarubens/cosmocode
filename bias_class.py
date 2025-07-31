@@ -373,9 +373,9 @@ class window_calcs(object):
         # plt.show()
         # ##
         
-        self.Ptrue=    tr.P_converged
-        self.Pthought= th.P_converged
-        self.Pcont_cyl=self.Ptrue_cyl-self.Pthought_cyl ### same update as calc_Pcont_asym
+        self.Ptrue_cyl=    tr.P_converged
+        self.Pthought_cyl= th.P_converged
+        self.Pcont_cyl=    self.Ptrue_cyl-self.Pthought_cyl ### same update as calc_Pcont_sym
 
     def cyl_partial(self,n):  
         """        
@@ -434,23 +434,31 @@ class window_calcs(object):
 
     def bias(self):
         self.build_cyl_partials()
+        print("built partials")
         if (self.fwhm_x==self.fwhm_y):
             self.calc_Pcont_asym()
         else:
             self.calc_Pcont_cyl()
+        print("computed Pcont")
 
         V=0.*self.partials
         for i in range(self.N_pars_forecast):
-            V[i,:,:]=self.partials[i,:,:]/self.unc # elementwise division for an nkpar x nkperp slice
-        V_completely_transposed=np.transpose(V_axes=(0,1,2))
+            V[i,:,:]=self.partials[i,:,:]/self.uncs # elementwise division for an nkpar x nkperp slice
+        V_completely_transposed=np.transpose(V,axes=(2,1,0))
         F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
         print("computed F")
-            
-        print("computed Pcont")
-        Pcont_div_sigma=self.Pcont/self.unc
+        
+        interp_holder=cosmo_stats(self.Lsurvbox,P_fid=self.Pcont_cyl,Nvox=self.Nvoxbox,
+                                  Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
+                                  k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv) #,                             
+                                #   k_fid=(self.,self.)) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial (or, at least, that's what I need to make happen)
+        interp_holder.interpolate_P(use_P_fid=True)
+        self.Pcont_cyl_surv=interp_holder.P_interp
+        print("interpolated Pcont to survey modes")
+        Pcont_div_sigma=self.Pcont_cyl_surv/self.uncs
         B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)
         print("computed B")
-        self.bias=(np.linalg.inv(F)@B).reshape((F.shape[0],))
+        self.biases=(np.linalg.inv(F)@B).reshape((self.N_pars_forecast,))
         print("computed b")
 
     def print_survey_characteristics(self):
@@ -466,6 +474,6 @@ class window_calcs(object):
     def print_results(self):
         print("\n\nbias calculation results for the survey described above.................................")
         print("........................................................................................")
-        for p,par in enumerate(self.pars_set_cosmo):
+        for p,par in enumerate(self.pars_forecast):
             print('{:12} = {:-10.3e} with bias {:-12.5e} (fraction = {:-10.3e})'.format(self.pars_forecast_names[p], par, self.biases[p], self.biases[p]/par))
         return None

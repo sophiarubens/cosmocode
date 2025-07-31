@@ -110,10 +110,13 @@ class cosmo_stats(object):
                 Pfidshape=P_fid.shape
                 Pfiddims=len(Pfidshape)
                 if (Pfiddims==2):
-                    try:
-                        P_fid=np.reshape(P_fid,(Pfidshape[-1],)) # make the CAMB MPS shape amenable to the calcs internal to this class
-                    except:
-                        raise NotYetImplementedError
+                    if primary_beam is None: # trying to do a minimalistic instantiation where I merely provide a fiducial power spectrum and interpolate it
+                        self.fid_Nk0,self.fid_Nk1=Pfidshape
+                    else:
+                        try:
+                            P_fid=np.reshape(P_fid,(Pfidshape[-1],)) # make the CAMB MPS shape amenable to the calcs internal to this class
+                        except:
+                            raise NotYetImplementedError
                 elif (Pfiddims==1):
                     self.fid_Nk0=Pfidshape[0] # already checked that P_fid is 1d, so no info is lost by extracting the int in this one-element tuple, and fid_Nk0 being an integer makes things work the way they should down the line
                     self.fid_Nk1=0
@@ -149,9 +152,14 @@ class cosmo_stats(object):
         self.k_fid=k_fid
         self.kind=kind
         self.avoid_extrapolation=avoid_extrapolation
-        if self.P_fid is not None:
-            assert(self.k_fid is not None), "interpolating a 1D P_fid to box k-magnitudes requires knowledge of k_fid"
-            self.P_fid_interp_1d_to_3d()
+        print("self.P_fid.shape=",self.P_fid.shape)
+        if (self.P_fid is not None and self.k_fid is not None):
+            try:
+                self.P_fid=np.reshape(self.P_fid,self.P_fid.shape[1])
+                self.P_fid_interp_1d_to_3d()
+            except:
+                print("no gridded P_fid was calculated because a 2D P_fid was passed")
+        # no gridded P_fid is established when a 2D P_fid is passed (this should only be when the only computation I'm interested in doing is an interpolation of a cyl binned power spec that I pass as P_fid for convenience)
         
         # binning considerations
         self.binning_mode=binning_mode
@@ -365,7 +373,7 @@ class cosmo_stats(object):
         else:
             self.P_converged=np.reshape(P_converged,(self.Nk0,))
 
-    def interpolate_P(self):
+    def interpolate_P(self,use_P_fid=False):
         """
         notes
         * default behaviour upon requesting extrapolation: 
@@ -376,11 +384,14 @@ class cosmo_stats(object):
           fill_value always being set to what it needs to be to permit 
           extrapolation [None for the nd case, "extrapolate" for the 1d case])
         """
-        if (self.P_converged is None):
-            print("WARNING: P_converged DNE yet. \nAttempting to calculate it now...")
-            self.avg_realizations()
-        if (self.k0bins_interp is None):
-            raise NotEnoughInfoError
+        if use_P_fid:
+            self.P_converged=self.P_fid
+        else:
+            if (self.P_converged is None):
+                print("WARNING: P_converged DNE yet. \nAttempting to calculate it now...")
+                self.avg_realizations()
+            if (self.k0bins_interp is None):
+                raise NotEnoughInfoError
 
         if (self.k1bins_interp is not None):
             kpar_have_lo=  self.k0bins[0]
