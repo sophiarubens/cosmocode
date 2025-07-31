@@ -4,6 +4,7 @@ from camb import model
 from scipy.signal import convolve2d,convolve
 from matplotlib import pyplot as plt
 from power_class import *
+from cosmo_distances import *
 import time
 
 """
@@ -50,25 +51,30 @@ def Gaussian_primary(X,Y,Z,sigLoS,fwhm_x,fwhm_y,r0):
 
 class window_calcs(object):
     def __init__(self,
-                 kpar_surv,kperp_surv,                                  # set by survey properties
+                #  kpar_surv,kperp_surv,                                  # set by survey properties
+                 bmin,bmax,                                             # extreme baselines of the array
+                 ceil,                                                  # avoid kpars beyond the regime of linear theory
                  primary_beam_type,primary_beam_args,primary_beam_uncs, # primary beam considerations
-                 pars_set_cosmo,pars_forecast,                          # eventually: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
+                 pars_set_cosmo,pars_forecast,                          # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
                  z,n_sph_modes,dpar,                                    # conditioning the CAMB/etc. call
                  nu_ctr,delta_nu,                                       # for the survey of interest
                  evol_restriction_threshold=1./15.,                     # misc. numerical considerations
                  init_and_box_tol=0.05,CAMB_tol=0.05,                   # considerations for k-modes at different steps
                  ftol_deriv=1e-6,eps=1e-16,maxiter=5,                   # precision control for numerical derivatives
                  uncs=None,                                             # for Fisher-type calcs
-                 Nkpar_box=15,Nkperp_box=18,frac_tol_conv=0.1,
-                 pars_forecast_names=None
-                ):
+                 Nkpar_box=15,Nkperp_box=18,frac_tol_conv=0.1,          # considerations for cyl binned power spectra from boxes
+                 pars_forecast_names=None                               # for verbose output
+                ):                                                      # implement soon: synthesized beam considerations, other primary beam types, and more
         """
-        kpar_surv,kperp_surv       :: (Nkpar_surv,),(Nkperp_surv,) :: mono incr. cyl binned curvey modes       :: 1/Mpc
-                                      of floats
+        bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
+        ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
+        # kpar_surv,kperp_surv       :: (Nkpar_surv,),(Nkperp_surv,) :: mono incr. cyl binned curvey modes       :: 1/Mpc
+                                    #   of floats
         primary_beam               :: callable                     :: power beam in Cartesian coords           :: ---
         primary_beam_type          :: str                          :: implement soon: Airy etc.                :: ---
         primary_beam_args          :: (N_args,) of floats          :: Gaussian: "μ"s and "σ"s                  :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
-                                                                                sigLoS,fwhm_x,fwhm_y,r0
+                                                                                PASS sigLoS,fwhm_x,fwhm_y
+                                                                                ++ r0 appended internally
         primary_beam_uncs          :: (N_uncertain_args) of floats :: Gaussian: frac uncs epsLoS, epsfwhm{x/y} :: ---
         pars_set_cosmo             :: (N_fid_pars,) of floats      :: params to condition a CAMB/etc. call     :: as found in ΛCDM
         pars_forecast              :: (N_forecast_pars,) of floats :: params for which you'd like to forecast  :: as found in ΛCDM
@@ -80,32 +86,23 @@ class window_calcs(object):
         evol_restriction_threshold :: float                        :: ~$\frac{\Delta z}{z}$ w/in survey box    :: ---
         init_and_box_tol, CAMB_tol :: floats                       :: how much wider do you want the k-ranges  :: ---
                                                                       of preceding steps to be? (frac tols)
-        ftol_deriv                      :: float                        :: frac tol relating to scale of fcn range  :: ---
+        ftol_deriv                 :: float                        :: frac tol relating to scale of fcn range  :: ---
         eps                        :: float                        :: tiny offset factor to protect against    :: --- 
                                                                       numerical division-by-zero errors
         maxiter                    :: int                          :: maximum # of times to let the step size  :: ---
                                                                       optimization recurse before giving up
         uncs                       :: (Nkpar_surv,Nkperp_surv) of  :: unc in power spec @each cyl survey mode  :: K^2 Mpc^3 (same as power)
                                       floats
+        Nkpar_box,Nkperp_box       :: ints                         :: # modes to put along cyl axes in power   :: ---
+                                                                      spec calcs from boxes
+        frac_tol_conv              :: float                        :: how much the Poisson noise must fall off :: ---
+        pars_forecast_names        :: (N_pars_forecast,) or equiv. :: names of the pars being forecast         :: ---
+                                      of strings     
         """
-        # cylindrically binned survey k-modes and box considerations
-        self.kpar_surv=kpar_surv
-        self.Nkpar_surv=len(kpar_surv)
-        self.deltakpar_surv=  self.kpar_surv  - self.kpar_surv[ self.Nkpar_surv// 2] 
-        self.kperp_surv=kperp_surv
-        self.Nkperp_surv=len(kperp_surv)
-        self.deltakperp_surv= self.kperp_surv - self.kperp_surv[self.Nkperp_surv//2]
-
-        self.kmin_surv=np.sqrt(kpar_surv[ 0]**2+kperp_surv[ 0]**2)
-        self.kmax_surv=np.sqrt(kpar_surv[-1]**2+kperp_surv[-1]**2)
-        self.Lsurvbox= twopi/self.kmin                  ### CHECK THAT NO FACTOR OF TWO IS MISSING
-        self.Nvoxbox=  int(self.Lsurvbox*self.kmax/pi)
-        self.NvoxPracticalityWarning(self.Nvoxbox)
-
         # primary beam considerations
         if (primary_beam_type.lower()=="gaussian"):
-            self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0= self.primary_beam_args
-            self.epsLoS,self.epsx,self.epsy=             self.primary_beam_uncs
+            self.sigLoS,self.fwhm_x,self.fwhm_y = self.primary_beam_args # AS PASSED; APPEND R0 AFTER CALCULATING IT
+            self.epsLoS,self.epsx,self.epsy=      self.primary_beam_uncs
             self.perturbed_primary_beam_args=(self.sigLoS*(1-self.epsLoS),self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy),self.r0)
         else:
             raise NotYetImplementedError
@@ -125,6 +122,36 @@ class window_calcs(object):
         self.Deltanu=delta_nu
         self.bw=nu_ctr*evol_restriction_threshold # previously called NDeltanu
         self.Nchan=int(self.bw/self.Deltanu)
+        self.z_ctr=freq2z(nu_rest_21,nu_ctr)
+        self.r0=comoving_distance(self.z_ctr)
+        if (primary_beam_type.lower()=="gaussian"):
+            self.primary_beam_args=(self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0) # UPDATING ARGS NOW THAT THE FULL SET HAS BEEN SPECIFIED
+        else:
+            raise NotYetImplementedError
+        self.nu_lo=self.nu_ctr-self.bw/2.
+        self.z_hi=freq2z(nu_rest_21,self.nu_lo)
+        self.Dc_hi=comoving_distance(self.z_hi)
+        self.nu_hi=self.nu_ctr+self.bw/2.
+        self.z_lo=freq2z(nu_rest_21,self.nu_hi)
+        self.Dc_lo=comoving_distance(self.z_lo)
+        self.deltaz=self.z_hi-self.z_lo
+        self.surv_channels=np.arange(self.nu_lo,self.nu_hi,self.Deltanu)
+
+        # cylindrically binned survey k-modes and box considerations
+        self.kpar_surv=kpar(self.nu_ctr,self.Deltanu,self.Nchan)
+        self.Nkpar_surv=len(self.kpar_surv)
+        self.deltakpar_surv=  self.kpar_surv  - self.kpar_surv[ self.Nkpar_surv// 2] 
+        self.bmin=bmin
+        self.bmax=bmax
+        self.kperp_surv(self.nu_ctr,self.Nchan,self.bmin,self.bmax)
+        self.Nkperp_surv=len(self.kperp_surv)
+        self.deltakperp_surv= self.kperp_surv - self.kperp_surv[self.Nkperp_surv//2]
+
+        self.kmin_surv=np.sqrt(self.kpar_surv[ 0]**2+self.kperp_surv[ 0]**2)
+        self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2)
+        self.Lsurvbox= twopi/self.kmin                  ### CHECK THAT NO FACTOR OF TWO IS MISSING
+        self.Nvoxbox=  int(self.Lsurvbox*self.kmax/pi)
+        self.NvoxPracticalityWarning(self.Nvoxbox)
 
         # numerical protections for assorted k-ranges
         limiting_spacing_surv=np.min([ self.kpar[1]-self.kpar[0], self.kperp[1]-self.kperp[0]])
@@ -363,16 +390,18 @@ class window_calcs(object):
         self.partials=V
 
     def bias(self):
+        self.build_cyl_partials()
+        if (self.fwhm_x==self.fwhm_y):
+            self.calc_Pcont_asym()
+        else:
+            self.calc_Pcont_cyl()
+
         V=0.*self.partials
         for i in range(self.N_pars_forecast):
             V[i,:,:]=self.partials[i,:,:]/self.unc # elementwise division for an nkpar x nkperp slice
         V_completely_transposed=np.transpose(V_axes=(0,1,2))
         F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
         print("computed F")
-        if (self.fwhm_x==self.fwhm_y):
-            self.calc_Pcont_cyl()
-        else:
-            self.calc_Pcont_asym() 
             
         print("computed Pcont")
         Pcont_div_sigma=self.Pcont/self.unc
@@ -381,7 +410,7 @@ class window_calcs(object):
         self.bias=(np.linalg.inv(F)@B).reshape((F.shape[0],))
         print("computed b")
 
-    def printparswbiases(self):
+    def print_results(self):
         print("\n\nbias calculation results for the survey described above.................................")
         print("........................................................................................")
         for p,par in enumerate(self.pars_set_cosmo):

@@ -51,7 +51,7 @@ class cosmo_stats(object):
                  verbose=False,                                                          # status updates for averaging over realizations
                  k_fid=None,kind="cubic",avoid_extrapolation=False,                      # helper vars for converting a 1d fid power spec to a box sampling
                  no_monopole=False                                                       # consideration when generating boxes
-                 ):                                                                      # implement later: synthesized beam considerations, other primary beam types, and more
+                 ):                                                                      # implement soon: synthesized beam considerations, other primary beam types, and more
         """
         Lsurvey             :: float                       :: side length of cosmo box         :: Mpc
         T_pristine          :: (Nvox,Nvox,Nvox) of floats  :: cosmo box (just physics/no beam) :: K
