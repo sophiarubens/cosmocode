@@ -242,10 +242,17 @@ class cosmo_stats(object):
                                       # limiting_spacing -> smallest spacing between adjacent bins (uniform if linear; otherwise, depends on the binning strategy)
     
     def P_fid_interp_1d_to_3d(self):
+        print("np.min(self.kmag_grid_corner),np.max(self.kmag_grid_corner)=",np.min(self.kmag_grid_corner),np.max(self.kmag_grid_corner))
+        print("np.min(self.k_fid),np.max(self.k_fid)=",np.min(self.k_fid),np.max(self.k_fid))
         kmag_grid_corner_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
+        print("np.min(self.P_fid),np.max(self.P_fid)=",np.min(self.P_fid),np.max(self.P_fid))
         P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
         P_interp_flat=P_fid_interpolator(kmag_grid_corner_flat)
         self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
+        print("np.min(self.P_fid_box),np.max(self.P_fid_box)=",np.min(self.P_fid_box),np.max(self.P_fid_box))
+
+        # fig,axs=plt.subplots(6,3)
+        # CHECK TO SEE IF PATHOLOGICAL THINGS HAPPEN (ALTHOUGH IT DID NOT LOOK LIKE THEY DID ON TUESDAY)
             
     def generate_P(self,send_to_P_fid=False):
         """
@@ -321,9 +328,11 @@ class cosmo_stats(object):
         # not warning abt potentially overwriting T -> the only case where info would be lost is where self.P_fid is None, and I already have a separate warning for that
         
         assert(self.P_fid_box is not None)
-        print("self.Veff, np.min(self.P_fid_box)=",self.Veff, np.min(self.P_fid_box))
-        if (self.Veff<0 or np.any(self.P_fid_box)<0):
+        # print("self.Veff, np.min(self.P_fid_box)=",self.Veff, np.min(self.P_fid_box))
+        if (self.Veff<0):
             raise PathologicalError
+        if (np.min(self.P_fid_box)<0):
+            self.P_fid_box[self.P_fid_box<0]=0 # hackily overwriting error from having to extrapolate at the origin
         sigmas=np.sqrt(self.Veff*self.P_fid_box/2.) # from inverting the estimator equation and turning variances into std devs
         T_tilde_Re,T_tilde_Im=np.random.normal(loc=0.*sigmas,scale=sigmas,size=np.insert(sigmas.shape,0,2))
         

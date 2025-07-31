@@ -160,7 +160,7 @@ class window_calcs(object):
         kmax_box_and_init=(1+init_and_box_tol)*self.kmax_surv
         kmin_CAMB=(1-CAMB_tol)*kmin_box_and_init
         kmax_CAMB=(1+CAMB_tol)*kmax_box_and_init
-        self.ksph,self.Ptruesph=self.get_mps(self.pars_set_cosmo,kmin_CAMB,kmax_CAMB)
+        self.ksph,self.Ptruesph=self.get_mps(self.pars_set_cosmo,kmin_CAMB,kmax_CAMB*np.sqrt(3)) # factor of sqrt(3) from pythag theorem for box to prevent the need for extrap
         limiting_spacing_CAMB_sm=self.ksph[1]-self.ksph[0]
         limiting_spacing_CAMB_lg=self.ksph[-1]-self.ksph[-2]
         limiting_spacing_box_sm=2./(self.Nvoxbox*self.Lsurvbox*np.sqrt(3)*((np.sqrt(3)/2)-(1./self.Nvoxbox)))
@@ -336,6 +336,42 @@ class window_calcs(object):
         
         tr.avg_realizations()
         th.avg_realizations()
+
+        # plt.figure()
+        # plt.plot(tr.k_fid,np.reshape(tr.P_fid,tr.k_fid.shape))
+        # plt.xlabel("k")
+        # plt.ylabel("P")
+        # plt.title("fiducial P in true beam calc in window_calcs")
+        # plt.savefig("window_calcs_P_fid_check.png")
+        # plt.show()
+
+        # ##
+        # P_interp=tr.P_fid_box
+        # fig,axs=plt.subplots(3,4)
+        # vn=np.min(P_interp)
+        # vx=np.max(P_interp)
+        # for j in range(4):
+        #     frac=j*tr.Nvox//3
+        #     if frac==tr.Nvox:
+        #         frac-=1
+        #     im=axs[0,j].imshow(P_interp[frac,:,:],vmin=vn,vmax=vx)
+        #     axs[0,j].set_xlabel("k_y")
+        #     axs[0,j].set_ylabel("k_z")
+        #     axs[0,j].set_title("["+str(frac)+",:,:]")
+        #     im=axs[1,j].imshow(P_interp[:,frac,:],vmin=vn,vmax=vx)
+        #     axs[1,j].set_xlabel("k_x")
+        #     axs[1,j].set_ylabel("k_z")
+        #     axs[1,j].set_title("[:,"+str(frac)+",:]")
+        #     im=axs[2,j].imshow(P_interp[:,:,frac],vmin=vn,vmax=vx)
+        #     axs[2,j].set_xlabel("k_x")
+        #     axs[2,j].set_ylabel("k_y")
+        #     axs[2,j].set_title("[:,:,"+str(frac)+"]")
+        # fig.colorbar(im)
+        # plt.suptitle("slices of grid-interpolated P_fid")
+        # plt.tight_layout()
+        # plt.savefig("slices_of_grid_interpolated_P_fid.png")
+        # plt.show()
+        # ##
         
         self.Ptrue=    tr.P_converged
         self.Pthought= th.P_converged

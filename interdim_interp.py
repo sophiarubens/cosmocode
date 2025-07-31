@@ -2,6 +2,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from scipy.interpolate import interp1d,interpn
 from power_class import *
+# from power_class import *
 
 pi=np.pi
 twopi=2.*pi
@@ -28,6 +29,7 @@ P_fid=k_fid**idx
 # testing the version that made it into the class
 cstest=cosmo_stats(L,Nvox=N,P_fid=P_fid,k_fid=k_fid)
 P_interp=cstest.P_fid_box
+print("np.max(P_interp),np.min(P_interp)=",np.max(P_interp),np.min(P_interp))
 
 plt.figure()
 plt.plot(k_fid,P_fid)
