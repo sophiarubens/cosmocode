@@ -152,7 +152,6 @@ class window_calcs(object):
         self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2)
         self.Lsurvbox= twopi/self.kmin_surv
         self.Nvoxbox=  int(self.Lsurvbox*self.kmax_surv/pi)
-        print("self.Lsurvbox,self.Nvoxbox=",self.Lsurvbox,self.Nvoxbox)
         self.NvoxPracticalityWarning()
 
         # numerical protections for assorted k-ranges
@@ -165,7 +164,6 @@ class window_calcs(object):
         if primary_beam_type.lower()=="gaussian":
             sky_plane_sigmas=self.r0*np.array([self.fwhm_x,self.fwhm_y])/np.sqrt(2*np.log(2))
             self.all_sigmas=np.concatenate((sky_plane_sigmas,[self.sigLoS]))
-            print("self.all_sigmas,self.Deltabox=",self.all_sigmas,self.Deltabox)
             if (np.any(self.all_sigmas<self.Deltabox)):
                 raise NumericalDeltaError
         else:
@@ -251,14 +249,8 @@ class window_calcs(object):
         s0,s1=self.Pcyl.shape # by now, P and Wcont have the same shapes
         pad0lo,pad0hi=self.get_padding(s0)
         pad1lo,pad1hi=self.get_padding(s1)
-        print("pad0lo,pad0hi,pad1lo,pad1hi=",pad0lo,pad0hi,pad1lo,pad1hi)
         Wcontp=np.pad(self.Wcont,((pad0lo,pad0hi),(pad1lo,pad1hi)),"edge")
         conv=convolve(Wcontp,self.Pcyl,mode="valid")
-        # conv=convolve(Wcontp,self.Pcyl,mode="full")
-        # print("Pcont.shape=",Pcont.shape)
-        # peak0,peak1=np.unravel_index(Pcont.argmax(), Pcont.shape)
-        # print("peak0,peak1=",peak0,peak1)
-        # conv=conv[peak0:peak0+s0,peak1:peak1+s1]
         self.Pcont_cyl=conv ### same update as calc_Pcont_asym
     
     def W_cyl_binned(self,beam_pars_to_use):
@@ -282,8 +274,7 @@ class window_calcs(object):
         (ignores fwhmy and epsfwhmy because of the limits of analytical cylindrical math, although they need to be passed when initializing the class object to avoid unpacking errors)
         """
         self.Wtr=self.W_cyl_binned(self.primary_beam_args)
-        # self.Wth=self.W_cyl_binned(self.perturbed_primary_beam_args)
-        self.Wth=0.*self.Wtr
+        self.Wth=self.W_cyl_binned(self.perturbed_primary_beam_args)
         self.Wcont=self.Wtr-self.Wth
         self.Wcontshape=self.Wcont.shape
     
@@ -319,11 +310,10 @@ class window_calcs(object):
                        k_fid=self.ksph)
         
         tr.avg_realizations()
-        # th.avg_realizations()
+        th.avg_realizations()
 
         self.Ptrue_cyl=    tr.P_converged
-        self.Pthought_cyl=0.*self.Ptrue_cyl
-        # self.Pthought_cyl= th.P_converged
+        self.Pthought_cyl= th.P_converged
         self.Pcont_cyl=    self.Ptrue_cyl-self.Pthought_cyl ### same update as calc_Pcont_sym
 
     def cyl_partial(self,n):  

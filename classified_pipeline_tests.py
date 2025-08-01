@@ -54,10 +54,10 @@ hpbw=(1./12.)*pi/180. # what I had been using before the whole synthesized beam 
 # hpbw=1./18. # rad; lambda/D estimate (actually physically realistic)
 
 ############################## beam widths and fractional uncertainties ########################################################################################################################
-limit=3 # TOGGLE BETWEEN CASES HERE
+limit=1 # TOGGLE BETWEEN CASES HERE
 if limit==1:
     print("limit 1: identity response/ delta window")
-    small=1e-10
+    small=1.96 # self.Deltabox= 1.952263190540233 for this case
     # small=0.
     sig_LoS=    small
     beam_fwhm0= small
@@ -111,9 +111,7 @@ an_window=window_calcs(bminCHORD,bmaxCHORD,
                        nu_ctr,channel_width,
                        pars_forecast_names=parnames)
 an_window.print_survey_characteristics()
-print("STARTING ANALYTICAL BIAS CALC")
 an_window.bias()
-print("DONE WITH ANALYTICAL BIAS CALC")
 an_window.print_results()
 an_Pcont=an_window.Pcont_cyl_surv
 an_Ptrue=an_window.Pcyl
@@ -139,23 +137,8 @@ nu_Pcont=nu_window.Pcont_cyl_surv
 np.save("nu_Pcont.npy",nu_Pcont)
 
 ############################## plots ########################################################################################################################
-sample_whole_conv=np.load("sample_whole_conv.npy")
-print("sample_whole_conv.shape=",sample_whole_conv.shape)
-plt.figure()
-plt.imshow(sample_whole_conv)
-plt.axhline(sample_whole_conv.shape[0]//2)
-plt.axvline(sample_whole_conv.shape[1]//2)
-plt.axhline(26)
-plt.axhline(sample_whole_conv.shape[0]-25)
-plt.axvline(163)
-plt.axvline(sample_whole_conv.shape[1]-163)
-plt.xlabel("k$_{||}$ index")
-plt.ylabel("k$_\perp$ index")
-plt.title("examine untruncated convolution")
-plt.savefig("examine_untrunc_conv.png")
-plt.show()
 
-titles=["Ptrue","Wcont-or-simpler","Pcont-or-simpler"]
+titles=["Ptrue","Wcont","Pcont"]
 cases=["\nanalytical","\nnumerical","\nanalytical/numerical","\nanalytical-numerical"]
 fig,axs=plt.subplots(4,3,figsize=(20,10))
 # row 0: analytical (columns: Ptrue-cyl, Wcont-or-simpler, Pcont-or-simpler)
@@ -186,7 +169,7 @@ for i in range(4):
         axs[i,j].set_title(titles[j]+cases[i])
 axs[1,0].set_xlabel("k")
 axs[1,0].set_ylabel("P")
-plt.suptitle("mega diagnostic plot")
+plt.suptitle("mega diagnostic plot "+supertitle)
 plt.tight_layout()
-plt.savefig("mega_diagnostic_plot.png")
+plt.savefig("mega_diagnostic_plot_"+str(savename)+".png")
 plt.show()
