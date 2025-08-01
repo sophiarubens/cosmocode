@@ -305,7 +305,9 @@ class window_calcs(object):
         (ignores fwhmy and epsfwhmy because of the limits of analytical cylindrical math, although they need to be passed when initializing the class object to avoid unpacking errors)
         """
         self.Wtr=self.W_cyl_binned(self.primary_beam_args)
-        self.Wth=self.W_cyl_binned(self.perturbed_primary_beam_args)
+        # self.Wth=self.W_cyl_binned(self.perturbed_primary_beam_args)
+        self.Wth=0.*self.Wtr
+        print("next line will store Wcont in self.Wcont")
         self.Wcont=self.Wtr-self.Wth
         self.Wcontshape=self.Wcont.shape
     
@@ -341,10 +343,11 @@ class window_calcs(object):
                        k_fid=self.ksph)
         
         tr.avg_realizations()
-        th.avg_realizations()
+        # th.avg_realizations()
 
         self.Ptrue_cyl=    tr.P_converged
-        self.Pthought_cyl= th.P_converged
+        self.Pthought_cyl=0.*self.Ptrue_cyl
+        # self.Pthought_cyl= th.P_converged
         self.Pcont_cyl=    self.Ptrue_cyl-self.Pthought_cyl ### same update as calc_Pcont_sym
 
     def cyl_partial(self,n):  

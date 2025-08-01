@@ -108,9 +108,13 @@ an_window=window_calcs(bminCHORD,bmaxCHORD,
                        nu_ctr,channel_width,
                        pars_forecast_names=parnames)
 an_window.print_survey_characteristics()
+print("STARTING ANALYTICAL BIAS CALC")
 an_window.bias()
+print("DONE WITH ANALYTICAL BIAS CALC")
 an_window.print_results()
 an_Pcont=an_window.Pcont_cyl_surv
+an_Ptrue=an_window.Ptrue_cyl
+an_Wcont=an_window.Wcont
 np.save("an_Pcont.npy",an_Pcont)
 
 kpar_vec=an_window.kpar_surv
@@ -132,7 +136,39 @@ nu_Pcont=nu_window.Pcont_cyl_surv
 np.save("nu_Pcont.npy",nu_Pcont)
 
 ############################## plots ########################################################################################################################
-fig,axs=plt.subplots(2,2)
+titles=["Ptrue","Wcont-or-simpler","Pcont-or-simpler"]
+cases=["\nanalytical","\nnumerical","\nanalytical/numerical","\nanaltyical-numerical"]
+fig,axs=plt.subplots(4,3)
+# row 0: analytical (columns: Ptrue-cyl, Wcont-or-simpler, Pcont-or-simpler)
+im=axs[0,0].pcolor(kpar_grid,kperp_grid,an_Ptrue)
+im=axs[0,1].pcolor(kpar_grid,kperp_grid,an_Wcont)
+im=axs[0,1].pcolor(kpar_grid,kperp_grid,an_Pcont)
+
+# row 1: numerical (columns: Ptrue-sph, _, Pcont-or-simpler)
+axs[1,0].plot(nu_window.ksph,nu_window.Ptruesph)
+im=axs[1,2].pcolor(kpar_grid,kperp_grid,nu_Pcont)
+
+# row 2: ratios (columns: _, _, Pcont-or-simpler)
+im=axs[2,2].pcolor(kpar_grid,kperp_grid,an_Pcont/nu_Pcont)
+
+# row 3: differences (columns: _, _, Pcont-or-simpler)
+im=axs[3,2].pcolor(kpar_grid,kperp_grid,an_Pcont-nu_Pcont)
+
+for i in range(4):
+    for j in range(3):
+        axs[i,j].set_xlabel("k$_{||}$")
+        axs[i,j].set_ylabel("k$_\perp$")
+        axs[i,j].set_title(titles[j]+cases[i])
+        plt.colorbar(im,ax=axs[i,j])
+axs[1,0].set_xlabel("k")
+axs[1,0].set_ylabel("P")
+plt.suptitle("mega diagnostic plot")
+plt.tight_layout()
+plt.savefig("mega_diagnostic_plot.png")
+plt.show()
+
+assert(1==0), "checking precursor steps b/c the Pconts themselves (and Ptrues...) look suspicious"
+fig,axs=plt.subplots(2,2,figsize=(15,7))
 im=axs[0,0].pcolor(kpar_grid,kperp_grid,an_Pcont) # these still represent differences of window functions... I might want to go back to the thing I was doing before the whole power spectrum code excavation and refactoring where I make Pcont trivial and actually just reflect either Ptrue or Pthought
 axs[0,0].set_title("analytical")
 im=axs[0,1].pcolor(kpar_grid,kperp_grid,nu_Pcont)
@@ -144,9 +180,9 @@ axs[1,1].set_title("analytical/numerical")
 for i in range(2):
     for j in range(2):
         axs[i,j].set_xlabel("k$_{||}$")
-        axs[i,j].set_ylabel("k_$\perp$")
+        axs[i,j].set_ylabel("k$_\perp$")
         plt.colorbar(im,ax=axs[i,j])
-plt.suptitle("examining Pcont")
+plt.suptitle("examining Pcont (actually overwritten to be Ptrue)")
 plt.tight_layout()
 plt.savefig("examining_Pcont.png")
 plt.show()
