@@ -48,7 +48,8 @@ n_sph_an=1000
 n_sph_nu=250
 
 siglos900=4.1 # precalculated for a 900 MHz survey: 0.25*(Dc_ctr-Dc_lo)/10, dialing in the bound set by condition following from linearization...
-hpbw=1./18. # rad; lambda/D estimate
+hpbw=(1./12.)*pi/180. # what I had been using before the whole synthesized beam vs primary beam mental confusion breaking
+# hpbw=1./18. # rad; lambda/D estimate (actually physically realistic)
 
 ############################## beam widths and fractional uncertainties ########################################################################################################################
 limit=3 # TOGGLE BETWEEN CASES HERE
@@ -113,7 +114,7 @@ an_window.bias()
 print("DONE WITH ANALYTICAL BIAS CALC")
 an_window.print_results()
 an_Pcont=an_window.Pcont_cyl_surv
-an_Ptrue=an_window.Ptrue_cyl
+an_Ptrue=an_window.Pcyl
 an_Wcont=an_window.Wcont
 np.save("an_Pcont.npy",an_Pcont)
 
@@ -137,15 +138,15 @@ np.save("nu_Pcont.npy",nu_Pcont)
 
 ############################## plots ########################################################################################################################
 titles=["Ptrue","Wcont-or-simpler","Pcont-or-simpler"]
-cases=["\nanalytical","\nnumerical","\nanalytical/numerical","\nanaltyical-numerical"]
-fig,axs=plt.subplots(4,3)
+cases=["\nanalytical","\nnumerical","\nanalytical/numerical","\nanalytical-numerical"]
+fig,axs=plt.subplots(4,3,figsize=(20,10))
 # row 0: analytical (columns: Ptrue-cyl, Wcont-or-simpler, Pcont-or-simpler)
 im=axs[0,0].pcolor(kpar_grid,kperp_grid,an_Ptrue)
 im=axs[0,1].pcolor(kpar_grid,kperp_grid,an_Wcont)
-im=axs[0,1].pcolor(kpar_grid,kperp_grid,an_Pcont)
+im=axs[0,2].pcolor(kpar_grid,kperp_grid,an_Pcont)
 
 # row 1: numerical (columns: Ptrue-sph, _, Pcont-or-simpler)
-axs[1,0].plot(nu_window.ksph,nu_window.Ptruesph)
+axs[1,0].plot(nu_window.ksph,np.reshape(nu_window.Ptruesph,nu_window.ksph.shape))
 im=axs[1,2].pcolor(kpar_grid,kperp_grid,nu_Pcont)
 
 # row 2: ratios (columns: _, _, Pcont-or-simpler)

@@ -239,28 +239,14 @@ class window_calcs(object):
         """
         k,Psph_use=self.get_mps(pars_to_use,minkh=self.kmin_surv,maxkh=self.kmax_surv)
         Psph_use=Psph_use.reshape((Psph_use.shape[1],))
-        kpargrid,kperpgrid=np.meshgrid(self.kpar_surv,self.kperp_surv,indexing="ij")
-        Pcyl=np.zeros((self.Nkpar_surv,self.Nkperp_surv))
-        for i,kpar_val in enumerate(self.kpar_surv):
-            for j,kperp_val in enumerate(self.kperp_surv):
-                k_of_interest=np.sqrt(kpar_val**2+kperp_val**2)
-                idx_closest_k=np.argmin(np.abs(k-k_of_interest)) # k-scalar in the CAMB MPS closest to the k-magnitude indicated by the kpar-kperp combination for that point in cylindrically binned Fourier space
-                if (idx_closest_k==0): # start of array
-                    idx_2nd_closest_k=1 # use hi
-                elif (idx_closest_k==self.n_sph_modes-1): # end of array
-                    idx_2nd_closest_k=self.n_sph_modes-2 # use lo
-                else: # middle of array -> check if hi or lo is closer
-                    k_neighb_lo=k[idx_closest_k-1]
-                    k_neighb_hi=k[idx_closest_k+1]
-                    if (np.abs(k_neighb_lo-k_of_interest)<np.abs(k_neighb_hi-k_of_interest)): # use k_neighb_lo
-                        idx_2nd_closest_k=idx_closest_k-1
-                    else:
-                        idx_2nd_closest_k=idx_closest_k+1
-                k_closest=k[idx_closest_k]
-                k_2nd_closest=k[idx_2nd_closest_k]
-                interp_slope=(Psph_use[idx_2nd_closest_k]-Psph_use[idx_closest_k])/(k_2nd_closest-k_closest)
-                Pcyl[i,j]=interp_slope*(k_of_interest-k_closest)
-        return kpargrid,kperpgrid,Pcyl
+        kpar_grid,kperp_grid=np.meshgrid(self.kpar_surv,self.kperp_surv,indexing="ij")
+        kmag_grid=np.sqrt(kpar_grid**2+kperp_grid**2)
+
+        kmag_grid_flat=np.reshape(kmag_grid,(self.Nkpar_surv*self.Nkperp_surv,))
+        Psph_interpolator=interp1d(k,Psph_use,kind="cubic",bounds_error=False,fill_value="extrapolate")
+        P_interp_flat=Psph_interpolator(kmag_grid_flat)
+        Pcyl=np.reshape(P_interp_flat,(self.Nkpar_surv,self.Nkperp_surv))
+        return kpar_grid,kperp_grid,Pcyl
 
     def get_padding(self,n):
         padding=n-1
@@ -287,9 +273,9 @@ class window_calcs(object):
         """
         wrapper to multiply the LoS and flat sky approximation sky plane terms of the cylindrically binned window function, for the grid described by the k-parallel and k-perp modes of the survey of interest
         """
-        self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0
         sigLoS_use,fwhm_x_use,_,r0_use=beam_pars_to_use
-        par_vec=np.exp(-self.deltakpar_surv**2*sigLoS_use**2)
+        print("sigLoS_use,fwhm_x_use,r0_use=")
+        par_vec=np.exp(-(self.deltakpar_surv*sigLoS_use)**2)
         perp_vec=np.exp(-(r0_use*fwhm_x_use*self.deltakperp_surv)**2/(2.*ln2))
         par_arr,perp_arr=np.meshgrid(par_vec,perp_vec,indexing="ij")
         meshed=par_arr*perp_arr
@@ -394,7 +380,6 @@ class window_calcs(object):
                 fallback=(4*deriv2-deriv1)/3
                 print("RETURNING fallback")
                 self.iter=0 # still need to reset for next time
-                print("about to return estimate -> np.any(np.isnan(fallback))=",np.any(np.isnan(fallback)))
                 self.cyl_partials[n,:,:]=fallback
 
     def build_cyl_partials(self):
@@ -412,7 +397,7 @@ class window_calcs(object):
         self.build_cyl_partials()
         print("np.any(np.isnan(self.cyl_partials))=",np.any(np.isnan(self.cyl_partials)))
         print("built partials")
-        if (self.fwhm_x==self.fwhm_y):
+        if (self.fwhm_x!=self.fwhm_y):
             self.calc_Pcont_asym()
         else:
             self.calc_Pcont_cyl()
