@@ -110,6 +110,12 @@ an_window=window_calcs(bminCHORD,bmaxCHORD,
 an_window.print_survey_characteristics()
 an_window.bias()
 an_window.print_results()
+an_Pcont=an_window.Pcont_cyl_surv
+np.save("an_Pcont.npy",an_Pcont)
+
+kpar_vec=an_window.kpar_surv
+kperp_vec=an_window.kperp_surv
+kpar_grid,kperp_grid=np.meshgrid(kpar_vec,kperp_vec,indexing="ij")
 
 print("numerical")
 nu_window=window_calcs(bminCHORD,bmaxCHORD,
@@ -122,9 +128,30 @@ nu_window=window_calcs(bminCHORD,bmaxCHORD,
 nu_window.print_survey_characteristics()
 nu_window.bias()
 nu_window.print_results()
+nu_Pcont=nu_window.Pcont_cyl_surv
+np.save("nu_Pcont.npy",nu_Pcont)
 
-assert(1==0), "still need to make the plots mesh with the class"
+############################## plots ########################################################################################################################
+fig,axs=plt.subplots(2,2)
+im=axs[0,0].pcolor(kpar_grid,kperp_grid,an_Pcont) # these still represent differences of window functions... I might want to go back to the thing I was doing before the whole power spectrum code excavation and refactoring where I make Pcont trivial and actually just reflect either Ptrue or Pthought
+axs[0,0].set_title("analytical")
+im=axs[0,1].pcolor(kpar_grid,kperp_grid,nu_Pcont)
+axs[0,1].set_title("numerical")
+im=axs[1,0].pcolor(kpar_grid,kperp_grid,an_Pcont-nu_Pcont)
+axs[1,0].set_title("analytical-numerical")
+im=axs[1,1].pcolor(kpar_grid,kperp_grid,an_Pcont/nu_Pcont)
+axs[1,1].set_title("analytical/numerical")
+for i in range(2):
+    for j in range(2):
+        axs[i,j].set_xlabel("k$_{||}$")
+        axs[i,j].set_ylabel("k_$\perp$")
+        plt.colorbar(im,ax=axs[i,j])
+plt.suptitle("examining Pcont")
+plt.tight_layout()
+plt.savefig("examining_Pcont.png")
+plt.show()
 
+assert(1==0), "still need to make class-compatible versions of the old plots"
 # ## debug zone to inspect the Pconts more closely for the two cases (this term is responsible for all the differences in the results between the two bias calc strategies at the moment)
 # Pcont_cyl_sym= np.load("Pcont_cyl_sym.npy")
 # Pcont_cyl_asym=np.load("Pcont_cyl_asym.npy")

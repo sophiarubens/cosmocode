@@ -29,6 +29,8 @@ twopi=2.*pi
 ln2=np.log(2)
 nu_rest_21=1420.405751768 # MHz
 scale=1e-9
+maxfloat= np.finfo(np.float64).max
+huge=np.sqrt(maxfloat)
 
 h_Planck18=H0_Planck18/100.
 Omegamh2_Planck18=Omegam_Planck18*h_Planck18**2
@@ -188,7 +190,9 @@ class window_calcs(object):
         _,_,self.Pcyl=self.unbin_to_Pcyl(self.pars_set_cosmo) # unbin_to_Pcyl(self,pars_to_use)
         self.frac_unc=frac_unc
         if (uncs==None):
-            self.uncs=self.frac_unc*self.Pcyl
+            uncs=self.frac_unc*self.Pcyl
+            uncs[uncs==0]=huge
+            self.uncs=uncs
         else:
             self.uncs=uncs
 
@@ -361,7 +365,6 @@ class window_calcs(object):
         pcopy[n]=pcopy[n]-2*dparn
         _,_,Pcyl_2minu=self.unbin_to_Pcyl(pcopy)
         deriv1=(Pcyl_2plus-Pcyl_2minu)/(4*self.dpar[n])
-        # print("np.any(np.isnan(deriv1))=",np.any(np.isnan(deriv1)))
 
         pcopy=self.pars_set_cosmo.copy()
         pcopy[n]=pcopy[n]+dparn
@@ -370,13 +373,11 @@ class window_calcs(object):
         pcopy[n]=pcopy[n]-dparn
         _,_,Pcyl_minu=self.unbin_to_Pcyl(pcopy)
         deriv2=(Pcyl_plus-Pcyl_minu)/(2*self.dpar[n])
-        # print("np.any(np.isnan(deriv2))=",np.any(np.isnan(deriv2)))
 
         Pcyl_dif=Pcyl_plus-Pcyl_minu
         if (np.mean(Pcyl_dif)<tol): # consider relaxing this to np.any if it ever seems like too strict a condition?!
             estimate=(4*deriv2-deriv1)/3
             self.iter=0 # reset for next time
-            # print("about to return estimate -> np.any(np.isnan(estimate))=",np.any(np.isnan(estimate)))
             self.cyl_partials[n,:,:]=estimate
         else:
             pnmean=np.mean(np.abs(pndispersed)) # the np.abs part should be redundant because, by this point, all the k-mode values and their corresponding dpns and Ps should be nonnegative, but anyway... numerical stability or something idk
@@ -400,11 +401,6 @@ class window_calcs(object):
         for n in range(self.N_pars_set_cosmo):
             self.iter=0 # bc starting a new partial deriv calc.
             self.cyl_partial(n)
-        # with open("examine_partials.txt", "w") as f:
-        #     for i, slice2d in enumerate(self.cyl_partials):
-        #         np.savetxt(f, slice2d, fmt="%6.4f")
-        #         if i < self.N_pars_forecast - 1:
-        #             f.write("\n")
         
     def bias(self):
         """
