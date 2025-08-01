@@ -249,13 +249,23 @@ class window_calcs(object):
             if(self.Pcyl.shape.T!=self.Wcont.shape):
                 assert(1==0), "window and power spec shapes must match"
             self.Wcont=self.Wcont.T # force P and Wcont to have the same shapes
+        np.save("Wcont.npy",self.Wcont)
+        np.save("Pcyl.npy",self.Pcyl)
         s0,s1=self.Pcyl.shape # by now, P and Wcont have the same shapes
         pad0lo,pad0hi=self.get_padding(s0)
         pad1lo,pad1hi=self.get_padding(s1)
+        print("pad0lo,pad0hi,pad1lo,pad1hi=",pad0lo,pad0hi,pad1lo,pad1hi)
         Wcontp=np.pad(self.Wcont,((pad0lo,pad0hi),(pad1lo,pad1hi)),"edge")
         sample_whole_conv=convolve(Wcontp,self.Pcyl,mode="full")
         np.save("sample_whole_conv.npy",sample_whole_conv)
-        self.Pcont_cyl=convolve(Wcontp,self.Pcyl,mode="valid") ### same update as calc_Pcont_asym
+        # conv=convolve(Wcontp,self.Pcyl,mode="valid")
+        # Pp=np.pad(P,((pad0lo,pad0hi),(pad1lo,pad1hi)),"constant",constant_values=((0,0),(0,0))) # version 2025.06.25
+        Pcont=convolve(Wcontp,self.Pcyl,mode="full")
+        print("Pcont.shape=",Pcont.shape)
+        peak0,peak1=np.unravel_index(Pcont.argmax(), Pcont.shape)
+        print("peak0,peak1=",peak0,peak1)
+        Pcont=Pcont[peak0:peak0+s0,peak1:peak1+s1]
+        self.Pcont_cyl=Pcont ### same update as calc_Pcont_asym
     
     def W_cyl_binned(self,beam_pars_to_use):
         """
