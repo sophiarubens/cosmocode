@@ -150,23 +150,19 @@ class window_calcs(object):
         self.Nkperp_surv=len(self.kperp_surv)
         self.deltakperp_surv= self.kperp_surv - self.kperp_surv[self.Nkperp_surv//2]
 
-        self.kmin_surv=np.sqrt(self.kpar_surv[ 0]**2+self.kperp_surv[ 0]**2)
+        self.kmin_surv=1.25*np.min((self.kpar_surv[ 0],self.kperp_surv[ 0]))
         self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2)
-        self.Lsurvbox= twopi/self.kmin_surv                  ### CHECK THAT NO FACTOR OF TWO IS MISSING
+        self.Lsurvbox= twopi/self.kmin_surv
         self.Nvoxbox=  int(self.Lsurvbox*self.kmax_surv/pi)
+        print("self.Lsurvbox,self.Nvoxbox=",self.Lsurvbox,self.Nvoxbox)
         self.NvoxPracticalityWarning()
 
         # numerical protections for assorted k-ranges
-        limiting_spacing_surv=np.min([ self.kpar_surv[1]-self.kpar_surv[0], self.kperp_surv[1]-self.kperp_surv[0]])
         kmin_box_and_init=(1-init_and_box_tol)*self.kmin_surv
         kmax_box_and_init=(1+init_and_box_tol)*self.kmax_surv
         kmin_CAMB=(1-CAMB_tol)*kmin_box_and_init
-        kmax_CAMB=(1+CAMB_tol)*kmax_box_and_init
-        self.ksph,self.Ptruesph=self.get_mps(self.pars_set_cosmo,kmin_CAMB,kmax_CAMB*np.sqrt(3)) # factor of sqrt(3) from pythag theorem for box to prevent the need for extrap
-        limiting_spacing_CAMB_sm=self.ksph[1]-self.ksph[0]
-        limiting_spacing_CAMB_lg=self.ksph[-1]-self.ksph[-2]
-        limiting_spacing_box_sm=2./(self.Nvoxbox*self.Lsurvbox*np.sqrt(3)*((np.sqrt(3)/2)-(1./self.Nvoxbox)))
-        limiting_spacing_box_lg=self.Nvoxbox/(2.*self.Lsurvbox)
+        kmax_CAMB=(1+CAMB_tol)*kmax_box_and_init*np.sqrt(3) # factor of sqrt(3) from pythag theorem for box to prevent the need for extrap
+        self.ksph,self.Ptruesph=self.get_mps(self.pars_set_cosmo,kmin_CAMB,kmax_CAMB)
         self.Deltabox=self.Lsurvbox/self.Nvoxbox
         if primary_beam_type.lower()=="gaussian":
             sky_plane_sigmas=self.r0*np.array([self.fwhm_x,self.fwhm_y])/np.sqrt(2*np.log(2))
@@ -175,19 +171,9 @@ class window_calcs(object):
                 raise NumericalDeltaError
         else:
             raise NotYetImplementedError
-        print("\nLIMITING SPACINGS")
-        print("limiting_spacing_CAMB=",limiting_spacing_CAMB_sm,"-",limiting_spacing_CAMB_lg)
-        print("limiting_spacing_box= ",limiting_spacing_box_sm,"-",limiting_spacing_box_lg)
-        print("limiting_spacing_surv=",limiting_spacing_surv)
 
-        print("\nMINS AND MAXES:")
-        print("CAMB:           ",self.ksph[0],"-",self.ksph[-1])
-        print("box vec:         I jump straight to the r-grid so this doesn't live in a variable thus far")
-        # print("init par & perp: ",self.kpartrue_init[0],"-",self.kpartrue_init[-1],"&",self.kperptrue_init[0],"-",self.kperptrue_init[-1])
-        print("surv par & perp: ",self.kpar_surv[0],"-",self.kpar_surv[-1],"&",self.kperp_surv[0],"-",self.kperp_surv[-1])
-        
         # considerations for power spectra binned to survey k-modes
-        _,_,self.Pcyl=self.unbin_to_Pcyl(self.pars_set_cosmo) # unbin_to_Pcyl(self,pars_to_use)
+        _,_,self.Pcyl=self.unbin_to_Pcyl(self.pars_set_cosmo)
         self.frac_unc=frac_unc
         if (uncs==None):
             uncs=self.frac_unc*self.Pcyl
@@ -267,6 +253,8 @@ class window_calcs(object):
         pad0lo,pad0hi=self.get_padding(s0)
         pad1lo,pad1hi=self.get_padding(s1)
         Wcontp=np.pad(self.Wcont,((pad0lo,pad0hi),(pad1lo,pad1hi)),"edge")
+        sample_whole_conv=convolve(Wcontp,self.Pcyl,mode="full")
+        np.save("sample_whole_conv.npy",sample_whole_conv)
         self.Pcont_cyl=convolve(Wcontp,self.Pcyl,mode="valid") ### same update as calc_Pcont_asym
     
     def W_cyl_binned(self,beam_pars_to_use):
@@ -274,7 +262,6 @@ class window_calcs(object):
         wrapper to multiply the LoS and flat sky approximation sky plane terms of the cylindrically binned window function, for the grid described by the k-parallel and k-perp modes of the survey of interest
         """
         sigLoS_use,fwhm_x_use,_,r0_use=beam_pars_to_use
-        print("sigLoS_use,fwhm_x_use,r0_use=")
         par_vec=np.exp(-(self.deltakpar_surv*sigLoS_use)**2)
         perp_vec=np.exp(-(r0_use*fwhm_x_use*self.deltakperp_surv)**2/(2.*ln2))
         par_arr,perp_arr=np.meshgrid(par_vec,perp_vec,indexing="ij")
@@ -293,7 +280,6 @@ class window_calcs(object):
         self.Wtr=self.W_cyl_binned(self.primary_beam_args)
         # self.Wth=self.W_cyl_binned(self.perturbed_primary_beam_args)
         self.Wth=0.*self.Wtr
-        print("next line will store Wcont in self.Wcont")
         self.Wcont=self.Wtr-self.Wth
         self.Wcontshape=self.Wcont.shape
     
@@ -341,7 +327,6 @@ class window_calcs(object):
         cylindrically binned matter power spectrum partial WRT one cosmo parameter (nkpar x nkperp)
         """
         dparn=self.dpar[n]
-        # print("self.iter,dparn=",self.iter,dparn)
         pcopy=self.pars_set_cosmo.copy()
         pndispersed=pcopy[n]+np.linspace(-2,2,5)*dparn
 
@@ -395,13 +380,11 @@ class window_calcs(object):
         collect and stitch together the ingredients of the parameter bias calculation
         """
         self.build_cyl_partials()
-        print("np.any(np.isnan(self.cyl_partials))=",np.any(np.isnan(self.cyl_partials)))
         print("built partials")
         if (self.fwhm_x!=self.fwhm_y):
             self.calc_Pcont_asym()
         else:
             self.calc_Pcont_cyl()
-        print("np.any(np.isnan(self.Pcont_cyl))=",np.any(np.isnan(self.Pcont_cyl)))
         print("computed Pcont")
 
         V=0.*self.cyl_partials
@@ -409,7 +392,6 @@ class window_calcs(object):
             V[i,:,:]=self.cyl_partials[i,:,:]/self.uncs # elementwise division for an nkpar x nkperp slice
         V_completely_transposed=np.transpose(V,axes=(2,1,0))
         F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
-        print("np.any(np.isnan(F))=",np.any(np.isnan(F)))
         print("computed F")
         if (not np.all(self.Pcont_cyl.shape==self.uncs.shape)):
             interp_holder=cosmo_stats(self.Lsurvbox,P_fid=self.Pcont_cyl,Nvox=self.Nvoxbox,
@@ -417,14 +399,11 @@ class window_calcs(object):
                                       k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial (or, at least, that's what I need to make happen)
             interp_holder.interpolate_P(use_P_fid=True)
             self.Pcont_cyl_surv=interp_holder.P_interp
-            print("np.any(np.isnan(self.Pcont_cyl_surv))=",np.any(np.isnan(self.Pcont_cyl_surv)))
             print("interpolated Pcont to survey modes")
         else: # no interpolation necessary
             self.Pcont_cyl_surv=self.Pcont_cyl
         Pcont_div_sigma=self.Pcont_cyl_surv/self.uncs
-        print("np.any(np.isnan(Pcont_div_sigma))=",np.any(np.isnan(Pcont_div_sigma)))
         B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)
-        print("np.any(np.isnan(B))=",np.any(np.isnan(B)))
         print("computed B")
         self.biases=(np.linalg.inv(F)@B).reshape((self.N_pars_forecast,))
         print("computed b")

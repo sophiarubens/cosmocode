@@ -137,30 +137,44 @@ nu_Pcont=nu_window.Pcont_cyl_surv
 np.save("nu_Pcont.npy",nu_Pcont)
 
 ############################## plots ########################################################################################################################
+sample_whole_conv=np.load("sample_whole_conv.npy")
+plt.figure()
+plt.imshow(sample_whole_conv)
+plt.xlabel("k_{||} index")
+plt.ylabel("k{_\perp} index")
+plt.title("examine untruncated convolution")
+plt.savefig("examine_untrunc_conv.png")
+plt.show()
+
 titles=["Ptrue","Wcont-or-simpler","Pcont-or-simpler"]
 cases=["\nanalytical","\nnumerical","\nanalytical/numerical","\nanalytical-numerical"]
 fig,axs=plt.subplots(4,3,figsize=(20,10))
 # row 0: analytical (columns: Ptrue-cyl, Wcont-or-simpler, Pcont-or-simpler)
 im=axs[0,0].pcolor(kpar_grid,kperp_grid,an_Ptrue)
+plt.colorbar(im,ax=axs[0,0])
 im=axs[0,1].pcolor(kpar_grid,kperp_grid,an_Wcont)
+plt.colorbar(im,ax=axs[0,1])
 im=axs[0,2].pcolor(kpar_grid,kperp_grid,an_Pcont)
+plt.colorbar(im,ax=axs[0,2])
 
 # row 1: numerical (columns: Ptrue-sph, _, Pcont-or-simpler)
 axs[1,0].plot(nu_window.ksph,np.reshape(nu_window.Ptruesph,nu_window.ksph.shape))
 im=axs[1,2].pcolor(kpar_grid,kperp_grid,nu_Pcont)
+plt.colorbar(im,ax=axs[1,2])
 
 # row 2: ratios (columns: _, _, Pcont-or-simpler)
 im=axs[2,2].pcolor(kpar_grid,kperp_grid,an_Pcont/nu_Pcont)
+plt.colorbar(im,ax=axs[2,2])
 
 # row 3: differences (columns: _, _, Pcont-or-simpler)
 im=axs[3,2].pcolor(kpar_grid,kperp_grid,an_Pcont-nu_Pcont)
+plt.colorbar(im,ax=axs[3,2])
 
 for i in range(4):
     for j in range(3):
         axs[i,j].set_xlabel("k$_{||}$")
         axs[i,j].set_ylabel("k$_\perp$")
         axs[i,j].set_title(titles[j]+cases[i])
-        plt.colorbar(im,ax=axs[i,j])
 axs[1,0].set_xlabel("k")
 axs[1,0].set_ylabel("P")
 plt.suptitle("mega diagnostic plot")
@@ -168,136 +182,24 @@ plt.tight_layout()
 plt.savefig("mega_diagnostic_plot.png")
 plt.show()
 
-assert(1==0), "checking precursor steps b/c the Pconts themselves (and Ptrues...) look suspicious"
 fig,axs=plt.subplots(2,2,figsize=(15,7))
 im=axs[0,0].pcolor(kpar_grid,kperp_grid,an_Pcont) # these still represent differences of window functions... I might want to go back to the thing I was doing before the whole power spectrum code excavation and refactoring where I make Pcont trivial and actually just reflect either Ptrue or Pthought
+plt.colorbar(im,ax=axs[0,0])
 axs[0,0].set_title("analytical")
 im=axs[0,1].pcolor(kpar_grid,kperp_grid,nu_Pcont)
+plt.colorbar(im,ax=axs[0,1])
 axs[0,1].set_title("numerical")
 im=axs[1,0].pcolor(kpar_grid,kperp_grid,an_Pcont-nu_Pcont)
+plt.colorbar(im,ax=axs[1,0])
 axs[1,0].set_title("analytical-numerical")
 im=axs[1,1].pcolor(kpar_grid,kperp_grid,an_Pcont/nu_Pcont)
+plt.colorbar(im,ax=axs[1,1])
 axs[1,1].set_title("analytical/numerical")
 for i in range(2):
     for j in range(2):
         axs[i,j].set_xlabel("k$_{||}$")
         axs[i,j].set_ylabel("k$_\perp$")
-        plt.colorbar(im,ax=axs[i,j])
 plt.suptitle("examining Pcont (actually overwritten to be Ptrue)")
 plt.tight_layout()
 plt.savefig("examining_Pcont.png")
 plt.show()
-
-assert(1==0), "still need to make class-compatible versions of the old plots"
-# ## debug zone to inspect the Pconts more closely for the two cases (this term is responsible for all the differences in the results between the two bias calc strategies at the moment)
-# Pcont_cyl_sym= np.load("Pcont_cyl_sym.npy")
-# Pcont_cyl_asym=np.load("Pcont_cyl_asym.npy")
-# Pcont_cyl_sym_horiz=  Pcont_cyl_sym[0,:]
-# Pcont_cyl_sym_verti=  Pcont_cyl_sym[:,0]
-# Pcont_cyl_asym_horiz= Pcont_cyl_asym[0,:]
-# Pcont_cyl_asym_verti= Pcont_cyl_asym[:,0]
-
-# ksph=     np.load("ksph_for_asym.npy")
-# Ptruesph= np.load("Ptruesph_for_asym.npy")
-
-# cyl_P_saved=         np.load("cyl_P.npy")
-# cyl_Wcont_saved=     np.load("cyl_Wcont.npy")
-# cyl_Wtrue_verti=1/(np.sqrt(2)*sig_LoS)
-# cyl_Wtrue_horiz=np.sqrt(np.log(2))/(Dc_ctr*beam_fwhm0)
-
-# par_line=1./(np.sqrt(2)*sig_LoS)
-# perp_line=np.sqrt(ln2)/(Dc_ctr*beam_fwhm1)
-
-# xtext,ytext=0.035,0.5
-
-# fig,axs=plt.subplots(3,5,figsize=(20,10))
-# par_line_colour="C1"
-# perp_line_colour="C2"
-# exp_minus_half_colour="C3"
-# exp_minus_half=np.exp(-1./2.)
-
-# # ROW 0: ANALYTIC / CYLINDRICAL                 (ALL PLOTS POPULATED)
-# im=axs[0,0].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_P_saved)
-# cbar=plt.colorbar(im,ax=axs[0,0])
-# cbar.ax.set_xlabel("power")
-# im=axs[0,1].pcolor(kpar_surv_grid,kperp_surv_grid, cyl_Wcont_saved)
-# cbar=plt.colorbar(im,ax=axs[0,1])
-# cbar.ax.set_xlabel("power")
-# im=axs[0,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_sym)
-# cbar=plt.colorbar(im,ax=axs[0,2])
-# cbar.ax.set_xlabel("power")
-# axs[0,3].plot(kpar_surv,  Pcont_cyl_sym_verti,  label="Ptrue")
-# axs[0,4].plot(kperp_surv, Pcont_cyl_sym_horiz, label="Ptrue")
-
-# # ROW 1: NUMERICAL / CYLINDRICALLY ASYMMETRIC   (PLOTS 0, 1 EMPTY)
-# axs[1,0].loglog(ksph,np.reshape(Ptruesph,(n_sph_nu,)))
-# im=axs[1,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcont_cyl_asym)
-# cbar=plt.colorbar(im,ax=axs[1,2])
-# cbar.ax.set_xlabel("power")
-# axs[1,3].plot(kpar_surv,  Pcont_cyl_asym_verti, label="Ptrue")
-# axs[1,4].plot(kperp_surv, Pcont_cyl_asym_horiz, label="Ptrue")
-
-# # ROW 2: RATIOS                                 (PLOTS 0, 1 EMPTY)
-# Pcontratio=Pcont_cyl_sym/Pcont_cyl_asym
-# im=axs[2,2].pcolor(kpar_surv_grid,kperp_surv_grid, Pcontratio, vmin=np.percentile(Pcontratio,1), vmax=np.percentile(Pcontratio,99))
-# cbar=plt.colorbar(im,ax=axs[2,2],extend="both")
-# cbar.ax.set_xlabel("power")
-# axs[2,3].plot(kpar_surv,  Pcont_cyl_sym_verti/Pcont_cyl_asym_verti, label="Ptrue")
-# axs[2,4].plot(kperp_surv, Pcont_cyl_sym_horiz/Pcont_cyl_asym_horiz, label="Ptrue")
-
-# # COSMETIC FEATURES
-# for i in range(3):
-#     if (i==0):
-#         case="an / cyl sym:"
-#     if (i==1):
-#         case="nu / cyl asym:"
-#     if (i==2):
-#         case="an/nu ratio:"
-#     for j in range(5):
-#         if (j==0):
-#             qty=" P" 
-#         if (j==1):
-#             qty=" Wtrue"
-#         if (j==2):
-#             qty=" Ptrue"
-#         if (j==3):
-#             qty=" slices with constant min k$_\perp$"
-#         if (j==4):
-#             qty=" slices with constant min k$_{||}$"
-#         axs[i,j].set_title(case+qty)
-#         if (j<3):
-#             axs[i,j].set_xlabel("k$_{||}$ (1/Mpc)")
-#             axs[i,j].set_ylabel("k$_\perp$ (1/Mpc)")
-#         else:
-#             axs[i,3].set_xlabel("k$_{||}$ (1/Mpc)")
-#             axs[i,4].set_xlabel("k$_\perp$ (1/Mpc)")
-#             axs[i,j].set_ylabel("power")
-
-# axs[1,0].text(0.1,3.8e3,"I jump straight from a \nCAMB sph power spec \nto a cosmo box", fontsize=9)
-# axs[1,0].set_xlabel("k")
-# axs[1,0].set_ylabel("P(k)")
-# for i,kpari in enumerate(kpar_surv):
-#     if i==0:
-#         lab1="kpar bin floor"
-#         lab2="kperp bin floor"
-#         lw=0.6
-#     else:
-#         lab1=""
-#         lab2=""
-#         if i==(len(kpar_surv)-1):
-#             lw=0.6
-#         else:
-#             lw=0.3
-#     axs[1,0].axvline(kpari,         c="C1",label=lab1,linewidth=lw)
-#     axs[1,0].axvline(kperp_surv[i], c="C2",label=lab2,linewidth=lw)
-# axs[1,2].text(0.25,1.0,"averaged over "+str(Nrealiz)+"\nrealizations",                 fontsize=9, c="w")
-# axs[1,1].text(xtext,ytext,"DNE as a discrete object in my \npipeline",                 fontsize=9)
-# axs[2,0].text(xtext,ytext,"no ratio possible (see above)",                             fontsize=9)
-# axs[2,1].text(xtext,ytext,"no ratio possible (see above)",                             fontsize=9)
-# for i in range(3):
-#     for j in range(4):
-#         axs[i,j].legend() # can't do it earlier because of the overwriting I do
-# plt.suptitle(supertitle)
-# plt.tight_layout()
-# plt.savefig(savename,dpi=500)
-# plt.show()
