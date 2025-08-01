@@ -16,6 +16,8 @@ ns_Planck18=0.96605
 H0_Planck18=67.32
 pi=np.pi
 nu_rest_21=1420.405751768 # MHz
+# tiny=1e-90 # works
+tiny=1e-100
 
 ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
 scale=1e-9
@@ -59,7 +61,7 @@ if limit==1:
     # small=0.
     sig_LoS=    small
     beam_fwhm0= small
-    beam_fwhm1= small*1.1 # perturb things slightly to avoid getting funnelled into the analytical case every time (I make sure both are tested below)
+    beam_fwhm1= small+tiny # perturb things slightly to avoid getting funnelled into the analytical case every time (I make sure both are tested below)
 
     epsLoS_test=   0.1
     epsbeam0_test= 0.1
@@ -71,7 +73,7 @@ elif limit==2:
     print("limit 2: complete confidence in beam parametrization")
     sig_LoS=siglos900 
     beam_fwhm0=hpbw 
-    beam_fwhm1=hpbw*1.1
+    beam_fwhm1=hpbw+tiny
 
     small=1e-8
     epsLoS_test=   small
@@ -84,7 +86,7 @@ elif limit==3:
     print("limit 3: recover analytical result when using numerical scheme w/ cyl sym call")
     sig_LoS=siglos900 # dialing in the bound set by condition following from linearization...
     beam_fwhm0=hpbw
-    beam_fwhm1=hpbw*1.1
+    beam_fwhm1=hpbw+tiny
 
     epsLoS_test=   0.1
     epsbeam0_test= 0.1

@@ -143,14 +143,10 @@ class window_calcs(object):
         self.ceil=ceil
         self.kpar_surv=kpar_surv[:-self.ceil]
         self.Nkpar_surv=len(self.kpar_surv)
-        # self.deltakpar_surv=  self.kpar_surv  - self.kpar_surv[ self.Nkpar_surv// 2] 
-        self.deltakpar_surv=self.kpar_surv
         self.bmin=bmin
         self.bmax=bmax
         self.kperp_surv=kperp(self.nu_ctr,self.Nchan,self.bmin,self.bmax)
         self.Nkperp_surv=len(self.kperp_surv)
-        # self.deltakperp_surv= self.kperp_surv - self.kperp_surv[self.Nkperp_surv//2]
-        self.deltakperp_surv=self.kperp_surv
 
         self.kmin_surv=1.25*np.min((self.kpar_surv[ 0],self.kperp_surv[ 0]))
         self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2)
@@ -169,6 +165,7 @@ class window_calcs(object):
         if primary_beam_type.lower()=="gaussian":
             sky_plane_sigmas=self.r0*np.array([self.fwhm_x,self.fwhm_y])/np.sqrt(2*np.log(2))
             self.all_sigmas=np.concatenate((sky_plane_sigmas,[self.sigLoS]))
+            print("self.all_sigmas,self.Deltabox=",self.all_sigmas,self.Deltabox)
             if (np.any(self.all_sigmas<self.Deltabox)):
                 raise NumericalDeltaError
         else:
@@ -269,8 +266,8 @@ class window_calcs(object):
         wrapper to multiply the LoS and flat sky approximation sky plane terms of the cylindrically binned window function, for the grid described by the k-parallel and k-perp modes of the survey of interest
         """
         sigLoS_use,fwhm_x_use,_,r0_use=beam_pars_to_use
-        par_vec=np.exp(-(self.deltakpar_surv*sigLoS_use)**2)
-        perp_vec=np.exp(-(r0_use*fwhm_x_use*self.deltakperp_surv)**2/(2.*ln2))
+        par_vec=np.exp(-(self.kpar_surv*sigLoS_use)**2)
+        perp_vec=np.exp(-(r0_use*fwhm_x_use*self.kperp_surv)**2/(2.*ln2))
         par_arr,perp_arr=np.meshgrid(par_vec,perp_vec,indexing="ij")
         meshed=par_arr*perp_arr
         raw_sum=np.sum(meshed)
