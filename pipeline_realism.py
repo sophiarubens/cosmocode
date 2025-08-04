@@ -45,20 +45,23 @@ bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2) # pathfinder (as per the
 kperp_surv=kperp(nu_ctr,N_CHORDbaselines,bminCHORD,bmaxCHORD) # kperp(nu_ctr,N_modes,bmin,bmax)
 ceil=275
 
-n_sph_an=1000
 n_sph_nu=250
 
-siglos900=4.1 # precalculated for a 900 MHz survey: 0.25*(Dc_ctr-Dc_lo)/10, dialing in the bound set by condition following from linearization...
 # hpbw=(1./12.)*pi/180. # what I had been using before the whole synthesized beam vs primary beam mental confusion breaking
-hpbw=1./18. # rad; lambda/D estimate (actually physically realistic)
+hpbw_x= 6*  pi/180. # rad; lambda/D estimate (actually physically realistic)
+hpbw_y= 4.5*pi/180.
+
+epsLoS=0.1
+epsx=0.1
+epsy=0.1
 
 ##############################
-bundled_gaussian_primary_args=[sig_LoS,beam_fwhm0,beam_fwhm1]
-bundled_gaussian_primary_uncs=[epsLoS_test,epsbeam0_test,epsbeam1_test]
+bundled_gaussian_primary_args=[hpbw_x,hpbw_y]
+bundled_gaussian_primary_uncs=[epsLoS,epsx,epsy]
 
 nu_window=window_calcs(bminCHORD,bmaxCHORD,
                        ceil,
-                       "Gaussian",nu_bundled_gaussian_primary_args,nu_bundled_gaussian_primary_uncs,
+                       "AiryGaussian",bundled_gaussian_primary_args,bundled_gaussian_primary_uncs,
                        pars_Planck18,pars_Planck18,
                        n_sph_nu,dpar,
                        nu_ctr,channel_width,

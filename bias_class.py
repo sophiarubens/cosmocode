@@ -31,6 +31,7 @@ scale=1e-9
 maxfloat= np.finfo(np.float64).max
 huge=np.sqrt(maxfloat)
 BasicAiryHWHM=1.616339948310703178119139753683896309743121097215461023581 # a preposterous number of sig figs from Mathematica (I haven't counted them but I'm guessing this is overkill/ past the double-precision threshold)
+eps=1e-15
 
 h_Planck18=H0_Planck18/100.
 Omegamh2_Planck18=Omegam_Planck18*h_Planck18**2
@@ -56,7 +57,7 @@ def AiryGaussian_primary(X,Y,Z,sigLoS,fwhm_x,fwhm_y,r0):
     argX=thetaX*BasicAiryHWHM/fwhm_x
     thetaY=Y/r0
     argY=thetaY*BasicAiryHWHM/fwhm_y
-    perp=((j1(argX)*j1*(argY))/(argX*argY))**2
+    perp=((j1(argX+eps)*j1(argY+eps))/((argX+eps)*(argY+eps)))**2
     return par*perp
 
 class window_calcs(object):
