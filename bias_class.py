@@ -1,11 +1,9 @@
 import numpy as np
 import camb
 from camb import model
-from scipy.signal import convolve2d,convolve
-from matplotlib import pyplot as plt
+from scipy.signal import convolve
 from power_class import *
 from cosmo_distances import *
-import time
 
 """
 this module helps compute contaminant power and cosmological parameter biases using
@@ -37,10 +35,6 @@ Omegamh2_Planck18=Omegam_Planck18*h_Planck18**2
 pars_set_cosmo_Planck18=[H0_Planck18,Omegabh2_Planck18,Omegamh2_Planck18,AS_Planck18,ns_Planck18] # suitable for get_mps
 
 class NotYetImplementedError(Exception):
-    pass
-class PathologicalError(Exception):
-    pass
-class NvoxPracticalityError(Exception):
     pass
 class NumericalDeltaError(Exception):
     pass
@@ -101,10 +95,10 @@ class window_calcs(object):
         """
         # primary beam considerations
         if (primary_beam_type.lower()=="gaussian"):
-            self.sigLoS,self.fwhm_x,self.fwhm_y= primary_beam_args # AS PASSED; APPEND R0 AFTER CALCULATING IT
+            # self.sigLoS,self.fwhm_x,self.fwhm_y= primary_beam_args # AS PASSED; APPEND R0 AFTER CALCULATING IT
+            self.fwhm_x,self.fwhm_y=primary_beam_args
             self.primary_beam_uncs=              primary_beam_uncs
             self.epsLoS,self.epsx,self.epsy=     self.primary_beam_uncs
-            self.perturbed_primary_beam_args=(self.sigLoS*(1-self.epsLoS),self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy))
         else:
             raise NotYetImplementedError
         self.primary_beam_type=primary_beam_type
@@ -123,12 +117,6 @@ class window_calcs(object):
         self.bw=nu_ctr*evol_restriction_threshold # previously called NDeltanu
         self.Nchan=int(self.bw/self.Deltanu)
         self.z_ctr=freq2z(nu_rest_21,nu_ctr)
-        self.r0=comoving_distance(self.z_ctr)
-        if (primary_beam_type.lower()=="gaussian"):
-            self.primary_beam_args=np.array([self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0]) # UPDATING ARGS NOW THAT THE FULL SET HAS BEEN SPECIFIED
-            self.perturbed_primary_beam_args=np.append(self.perturbed_primary_beam_args,self.r0)
-        else:
-            raise NotYetImplementedError
         self.nu_lo=self.nu_ctr-self.bw/2.
         self.z_hi=freq2z(nu_rest_21,self.nu_lo)
         self.Dc_hi=comoving_distance(self.z_hi)
@@ -137,6 +125,14 @@ class window_calcs(object):
         self.Dc_lo=comoving_distance(self.z_lo)
         self.deltaz=self.z_hi-self.z_lo
         self.surv_channels=np.arange(self.nu_lo,self.nu_hi,self.Deltanu)
+        if (primary_beam_type.lower()=="gaussian"):
+            self.r0=comoving_distance(self.z_ctr)
+            self.sigLoS=(self.r0-self.Dc_lo)/40.
+            self.perturbed_primary_beam_args=(self.sigLoS*(1-self.epsLoS),self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy))
+            self.primary_beam_args=np.array([self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0]) # UPDATING ARGS NOW THAT THE FULL SET HAS BEEN SPECIFIED
+            self.perturbed_primary_beam_args=np.append(self.perturbed_primary_beam_args,self.r0)
+        else:
+            raise NotYetImplementedError
 
         # cylindrically binned survey k-modes and box considerations
         kpar_surv=kpar(self.nu_ctr,self.Deltanu,self.Nchan)

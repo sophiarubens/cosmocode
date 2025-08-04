@@ -16,7 +16,6 @@ ns_Planck18=0.96605
 H0_Planck18=67.32
 pi=np.pi
 nu_rest_21=1420.405751768 # MHz
-# tiny=1e-90 # works
 tiny=1e-100
 
 ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
@@ -54,7 +53,7 @@ hpbw=(1./12.)*pi/180. # what I had been using before the whole synthesized beam 
 # hpbw=1./18. # rad; lambda/D estimate (actually physically realistic)
 
 ############################## beam widths and fractional uncertainties ########################################################################################################################
-limit=1 # TOGGLE BETWEEN CASES HERE
+limit=3 # TOGGLE BETWEEN CASES HERE
 if limit==1:
     print("limit 1: identity response/ delta window")
     small=1.96 # self.Deltabox= 1.952263190540233 for this case
@@ -96,9 +95,9 @@ elif limit==3:
     savename="limit_3_an_nu_agreement.png"
 else:
     assert(1==0), "limit not yet implemented"
-nu_bundled_gaussian_primary_args=[sig_LoS,beam_fwhm0,beam_fwhm1]
+nu_bundled_gaussian_primary_args=[beam_fwhm0,beam_fwhm1]
 nu_bundled_gaussian_primary_uncs=[epsLoS_test,epsbeam0_test,epsbeam1_test]
-an_bundled_gaussian_primary_args=[sig_LoS,beam_fwhm0,beam_fwhm0]
+an_bundled_gaussian_primary_args=[beam_fwhm0,beam_fwhm0]
 an_bundled_gaussian_primary_uncs=[epsLoS_test,epsbeam0_test,epsbeam0_test]
 
 ############################## actual pipeline test ########################################################################################################################

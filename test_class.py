@@ -3,7 +3,6 @@ from matplotlib import pyplot as plt
 from power_class import *
 from bias_helper_fcns import *
 import time
-# import powerbox
 
 Lsurvey=126 # 63
 Nvox=54 # 10 
@@ -30,20 +29,6 @@ print("sigLoS0,sigLoS1,sigLoS2,r00,r10,r20=",sigLoS0,sigLoS1,sigLoS2,r00,r10,r20
 bundled0=(sigLoS0,beamfwhm_x,beamfwhm_y,r00,)
 bundled1=(sigLoS1,beamfwhm_x,beamfwhm_y,r10,)
 bundled2=(sigLoS2,beamfwhm_x,beamfwhm_y,r20,)
-
-# class cosmo_stats(object):
-#     def __init__(self,
-#                  Lsurvey,                                                                # nonnegotiable for box->spec and spec->box calcs
-#                  T_pristine=None,T_primary=None,P_fid=None,Nvox=None,                    # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
-#                  primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian",  # primary beam considerations
-#                  Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
-#                  frac_tol=5e-4,                                                          # max number of realizations
-#                  k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
-#                  P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
-#                  verbose=False,                                                          # status updates for averaging over realizations
-#                  k_fid=None,kind="cubic",avoid_extrapolation=False,                      # helper vars for converting a 1d fid power spec to a box sampling
-#                  no_monopole=False                                                       # consideration when generating boxes
-#                  ): 
 
 # idx=-0.9 # DECAYING   power law
 # idx=2.3  # INCREASING power law

@@ -21,8 +21,6 @@ class ResolutionError(Exception):
     pass
 class UnsupportedBinningMode(Exception):
     pass
-class UnsupportedPrimaryBeamType(Exception):
-    pass
 class NotEnoughInfoError(Exception):
     pass
 class NotYetImplementedError(Exception):
@@ -205,7 +203,7 @@ class cosmo_stats(object):
                 evaled_primary[evaled_primary<nearly_zero]=maxfloat # protect against division-by-zero errors
                 self.evaled_primary=evaled_primary
             else:
-                UnsupportedPrimaryBeamType
+                raise NotYetImplementedError
         else:                               # identity primary beam
             self.Veff=self.Lsurvey**3
             self.evaled_primary=np.ones((self.Nvox,self.Nvox,self.Nvox))
