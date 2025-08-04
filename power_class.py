@@ -57,8 +57,8 @@ class cosmo_stats(object):
         P_fid               :: (Nk0_fid,) of floats        :: sph binned fiducial power spec   :: K^2 Mpc^3
         Nvox                :: float                       :: # voxels PER SIDE of cosmo box   :: ---
         primary_beam        :: callable                    :: power beam in Cartesian coords   :: ---
-        primary_beam_args   :: tuple of floats             :: Gaussian: "μ"s and "σ"s          :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
-        primary_beam_type   :: str                         :: implement soon: Airy etc.        :: ---
+        primary_beam_args   :: tuple of floats             :: Gaussian, AiryGaussian: μ, σ     :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
+        primary_beam_type   :: str                         :: for now: Gaussian / AiryGaussian :: ---
         Nk0, Nk1            :: int                         :: # power spec bins for axis 0/1   :: ---
         binning_mode        :: str                         :: lin/log sp. P_realizations bins  :: ---
         frac_tol            :: float                       :: max fractional amount by which   :: ---
@@ -196,7 +196,7 @@ class cosmo_stats(object):
         self.primary_beam_args=primary_beam_args
         self.primary_beam_type=primary_beam_type
         if (self.primary_beam is not None): # non-identity primary beam
-            if self.primary_beam_type=="Gaussian":
+            if (self.primary_beam_type=="Gaussian" or self.primary_beam_type=="AiryGaussian"):
                 self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
                 evaled_primary=self.primary_beam(self.xx_grid,self.yy_grid,self.zz_grid,self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0)
                 self.Veff=np.sum(evaled_primary*self.d3r)        # rectangular sum method

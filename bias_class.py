@@ -2,6 +2,7 @@ import numpy as np
 import camb
 from camb import model
 from scipy.signal import convolve
+from scipy.special import j1
 from power_class import *
 from cosmo_distances import *
 
@@ -29,6 +30,7 @@ nu_rest_21=1420.405751768 # MHz
 scale=1e-9
 maxfloat= np.finfo(np.float64).max
 huge=np.sqrt(maxfloat)
+BasicAiryHWHM=1.616339948310703178119139753683896309743121097215461023581 # a preposterous number of sig figs from Mathematica (I haven't counted them but I'm guessing this is overkill/ past the double-precision threshold)
 
 h_Planck18=H0_Planck18/100.
 Omegamh2_Planck18=Omegam_Planck18*h_Planck18**2
@@ -44,6 +46,18 @@ def Gaussian_primary(X,Y,Z,sigLoS,fwhm_x,fwhm_y,r0):
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
     return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/fwhm_x)**2+(Y/fwhm_y)**2)/r0**2)
+
+def AiryGaussian_primary(X,Y,Z,sigLoS,fwhm_x,fwhm_y,r0):
+    """
+    (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
+    """
+    par= np.exp(-(Z/(2*sigLoS))**2)
+    thetaX=X/r0
+    argX=thetaX*BasicAiryHWHM/fwhm_x
+    thetaY=Y/r0
+    argY=thetaY*BasicAiryHWHM/fwhm_y
+    perp=((j1(argX)*j1*(argY))/(argX*argY))**2
+    return par*perp
 
 class window_calcs(object):
     def __init__(self,
@@ -65,10 +79,12 @@ class window_calcs(object):
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
         primary_beam               :: callable                     :: power beam in Cartesian coords           :: ---
         primary_beam_type          :: str                          :: implement soon: Airy etc.                :: ---
-        primary_beam_args          :: (N_args,) of floats          :: Gaussian: "μ"s and "σ"s                  :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
-                                                                                PASS sigLoS,fwhm_x,fwhm_y
-                                                                                ++ r0 appended internally
-        primary_beam_uncs          :: (N_uncertain_args) of floats :: Gaussian: frac uncs epsLoS, epsfwhm{x/y} :: ---
+        primary_beam_args          :: (N_args,) of floats          :: Gaussian, AiryGaussian: "μ"s and "σ"s    :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
+                                                                                PASS fwhm_x,fwhm_y
+                                                                                ++sigLoS prepended internally
+                                                                                ++r0 appended internally
+        primary_beam_uncs          :: (N_uncertain_args) of floats :: Gaussian, AiryGaussian: fractional       :: ---
+                                                                      uncertainties epsLoS, epsfwhmx, epsfwhmy 
         pars_set_cosmo             :: (N_fid_pars,) of floats      :: params to condition a CAMB/etc. call     :: as found in ΛCDM
         pars_forecast              :: (N_forecast_pars,) of floats :: params for which you'd like to forecast  :: as found in ΛCDM
         n_sph_modes                :: int                          :: # modes to put in CAMB/etc. MPS          :: ---
@@ -94,8 +110,7 @@ class window_calcs(object):
                                       of strings     
         """
         # primary beam considerations
-        if (primary_beam_type.lower()=="gaussian"):
-            # self.sigLoS,self.fwhm_x,self.fwhm_y= primary_beam_args # AS PASSED; APPEND R0 AFTER CALCULATING IT
+        if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
             self.fwhm_x,self.fwhm_y=primary_beam_args
             self.primary_beam_uncs=              primary_beam_uncs
             self.epsLoS,self.epsx,self.epsy=     self.primary_beam_uncs
@@ -125,7 +140,7 @@ class window_calcs(object):
         self.Dc_lo=comoving_distance(self.z_lo)
         self.deltaz=self.z_hi-self.z_lo
         self.surv_channels=np.arange(self.nu_lo,self.nu_hi,self.Deltanu)
-        if (primary_beam_type.lower()=="gaussian"):
+        if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
             self.r0=comoving_distance(self.z_ctr)
             self.sigLoS=(self.r0-self.Dc_lo)/40.
             self.perturbed_primary_beam_args=(self.sigLoS*(1-self.epsLoS),self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy))
@@ -144,10 +159,12 @@ class window_calcs(object):
         self.kperp_surv=kperp(self.nu_ctr,self.Nchan,self.bmin,self.bmax)
         self.Nkperp_surv=len(self.kperp_surv)
 
-        self.kmin_surv=1.25*np.min((self.kpar_surv[ 0],self.kperp_surv[ 0]))
-        self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2)
+        # self.kmin_surv=np.min((self.kpar_surv[0 ],self.kperp_surv[0 ])) # no extrap issues but slow (mult. factors of 1.1 and 1.2 also incur this issue, to their respective extents)
+        self.kmin_surv=1.25*np.min((self.kpar_surv[ 0],self.kperp_surv[ 0])) # slow and slight extrap issues
+        self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2) #very fast but extrap issues
         self.Lsurvbox= twopi/self.kmin_surv
         self.Nvoxbox=  int(self.Lsurvbox*self.kmax_surv/pi)
+        print("Nvoxbox=",self.Nvoxbox)
         self.NvoxPracticalityWarning()
 
         # numerical protections for assorted k-ranges
@@ -157,7 +174,7 @@ class window_calcs(object):
         kmax_CAMB=(1+CAMB_tol)*kmax_box_and_init*np.sqrt(3) # factor of sqrt(3) from pythag theorem for box to prevent the need for extrap
         self.ksph,self.Ptruesph=self.get_mps(self.pars_set_cosmo,kmin_CAMB,kmax_CAMB)
         self.Deltabox=self.Lsurvbox/self.Nvoxbox
-        if primary_beam_type.lower()=="gaussian":
+        if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
             sky_plane_sigmas=self.r0*np.array([self.fwhm_x,self.fwhm_y])/np.sqrt(2*np.log(2))
             self.all_sigmas=np.concatenate((sky_plane_sigmas,[self.sigLoS]))
             if (np.any(self.all_sigmas<self.Deltabox)):
