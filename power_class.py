@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.interpolate import interpn,interp1d
 from numpy.fft import fftshift,ifftshift,fftn,irfftn,fftfreq
+from bias_class import *
 
 """
 this module helps connect ensemble-averaged power spectrum estimates and 
@@ -48,35 +49,38 @@ class cosmo_stats(object):
                  P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
                  verbose=False,                                                          # status updates for averaging over realizations
                  k_fid=None,kind="cubic",avoid_extrapolation=False,                      # helper vars for converting a 1d fid power spec to a box sampling
-                 no_monopole=False                                                       # consideration when generating boxes
+                 no_monopole=False,                                                      # consideration when generating boxes
+                 manual_primary_beam_modes=None                                          # when using a discretely sampled primary beam not sampled internally using a callable, it is necessary to provide knowledge of the modes at which it was sampled
                  ):                                                                      # implement soon: synthesized beam considerations, other primary beam types, and more
         """
-        Lsurvey             :: float                       :: side length of cosmo box         :: Mpc
-        T_pristine          :: (Nvox,Nvox,Nvox) of floats  :: cosmo box (just physics/no beam) :: K
-        T_primary           :: (Nvox,Nvox,Nvox) of floats  :: cosmo box * primary beam         :: K
-        P_fid               :: (Nk0_fid,) of floats        :: sph binned fiducial power spec   :: K^2 Mpc^3
-        Nvox                :: float                       :: # voxels PER SIDE of cosmo box   :: ---
-        primary_beam        :: callable                    :: power beam in Cartesian coords   :: ---
-        primary_beam_args   :: tuple of floats             :: Gaussian, AiryGaussian: μ, σ     :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
-        primary_beam_type   :: str                         :: for now: Gaussian / AiryGaussian :: ---
-        Nk0, Nk1            :: int                         :: # power spec bins for axis 0/1   :: ---
-        binning_mode        :: str                         :: lin/log sp. P_realizations bins  :: ---
-        frac_tol            :: float                       :: max fractional amount by which   :: ---
-                                                              the p.s. avg can change w/ the 
-                                                              addition of the latest realiz. 
-                                                              and the ensemble average is 
-                                                              considered converged
-        k0bins_interp,      :: (Nk0_interp,) of floats     :: bins to which to interpolate the :: 1/Mpc
-        k1bins_interp          (Nk1_interp,) of floats        converged power spec (prob set
-                                                              by survey considerations)
-        P_realizations      :: if Nk1==0: (Nk0,)    floats :: sph/cyl power specs for dif      :: K^2 Mpc^3
-                               if Nk1>0:  (Nk0,Nk1) floats    realizations of a cosmo box 
-        P_converged         :: same as that of P_fid       :: average of P_realizations        :: K^2 Mpc^3
-        verbose             :: bool                        :: every 10% of realization_ceil    :: ---
-        k_fid               :: (Nk0_fid,) of floats        :: modes where P_fid is sampled     :: 1/Mpc
-        kind                :: str                         :: interp type                      :: ---
-        avoid_extrapolation :: bool                        :: when calling scipy interpolators :: ---
-        no_monopole         :: bool                        :: y/n subtr. from generated boxes  :: ---
+        Lsurvey                   :: float                       :: side length of cosmo box         :: Mpc
+        T_pristine                :: (Nvox,Nvox,Nvox) of floats  :: cosmo box (just physics/no beam) :: K
+        T_primary                 :: (Nvox,Nvox,Nvox) of floats  :: cosmo box * primary beam         :: K
+        P_fid                     :: (Nk0_fid,) of floats        :: sph binned fiducial power spec   :: K^2 Mpc^3
+        Nvox                      :: float                       :: # voxels PER SIDE of cosmo box   :: ---
+        primary_beam              :: callable                    :: power beam in Cartesian coords   :: ---
+        primary_beam_args         :: tuple of floats             :: Gaussian, AiryGaussian: μ, σ     :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
+        primary_beam_type         :: str                         :: for now: Gaussian / AiryGaussian :: ---
+        Nk0, Nk1                  :: int                         :: # power spec bins for axis 0/1   :: ---
+        binning_mode              :: str                         :: lin/log sp. P_realizations bins  :: ---
+        frac_tol                  :: float                       :: max fractional amount by which   :: ---
+                                                                    the p.s. avg can change w/ the 
+                                                                    addition of the latest realiz. 
+                                                                    and the ensemble average is 
+                                                                    considered converged
+        k0bins_interp,            :: (Nk0_interp,) of floats     :: bins to which to interpolate the :: 1/Mpc
+        k1bins_interp                (Nk1_interp,) of floats        converged power spec (prob set
+                                                                    by survey considerations)
+        P_realizations            :: if Nk1==0: (Nk0,)    floats :: sph/cyl power specs for dif      :: K^2 Mpc^3
+                                     if Nk1>0:  (Nk0,Nk1) floats    realizations of a cosmo box 
+        P_converged               :: same as that of P_fid       :: average of P_realizations        :: K^2 Mpc^3
+        verbose                   :: bool                        :: every 10% of realization_ceil    :: ---
+        k_fid                     :: (Nk0_fid,) of floats        :: modes where P_fid is sampled     :: 1/Mpc
+        kind                      :: str                         :: interp type                      :: ---
+        avoid_extrapolation       :: bool                        :: when calling scipy interpolators :: ---
+        no_monopole               :: bool                        :: y/n subtr. from generated boxes  :: ---
+        manual_primary_beam_modes :: primary_beam.shape of       :: domain of a discrete sampling    :: 1/Mpc
+                                     floats (when not callable) 
         """
         # spectrum and box
         self.Lsurvey=Lsurvey
@@ -141,11 +145,14 @@ class cosmo_stats(object):
                                                                                 self.k_vec_for_box_corner,
                                                                                 indexing="ij")               # box-shaped Cartesian coords
         self.kmag_grid_corner= np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2+self.kz_grid_corner**2) # k magnitudes for each voxel (need for the generate_box direction)
+        self.kmag_grid_corner_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
         self.kx_grid_centre,self.ky_grid_centre,self.kz_grid_centre=np.meshgrid(self.k_vec_for_box_centre,
                                                                                 self.k_vec_for_box_centre,
                                                                                 self.k_vec_for_box_centre,
                                                                                 indexing="ij")
-        
+        self.kmag_grid_centre=np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)
+        self.kmag_grid_centre_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
+
         # if P_fid was passed, establish its values on the k grid (helpful when generating a box)
         self.k_fid=k_fid
         self.kind=kind
@@ -195,15 +202,30 @@ class cosmo_stats(object):
         self.primary_beam=primary_beam
         self.primary_beam_args=primary_beam_args
         self.primary_beam_type=primary_beam_type
+        self.manual_primary_beam_modes=manual_primary_beam_modes
         if (self.primary_beam is not None): # non-identity primary beam
             if (self.primary_beam_type=="Gaussian" or self.primary_beam_type=="AiryGaussian"):
                 self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
                 evaled_primary=self.primary_beam(self.xx_grid,self.yy_grid,self.zz_grid,self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0)
-                self.Veff=np.sum(evaled_primary*self.d3r)        # rectangular sum method
-                evaled_primary[evaled_primary<nearly_zero]=maxfloat # protect against division-by-zero errors
-                self.evaled_primary=evaled_primary
+            elif (self.primary_beam_type=="manual"):
+                if (self.primary_beam_args is not None):
+                    raise ConflictingInfoError
+                try:    # to access this branch, the manual/ numerically sampled primary beam needs to be close enough to a numpy array that it has a shape and not, e.g. a callable
+                    (primary_beam.shape) 
+                except: # primary beam is a callable (or something else without a shape method), which is not in line with how this part of the code is supposed to work
+                    raise ConflictingInfoError 
+                if self.manual_primary_beam_modes is None:
+                    raise NotEnoughInfoError
+
+                beam_interpolator=interp1d(self.manual_primary_beam_modes,primary_beam,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
+                interpolated_primary_beam=beam_interpolator(self.kmag_grid_centre_flat)
+                interpolated_primary_beam=np.reshape(interpolated_primary_beam,(Nvox,Nvox,Nvox))
+                self.primary_beam=interpolated_primary_beam # ok to store in class attribute now bc response has been interpolated to box modes (where it is necessary to know about the primary beam values to proceed)
             else:
                 raise NotYetImplementedError
+            self.Veff=np.sum(evaled_primary*self.d3r)        # rectangular sum method
+            evaled_primary[evaled_primary<nearly_zero]=maxfloat # protect against division-by-zero errors
+            self.evaled_primary=evaled_primary
         else:                               # identity primary beam
             self.Veff=self.Lsurvey**3
             self.evaled_primary=np.ones((self.Nvox,self.Nvox,self.Nvox))
@@ -251,9 +273,8 @@ class cosmo_stats(object):
         interpolate a "physics-only" (spherically symmetric) power spectrum (e.g. from CAMB) to a 3D cosmological box.
         for now, I don't have a solution better than overwriting the k=0 term after the fact (because extrapolation to this term based on a reasonable CAMB call leads to negative power there)
         """
-        kmag_grid_corner_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
         P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
-        P_interp_flat=P_fid_interpolator(kmag_grid_corner_flat)
+        P_interp_flat=P_fid_interpolator(self.kmag_grid_corner_flat)
         self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
             
     def generate_P(self,send_to_P_fid=False):
