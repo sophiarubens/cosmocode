@@ -506,7 +506,7 @@ class cosmo_stats(object):
         kind                      :: str                         :: interp type                      :: ---
         avoid_extrapolation       :: bool                        :: when calling scipy interpolators :: ---
         no_monopole               :: bool                        :: y/n subtr. from generated boxes  :: ---
-        manual_primary_beam_modes :: primary_beam.shape of       :: domain of a discrete sampling    :: 1/Mpc
+        manual_primary_beam_modes :: primary_beam.shape of       :: domain of a discrete sampling    :: Mpc
                                      floats (when not callable) 
         """
         # spectrum and box
@@ -561,6 +561,7 @@ class cosmo_stats(object):
                                                            self.r_vec_for_box,
                                                            indexing="ij")      # box-shaped Cartesian coords
         self.r_grid=np.sqrt(self.xx_grid**2+self.yy_grid**2+self.zz_grid**2)   # r magnitudes at each voxel
+        self.rmag_grid_centre_flat=np.reshape(self.r_grid,(Nvox**3,))
 
         # Fourier space
         self.Deltak=twopi/self.Lsurvey                                  # voxel side length
@@ -577,8 +578,8 @@ class cosmo_stats(object):
                                                                                 self.k_vec_for_box_centre,
                                                                                 self.k_vec_for_box_centre,
                                                                                 indexing="ij")
-        self.kmag_grid_centre=np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)
-        self.kmag_grid_centre_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
+        # self.kmag_grid_centre=np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)
+        # self.kmag_grid_centre_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
 
         # if P_fid was passed, establish its values on the k grid (helpful when generating a box)
         self.k_fid=k_fid
@@ -644,7 +645,7 @@ class cosmo_stats(object):
                 if self.manual_primary_beam_modes is None:
                     raise NotEnoughInfoError
                 beam_interpolator=interp1d(self.manual_primary_beam_modes,primary_beam,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
-                interpolated_primary_beam=beam_interpolator(self.kmag_grid_centre_flat)
+                interpolated_primary_beam=beam_interpolator(self.rmag_grid_centre_flat)
                 interpolated_primary_beam=np.reshape(interpolated_primary_beam,(Nvox,Nvox,Nvox))
                 self.primary_beam=interpolated_primary_beam # ok to store in class attribute now bc response has been interpolated to box modes (where it is necessary to know about the primary beam values to proceed)
             else:
