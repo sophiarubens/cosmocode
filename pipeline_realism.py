@@ -65,20 +65,26 @@ nu_window=window_calcs(bminCHORD,bmaxCHORD,
                        n_sph_nu,dpar,
                        nu_ctr,channel_width,
                        pars_forecast_names=parnames)
-nu_window.print_survey_characteristics()
-nu_window.bias()
-nu_window.print_results()
-nu_Pcont=nu_window.Pcont_cyl_surv
+# nu_window.print_survey_characteristics()
+# nu_window.bias()
+# nu_window.print_results()
 
 vec=np.linspace(-4,4,50)
 xx,yy,zz=np.meshgrid(vec,vec,vec,indexing="ij")
 grid=np.sqrt(xx**2+yy**2+zz**2)
-manual_primary_beam=grid*np.exp(-grid**2) # ramped Gaussian
+manual_primary_beam_fid=np.abs(grid)*np.exp(-grid**2)+3       # ramped Gaussian
+manual_primary_beam_mis=np.abs(grid)*np.exp(-(grid+0.5)**2)+3 # differently-ramped Gaussian
+manual_primary_beams_bundled=[manual_primary_beam_fid,manual_primary_beam_mis]
 
 man_window=window_calcs(bminCHORD,bmaxCHORD,
                         ceil,
-                        "manual",bundled_gaussian_primary_uncs,
+                        "manual",manual_primary_beams_bundled,bundled_gaussian_primary_uncs,
                         pars_Planck18,pars_Planck18,
                         n_sph_nu,dpar,
                         nu_ctr,channel_width,
-                        pars_forecast_names=parnames)
+                        pars_forecast_names=parnames,
+                        manual_primary_beam_modes=(vec,vec,vec))
+                        # manual_primary_beam_modes=(xx,yy,zz))
+# man_window.print_survey_characteristics()
+man_window.bias()
+man_window.print_results()

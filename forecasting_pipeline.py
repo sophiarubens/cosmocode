@@ -102,7 +102,6 @@ class window_calcs(object):
         """
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
-        primary_beam               :: callable                     :: power beam in Cartesian coords           :: ---
         primary_beam_type          :: str                          :: implement soon: Airy etc.                :: ---
         primary_beam_args          :: (N_args,) of floats          :: Gaussian, AiryGaussian: "μ"s and "σ"s    :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
                                                                                 PASS fwhm_x,fwhm_y
@@ -140,10 +139,12 @@ class window_calcs(object):
             self.primary_beam_uncs=              primary_beam_uncs
             self.epsLoS,self.epsx,self.epsy=     self.primary_beam_uncs
         elif (primary_beam_type.lower()=="manual"):
-            if (manual_primary_beam_modes==None):
+            if (manual_primary_beam_modes is None):
                 raise NotEnoughInfoError
+            else: 
+                self.manual_primary_beam_modes=manual_primary_beam_modes
             try: # philosophy here is that two discretely sampled beam arrays (assumed to be sampled at the same array of config space points) need to be passed such that they can be unpacked into the fiducial and mis-modelled evaled primary beams
-                self.manual_primary_fid,self.manual_primary_mis=self.primary_beam
+                self.manual_primary_fid,self.manual_primary_mis=primary_beam_args # make the args serve a double purpose in this outer layer (have the attribute store arrays in this mode)
             except: # primary beam samplings not unpackable the way they should be
                 raise NotEnoughInfoError
         else:
@@ -172,12 +173,14 @@ class window_calcs(object):
         self.Dc_lo=comoving_distance(self.z_lo)
         self.deltaz=self.z_hi-self.z_lo
         self.surv_channels=np.arange(self.nu_lo,self.nu_hi,self.Deltanu)
+        self.r0=comoving_distance(self.z_ctr)
+        self.sigLoS=(self.r0-self.Dc_lo)/40.
         if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
-            self.r0=comoving_distance(self.z_ctr)
-            self.sigLoS=(self.r0-self.Dc_lo)/40.
             self.perturbed_primary_beam_args=(self.sigLoS*(1-self.epsLoS),self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy))
             self.primary_beam_args=np.array([self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0]) # UPDATING ARGS NOW THAT THE FULL SET HAS BEEN SPECIFIED
             self.perturbed_primary_beam_args=np.append(self.perturbed_primary_beam_args,self.r0)
+        elif (primary_beam_type.lower()=="manual"):
+            pass
         else:
             raise NotYetImplementedError
 
@@ -211,6 +214,8 @@ class window_calcs(object):
             self.all_sigmas=np.concatenate((sky_plane_sigmas,[self.sigLoS]))
             if (np.any(self.all_sigmas<self.Deltabox)):
                 raise NumericalDeltaError
+        elif (primary_beam_type.lower()=="manual"):
+            print("WARNING: unable to do a robust numerical delta error check when a manual beam is passed")
         else:
             raise NotYetImplementedError
 
@@ -354,18 +359,22 @@ class window_calcs(object):
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph)
         else:
-            tr=cosmo_stats(P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
-                           primary_beam=self.manual_primary_fid,
+            tr=cosmo_stats(self.Lsurvbox,
+                           P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
+                           primary_beam=self.manual_primary_fid,primary_beam_type="manual",
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
-                           k_fid=self.ksph)
-            th=cosmo_stats(P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
-                           primary_beam=self.manual_primary_mis,
+                           k_fid=self.ksph,
+                           manual_primary_beam_modes=self.manual_primary_beam_modes)
+            th=cosmo_stats(self.Lsurvbox,
+                           P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
+                           primary_beam=self.manual_primary_mis,primary_beam_type="manual",
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
-                           k_fid=self.ksph)
+                           k_fid=self.ksph,
+                           manual_primary_beam_modes=self.manual_primary_beam_modes)
         
         tr.avg_realizations()
         th.avg_realizations()
@@ -433,7 +442,14 @@ class window_calcs(object):
         """
         self.build_cyl_partials()
         print("built partials")
-        if (self.fwhm_x!=self.fwhm_y):
+        if (self.primary_beam_type.lower()=="gaussian" or self.primary_beam_type.lower()=="airygaussian"):
+            use_asym_branch=self.fwhm_x!=self.fwhm_y
+        elif (self.primary_beam_type.lower()=="manual"):
+            use_asym_branch=True
+        else:
+            raise NotYetImplementedError
+
+        if (use_asym_branch):
             self.calc_Pcont_asym()
         else:
             self.calc_Pcont_cyl()
@@ -659,18 +675,20 @@ class cosmo_stats(object):
                 self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
                 evaled_primary=self.primary_beam(self.xx_grid,self.yy_grid,self.zz_grid,self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0)
             elif (self.primary_beam_type=="manual"):
-                if (self.primary_beam_args is not None):
-                    raise ConflictingInfoError
+                # self.manual_primary_beam_modes0,self.manual_primary_beam_modes1,self.manual_primary_beam_modes2=manual_primary_beam_modes
                 try:    # to access this branch, the manual/ numerically sampled primary beam needs to be close enough to a numpy array that it has a shape and not, e.g. a callable
                     primary_beam.shape
                 except: # primary beam is a callable (or something else without a shape method), which is not in line with how this part of the code is supposed to work
                     raise ConflictingInfoError 
                 if self.manual_primary_beam_modes is None:
                     raise NotEnoughInfoError
-                beam_interpolator=interp1d(self.manual_primary_beam_modes,primary_beam,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
-                interpolated_primary_beam=beam_interpolator(self.rmag_grid_centre_flat)
-                interpolated_primary_beam=np.reshape(interpolated_primary_beam,(Nvox,Nvox,Nvox))
-                self.primary_beam=interpolated_primary_beam # ok to store in class attribute now bc response has been interpolated to box modes (where it is necessary to know about the primary beam values to proceed)
+
+                evaled_primary=interpn(manual_primary_beam_modes,
+                                       self.primary_beam,
+                                       (self.xx_grid,self.yy_grid,self.zz_grid),
+                                       method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
+                # interpn((self.k0bins,self.k1bins),self.P_converged,(self.k0_interp_grid,self.k1_interp_grid),method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
+            
             else:
                 raise NotYetImplementedError
             self.Veff=np.sum(evaled_primary*self.d3r)        # rectangular sum method
