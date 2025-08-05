@@ -96,7 +96,8 @@ class window_calcs(object):
                  ftol_deriv=1e-6,eps=1e-16,maxiter=5,                   # precision control for numerical derivatives
                  uncs=None,frac_unc=0.1,                                # for Fisher-type calcs
                  Nkpar_box=15,Nkperp_box=18,frac_tol_conv=0.1,          # considerations for cyl binned power spectra from boxes
-                 pars_forecast_names=None                               # for verbose output
+                 pars_forecast_names=None,                              # for verbose output
+                 manual_primary_beam_modes=None                         # config space pts at which a pre–discretely sampled primary beam is known
                 ):                                                      # implement soon: synthesized beam considerations, other primary beam types, and more
         """
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
@@ -138,6 +139,13 @@ class window_calcs(object):
             self.fwhm_x,self.fwhm_y=primary_beam_args
             self.primary_beam_uncs=              primary_beam_uncs
             self.epsLoS,self.epsx,self.epsy=     self.primary_beam_uncs
+        elif (primary_beam_type.lower()=="manual"):
+            if (manual_primary_beam_modes==None):
+                raise NotEnoughInfoError
+            try: # philosophy here is that two discretely sampled beam arrays (assumed to be sampled at the same array of config space points) need to be passed such that they can be unpacked into the fiducial and mis-modelled evaled primary beams
+                self.manual_primary_fid,self.manual_primary_mis=self.primary_beam
+            except: # primary beam samplings not unpackable the way they should be
+                raise NotEnoughInfoError
         else:
             raise NotYetImplementedError
         self.primary_beam_type=primary_beam_type
@@ -330,21 +338,34 @@ class window_calcs(object):
 
         contaminant power, calculated as the difference of subtracted spectra with config space–multiplied "true" and "thought" instrument responses
         """
-
-        tr=cosmo_stats(self.Lsurvbox,
-                       P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
-                       primary_beam=Gaussian_primary,primary_beam_args=self.primary_beam_args,
-                       Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
-                       frac_tol=self.frac_tol_conv,
-                       k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
-                       k_fid=self.ksph)
-        th=cosmo_stats(self.Lsurvbox,
-                       P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
-                       primary_beam=Gaussian_primary,primary_beam_args=self.perturbed_primary_beam_args,
-                       Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
-                       frac_tol=self.frac_tol_conv,
-                       k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
-                       k_fid=self.ksph)
+        if (self.primary_beam_type!="manual"):
+            tr=cosmo_stats(self.Lsurvbox,
+                           P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
+                           primary_beam=Gaussian_primary,primary_beam_args=self.primary_beam_args,
+                           Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
+                           frac_tol=self.frac_tol_conv,
+                           k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
+                           k_fid=self.ksph)
+            th=cosmo_stats(self.Lsurvbox,
+                           P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
+                           primary_beam=Gaussian_primary,primary_beam_args=self.perturbed_primary_beam_args,
+                           Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
+                           frac_tol=self.frac_tol_conv,
+                           k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
+                           k_fid=self.ksph)
+        else:
+            tr=cosmo_stats(P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
+                           primary_beam=self.manual_primary_fid,
+                           Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
+                           frac_tol=self.frac_tol_conv,
+                           k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
+                           k_fid=self.ksph)
+            th=cosmo_stats(P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
+                           primary_beam=self.manual_primary_mis,
+                           Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
+                           frac_tol=self.frac_tol_conv,
+                           k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
+                           k_fid=self.ksph)
         
         tr.avg_realizations()
         th.avg_realizations()
@@ -485,7 +506,9 @@ class cosmo_stats(object):
         T_primary                 :: (Nvox,Nvox,Nvox) of floats  :: cosmo box * primary beam         :: K
         P_fid                     :: (Nk0_fid,) of floats        :: sph binned fiducial power spec   :: K^2 Mpc^3
         Nvox                      :: float                       :: # voxels PER SIDE of cosmo box   :: ---
-        primary_beam              :: callable                    :: power beam in Cartesian coords   :: ---
+        primary_beam              :: callable (or, if            :: power beam in Cartesian coords   :: ---
+                                     primary_beam_type=="manual" 
+                                     a 3D array)          
         primary_beam_args         :: tuple of floats             :: Gaussian, AiryGaussian: μ, σ     :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
         primary_beam_type         :: str                         :: for now: Gaussian / AiryGaussian :: ---
         Nk0, Nk1                  :: int                         :: # power spec bins for axis 0/1   :: ---

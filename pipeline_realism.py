@@ -1,8 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from cosmo_distances import *
-from power_class import *
-from bias_class import *
+from forecasting_pipeline import *
 
 ############################## cosmo params, constants, and conversion factors ########################################################################################################################
 Omegam_Planck18=0.3158
@@ -70,3 +69,16 @@ nu_window.print_survey_characteristics()
 nu_window.bias()
 nu_window.print_results()
 nu_Pcont=nu_window.Pcont_cyl_surv
+
+vec=np.linspace(-4,4,50)
+xx,yy,zz=np.meshgrid(vec,vec,vec,indexing="ij")
+grid=np.sqrt(xx**2+yy**2+zz**2)
+manual_primary_beam=grid*np.exp(-grid**2) # ramped Gaussian
+
+man_window=window_calcs(bminCHORD,bmaxCHORD,
+                        ceil,
+                        "manual",bundled_gaussian_primary_uncs,
+                        pars_Planck18,pars_Planck18,
+                        n_sph_nu,dpar,
+                        nu_ctr,channel_width,
+                        pars_forecast_names=parnames)
