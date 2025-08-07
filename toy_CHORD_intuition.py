@@ -46,24 +46,30 @@ def CHORD_antenna_positions(N_NS=N_NS,N_EW=N_EW,offset_deg=1.75,num_antennas_to_
     up=np.reshape(2+(-antennas_EN[:,0]+antennas_EN[:,1])/dif, (N_ant,1)) # eyeballed ~2 m vertical range that ramps ~linearly from a high ~NW corner to a low ~SE corner
     antennas_ENU=np.hstack((antennas_EN,up))
     if (num_antennas_to_perturb>0):
-        indices=np.random.randint(0,N_ant) # indices of antennas to perturb
-        x_perturbations=np.zeros((N_ant,1))
-        x_perturbations[indices]=np.random.randn(loc=0.,scale=antenna_perturbation_sigma/np.sqrt(3),size=num_antennas_to_perturb) 
-        y_perturbations=np.zeros((N_ant,1))
-        y_perturbations[indices]=np.random.randn(loc=0.,scale=antenna_perturbation_sigma/np.sqrt(3),size=num_antennas_to_perturb) 
-        z_perturbations=np.zeros((N_ant,1))
-        z_perturbations[indices]=np.random.randn(loc=0.,scale=antenna_perturbation_sigma/np.sqrt(3),size=num_antennas_to_perturb) 
+        indices=np.random.randint(0,N_ant,size=num_antennas_to_perturb) # indices of antennas to perturb
+        x_perturbations=np.zeros((N_ant,))
+        x_perturbations[indices]=np.random.normal(loc=0.,scale=antenna_perturbation_sigma/np.sqrt(3),size=np.insert(num_antennas_to_perturb,0,1))
+        y_perturbations=np.zeros((N_ant,))
+        y_perturbations[indices]=np.random.normal(loc=0.,scale=antenna_perturbation_sigma/np.sqrt(3),size=np.insert(num_antennas_to_perturb,0,1))
+        z_perturbations=np.zeros((N_ant,))
+        z_perturbations[indices]=np.random.normal(loc=0.,scale=antenna_perturbation_sigma/np.sqrt(3),size=np.insert(num_antennas_to_perturb,0,1))
         antennas_ENU[:,0]+=x_perturbations
         antennas_ENU[:,1]+=y_perturbations
         antennas_ENU[:,2]+=z_perturbations
-    return antennas_ENU
+    else:
+        indices=None
+    return antennas_ENU,indices
 
-antennas_ENU=CHORD_antenna_positions()
-for nu_obs in obs_freqs:
-    lambda_obs=c/(nu_obs*1e6)
-    z_obs=nu_HI_z0/nu_obs-1.
+def uvw_mat(h0,d0=DRAO_lat):
+    return np.array([ [ np.sin(h0),             np.cos(h0),            0         ],
+                      [-np.sin(d0)*np.cos(h0),  np.sin(d0)*np.sin(h0), np.cos(d0)],
+                      [ np.cos(d0)*np.cos(h0), -np.cos(d0)*np.sin(h0), np.sin(d0)]  ])
 
-    # calc baselines (ENU)
+def calc_baselines_xyz(antennas_ENU,N_NS=N_NS,N_EW=N_EW): # as far as you can go when calculating uv-coverage without needing to know abt frequency
+    N_ant=N_NS*N_EW
+    N_bl=N_ant*(N_ant-1)//2 # previously: there was a bug where I was calling the number of antennas the number of baselines 
+    
+    # calculate baselines in ENU
     baselines_ENU=np.zeros((N_bl,3))
     for i in range(N_NS):
         antenna_i=antennas_ENU[i,:]
@@ -72,44 +78,64 @@ for nu_obs in obs_freqs:
             antenna_j=antennas_ENU[j,:]
             baseline_ij=antenna_i-antenna_j
             baselines_ENU[  k,   :]=  baseline_ij
-            baselines_ENU[-(k+1),:]= -baseline_ij
+            baselines_ENU[-(k+1),:]= -baseline_ij # also accumulate a copy for the version where the other antenna is privileged
 
     # convert ENU->xyz
     ENU_to_xyz=np.array([[0,-np.sin(DRAO_lat),np.cos(DRAO_lat)],[1,0,0],[0,np.cos(DRAO_lat),np.sin(DRAO_lat)]])
     baselines_xyz=np.zeros((N_bl,3))
     for i in range(N_bl):
         baselines_xyz[i,:]=np.dot(ENU_to_xyz,baselines_ENU[i,:])
+    return baselines_xyz
 
-    # calc inst uv-coverage (convert xyz->uvw)
-    def uvw_mat(h0,d0=DRAO_lat):
-        return np.array([ [ np.sin(h0),             np.cos(h0),            0         ],
-                        [-np.sin(d0)*np.cos(h0),  np.sin(d0)*np.sin(h0), np.cos(d0)],
-                        [ np.cos(d0)*np.cos(h0), -np.cos(d0)*np.sin(h0), np.sin(d0)]  ])
-
-    uvw_inst=np.zeros((N_bl,3))
-    for i in range(N_bl):
-        uvw_inst[i,:]=np.dot(uvw_mat(0),baselines_xyz[i,:])/lambda_obs
-
-    # calc rot synth uv-coverage
-    N_h0=48 
-    hour_angles=np.linspace(0,np.pi,N_h0)
-    colours_b=plt.cm.Blues(np.linspace(1,0.2,N_h0))
-    colours_g=plt.cm.Greens(np.linspace(1,0.2,N_bl))
-    uvw_synth=np.zeros((N_bl,3,N_h0))
+def calc_rot_synth_uv(baselines_xyz,lambda_obs=nu_HI_z0,num_hrs=12,num_timesteps=48): # take [:,:,0] for the instantaneous uv-coverage
+    # apply rotation synthesis (accumulate xyz->uvw transformations at each time step)
+    hour_angle_ceiling=np.pi*num_hrs/12 # 2pi*num_hrs/24
+    hour_angles=np.linspace(0,hour_angle_ceiling,num_timesteps)
+    N_bl=baselines_xyz.shape[0]
+    uvw_synth=np.zeros((N_bl,3,num_timesteps))
     for i,h0 in enumerate(hour_angles):
         uvw_mat_current=uvw_mat(h0)
         for j in range(N_bl):
             uvw_synth[j,:,i]=np.dot(uvw_mat_current,baselines_xyz[j,:])/lambda_obs
+    return uvw_synth
+
+# def calc_dirty_image(uvw_synth):
+#     binned_uvw_synth_fidu,u_edges,v_edges=np.histogram2d(np.reshape(uvw_synth_fidu_here[:,0,:],N_bl*N_hr_angles),np.reshape(uvw_synth_fidu[:,1,:],N_bl*N_hr_angles),bins=nbins) # [all antennas, x or y, all baselines]
+#     dirty_image_fidu=np.abs(fftshift(ifft2(binned_uvw_synth_fidu)))
+
+antennas_ENU_fidu,_=                CHORD_antenna_positions()
+antennas_ENU_pert,indices_perturbed=CHORD_antenna_positions(num_antennas_to_perturb=100) # twist the dial to see how many antennas I can get away with perturbing before the difference in the synthesized beam becomes 
+
+baselines_xyz_fidu=calc_baselines_xyz(antennas_ENU_fidu,N_NS=N_NS,N_EW=N_EW)
+baselines_xyz_pert=calc_baselines_xyz(antennas_ENU_fidu,N_NS=N_NS,N_EW=N_EW)
+
+uvw_synth_fidu=calc_rot_synth_uv(baselines_xyz_fidu) # precalculate outside the loop and rescale for other frequencies later
+uvw_synth_pert=calc_rot_synth_uv(baselines_xyz_pert)
+
+N_hr_angles=48
+colours_b=plt.cm.Blues( np.linspace(1,0.2,N_hr_angles))
+colours_g=plt.cm.Greens(np.linspace(1,0.2,N_bl))
+lambda_z0=c/nu_HI_z0
+for nu_obs in obs_freqs:
+    lambda_obs=c/(nu_obs*1e6)
+    z_obs=nu_HI_z0/nu_obs-1.
+
+    uvw_synth_fidu_here=uvw_synth_fidu*lambda_z0/lambda_obs
+    uvw_synth_pert_here=uvw_synth_pert*lambda_z0/lambda_obs
+    uvw_inst_fidu_here=uvw_synth_fidu_here[:,:,0]
+    uvw_inst_pert_here=uvw_synth_pert_here[:,:,0]
 
     # ift to get dirty image
     nbins=1024
-    binned_uvw_synth,u_edges,v_edges=np.histogram2d(np.reshape(uvw_synth[:,0,:],N_bl*N_h0),np.reshape(uvw_synth[:,1,:],N_bl*N_h0),bins=nbins)
-    dirty_image=np.abs(fftshift(ifft2(binned_uvw_synth)))
+    binned_uvw_synth_fidu,u_edges,v_edges=np.histogram2d(np.reshape(uvw_synth_fidu_here[:,0,:],N_bl*N_hr_angles),np.reshape(uvw_synth_fidu[:,1,:],N_bl*N_hr_angles),bins=nbins) # [all antennas, x or y, all baselines]
+    dirty_image_fidu=np.abs(fftshift(ifft2(binned_uvw_synth_fidu)))
+    binned_uvw_synth_pert,u_edges,v_edges=np.histogram2d(np.reshape(uvw_synth_pert_here[:,0,:],N_bl*N_hr_angles),np.reshape(uvw_synth_pert[:,1,:],N_bl*N_hr_angles),bins=nbins)
+    dirty_image_pert=np.abs(fftshift(ifft2(binned_uvw_synth_pert)))
 
     dotsize=1
-    fig,axs=plt.subplots(3,4,figsize=(15,15))
+    fig,axs=plt.subplots(4,4,figsize=(15,15))
     # general stuff
-    for i in range(3):
+    for i in range(4):
         axs[i,0].set_xlabel("E (m)")
         axs[i,0].set_ylabel("N (m)")
 
@@ -123,22 +149,39 @@ for nu_obs in obs_freqs:
         axs[i,3].set_ylabel("y pixel index")
 
     # FIDUCIAL ARRAY
-    axs[0,0].scatter(antennas_ENU[:,0],antennas_ENU[:,1],s=dotsize,c=antennas_ENU[:,2],cmap=trunc_Blues)
+    axs[0,0].scatter(antennas_ENU_fidu[:,0],antennas_ENU_fidu[:,1],s=dotsize,c=antennas_ENU_fidu[:,2],cmap=trunc_Blues)
     axs[0,0].set_title("oversimplified array layout\n (no holes, eyeballed array rotation and\n elevation, colour ~ relative U-coord)\nFIDUCIAL ARRAY")
 
-    axs[0,1].scatter(uvw_inst[:,0],uvw_inst[:,1],s=dotsize)
+    axs[0,1].scatter(uvw_inst_fidu_here[:,0],uvw_inst_fidu_here[:,1],s=dotsize)
     axs[0,1].set_title("instantaneous uv-coverage/\ndirty beam")
 
-    for i in range(N_h0):
-        axs[0,2].scatter(uvw_synth[:,0,i],uvw_synth[:,1,i],color=colours_b[i],s=dotsize) # all baselines, x/y coord, ith time step //one colour = one instance of instantaneous uv-coverage
-    axs[0,2].set_title("12-hr rotation-synthesized uv-coverage\nsampled every "+str(int(60/(N_h0/12)))+" min (colour ~ baseline)")
+    for i in range(N_hr_angles):
+        axs[0,2].scatter(uvw_synth_fidu_here[:,0,i],uvw_synth_fidu_here[:,1,i],color=colours_b[i],s=dotsize) # all baselines, x/y coord, ith time step //one colour = one instance of instantaneous uv-coverage
+    axs[0,2].set_title("12-hr rotation-synthesized uv-coverage\nsampled every "+str(int(60/(N_hr_angles/12)))+" min (colour ~ baseline)")
 
-    axs[0,3].imshow(dirty_image,cmap="Blues",vmax=np.percentile(dirty_image,99.5))
+    im=axs[0,3].imshow(dirty_image_fidu,cmap="Blues",vmax=np.percentile(dirty_image_fidu,99.5))
+    plt.colorbar(im,ax=axs[0,3])
     axs[0,3].set_title("dirty image\n(rotation-synthesized uv-coverage \nbinned into "+str(nbins)+" bins/axis)")
 
     # PERTURBED ARRAY
+    axs[1,0].scatter(antennas_ENU_pert[:,0],                antennas_ENU_pert[:,1],                s=dotsize,c=antennas_ENU_pert[:,2],                 cmap=trunc_Blues)
+    axs[1,0].scatter(antennas_ENU_pert[indices_perturbed,0],antennas_ENU_pert[indices_perturbed,1],s=dotsize,c="r")
+    axs[1,0].set_title("PERTURBED ARRAY")
+    axs[1,1].scatter(uvw_inst_pert_here[:,0],uvw_inst_pert_here[:,1],s=dotsize)
+    for i in range(N_hr_angles):
+        axs[1,2].scatter(uvw_synth_pert_here[:,0,i],uvw_synth_pert_here[:,1,i],color=colours_b[i],s=dotsize)
+    im=axs[1,3].imshow(dirty_image_pert,cmap="Blues",vmax=np.percentile(dirty_image_pert,99.5))
+    plt.colorbar(im,ax=axs[1,3])
 
+    # RATIOS
+    axs[2,0].set_title("RATIO: FIDUCIAL/PERTURBED")
+    im=axs[2,3].imshow(dirty_image_fidu/dirty_image_pert,cmap="Blues")
+    plt.colorbar(im,ax=axs[2,3])
+    
     # RESIDUALS
+    axs[3,0].set_title("RESIDUAL: FIDUCIAL-PERTURBED")
+    im=axs[3,3].imshow(dirty_image_fidu-dirty_image_pert,cmap="Blues")
+    plt.colorbar(im,ax=axs[2,3])
 
     plt.suptitle("simulated CHORD-512 observing at "+str(int(nu_obs))+" MHz (z="+str(round(z_obs,3))+")")
     plt.tight_layout()
