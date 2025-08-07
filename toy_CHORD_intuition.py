@@ -17,20 +17,17 @@ b_NS=8.5 # m
 N_NS=24
 b_EW=6.3 # m
 N_EW=22
-bminCHORD=6.3
-# bmaxCHORD=np.sqrt((b_NS*N_NS)**2+(b_EW*N_EW)**2) # optimistic (includes low-redundancy baselines for CHORD-512) // pf will be 7x10
 N_ant=N_NS*N_EW
 N_bl=N_ant*(N_ant-1)//2
 DRAO_lat=49.320791*np.pi/180. # Google Maps satellite view, eyeballing what looks like the middle of the CHORD site: 49.320791, -119.621842 (bc considering drift-scan CHIME-like "pointing at zenith" mode, same as dec)
 nu_HI_z0=1420.405751768 # MHz
 
-lo=350.
-hi=nu_HI_z0
-mid=(lo+hi)/2.
+lo=350.        # expected min obs freq
+hi=nu_HI_z0    # can't do 21 cm forecasting in the extreme upper end of the CHORD band b/c that would correspond to blueshifted cosmological HI
+mid=(lo+hi)/2. # midpoint to help connect the dots
 obs_freqs=[lo,mid,hi] # MHz
 
 for nu_obs in obs_freqs:
-    # nu_obs=900. # MHz ... for some reason, the same number I keep using
     c=2.998e8
     lambda_obs=c/(nu_obs*1e6)
     z_obs=nu_HI_z0/nu_obs-1.
@@ -45,7 +42,7 @@ for nu_obs in obs_freqs:
     offset_from_latlon_rotmat=np.array([[np.cos(offset),-np.sin(offset)],[np.sin(offset),np.cos(offset)]]) # --> so use this rotation matrix to adjust the NS/EW-only coords
     for i in range(N_ant):
         antennas_EN[i,:]=np.dot(antennas_EN[i,:].T,offset_from_latlon_rotmat)
-    dif=antennas_EN[0,0]-antennas_EN[0,-1]+antennas_EN[0,-1]-antennas_EN[-1,-1] # x+y00 - x+y-1-1
+    dif=antennas_EN[0,0]-antennas_EN[0,-1]+antennas_EN[0,-1]-antennas_EN[-1,-1]
     up=np.zeros((N_ant,1))                                               # 0th order
     up=np.reshape(2+(-antennas_EN[:,0]+antennas_EN[:,1])/dif, (N_ant,1)) # 1st order 
     antennas_ENU=np.hstack((antennas_EN,up))
@@ -94,27 +91,32 @@ for nu_obs in obs_freqs:
     dirty_image=np.abs(fftshift(ifft2(binned_uvw_synth)))
 
     dotsize=1
-    fig,axs=plt.subplots(1,4,figsize=(15,5))
-    axs[0].scatter(antennas_ENU[:,0],antennas_ENU[:,1],s=dotsize,c=up,cmap=trunc_Blues)
-    axs[0].set_xlabel("E (m)")
-    axs[0].set_ylabel("N (m)")
-    axs[0].set_title("oversimplified array layout\n (no holes, eyeballed array rotation and\n elevation, colour ~ relative U-coord)")
+    fig,axs=plt.subplots(3,4,figsize=(15,5))
+    # FIDUCIAL ARRAY
+    axs[0,0].scatter(antennas_ENU[:,0],antennas_ENU[:,1],s=dotsize,c=up,cmap=trunc_Blues)
+    axs[0,0].set_xlabel("E (m)")
+    axs[0,0].set_ylabel("N (m)")
+    axs[0,0].set_title("FIDUCIAL ARRAY\noversimplified array layout\n (no holes, eyeballed array rotation and\n elevation, colour ~ relative U-coord)")
 
-    axs[1].scatter(uvw_inst[:,0],uvw_inst[:,1],s=dotsize)
-    axs[1].set_xlabel("u ($\lambda$)")
-    axs[1].set_ylabel("v ($\lambda$)")
-    axs[1].set_title("instantaneous uv-coverage/\ndirty beam")
+    axs[0,1].scatter(uvw_inst[:,0],uvw_inst[:,1],s=dotsize)
+    axs[0,1].set_xlabel("u ($\lambda$)")
+    axs[0,1].set_ylabel("v ($\lambda$)")
+    axs[0,1].set_title("instantaneous uv-coverage/\ndirty beam")
 
     for i in range(N_h0):
-        axs[2].scatter(uvw_synth[:,0,i],uvw_synth[:,1,i],color=colours_b[i],s=dotsize) # all baselines, x/y coord, ith time step //one colour = one instance of instantaneous uv-coverage
-    axs[2].set_xlabel("u ($\lambda$)")
-    axs[2].set_ylabel("v ($\lambda$)")
-    axs[2].set_title("12-hr rotation-synthesized uv-coverage\nsampled every "+str(int(60/(N_h0/12)))+" min (colour ~ baseline)")
+        axs[0,2].scatter(uvw_synth[:,0,i],uvw_synth[:,1,i],color=colours_b[i],s=dotsize) # all baselines, x/y coord, ith time step //one colour = one instance of instantaneous uv-coverage
+    axs[0,2].set_xlabel("u ($\lambda$)")
+    axs[0,2].set_ylabel("v ($\lambda$)")
+    axs[0,2].set_title("12-hr rotation-synthesized uv-coverage\nsampled every "+str(int(60/(N_h0/12)))+" min (colour ~ baseline)")
 
-    axs[3].imshow(dirty_image,cmap="Blues",vmax=np.percentile(dirty_image,99.5))
-    axs[3].set_xlabel("x pixel index")
-    axs[3].set_ylabel("y pixel index")
-    axs[3].set_title("dirty image\n(rotation-synthesized uv-coverage \nbinned into "+str(nbins)+" bins/axis)")
+    axs[0,3].imshow(dirty_image,cmap="Blues",vmax=np.percentile(dirty_image,99.5))
+    axs[0,3].set_xlabel("x pixel index")
+    axs[0,3].set_ylabel("y pixel index")
+    axs[0,3].set_title("dirty image\n(rotation-synthesized uv-coverage \nbinned into "+str(nbins)+" bins/axis)")
+
+    # PERTURBED ARRAY
+
+    # RESIDUALS
 
     plt.suptitle("simulated CHORD-512 observing at "+str(int(nu_obs))+" MHz (z="+str(round(z_obs,3))+")")
     plt.tight_layout()
