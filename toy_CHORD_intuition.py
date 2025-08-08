@@ -62,7 +62,7 @@ def CHORD_antenna_positions(N_NS=N_NS,N_EW=N_EW,offset_deg=1.75,                
     else:
         indices_ants=None
     
-    ant_weights=np.zeros(N_ant)
+    ant_weights=np.ones(N_ant)
     if (num_weights_to_perturb>0):
         indices_wts=np.random.randint(0,N_ant,size=num_wts_to_perturb) # indices of antenna weights to perturb (not necessarily the same as the indices of the antenna positions to perturb, because the two perturbations should be able to be called with different numbers of antennas, and it would be nice for the independence to still hold when the numbers of perturbed elements are the same)
         wt_perturbations=np.zeros((N_ant,))
@@ -77,12 +77,13 @@ def uvw_mat(h0,d0=DRAO_lat):
                       [-np.sin(d0)*np.cos(h0),  np.sin(d0)*np.sin(h0), np.cos(d0)],
                       [ np.cos(d0)*np.cos(h0), -np.cos(d0)*np.sin(h0), np.sin(d0)]  ])
 
-def calc_baselines_xyz(antennas_ENU,N_NS=N_NS,N_EW=N_EW):
+def calc_baselines_xyz(antennas_ENU,antenna_weights,N_NS=N_NS,N_EW=N_EW):
     N_ant=N_NS*N_EW
     N_bl=N_ant*(N_ant-1)//2
     
     # calculate baselines in ENU
     baselines_ENU=np.zeros((N_bl,3))
+    baseline_weights=np.zeros(N_bl)
     for i in range(N_NS):
         antenna_i=antennas_ENU[i,:]
         for j in range(N_EW):
@@ -91,13 +92,14 @@ def calc_baselines_xyz(antennas_ENU,N_NS=N_NS,N_EW=N_EW):
             baseline_ij=antenna_i-antenna_j
             baselines_ENU[  k,   :]=  baseline_ij
             baselines_ENU[-(k+1),:]= -baseline_ij # also accumulate a copy for the version where the other antenna is privileged
+            baseline_weights[k]=antenna_weights[i]*antenna_weights[j]
 
     # convert ENU->xyz
     ENU_to_xyz=np.array([[0,-np.sin(DRAO_lat),np.cos(DRAO_lat)],[1,0,0],[0,np.cos(DRAO_lat),np.sin(DRAO_lat)]])
     baselines_xyz=np.zeros((N_bl,3))
     for i in range(N_bl):
         baselines_xyz[i,:]=np.dot(ENU_to_xyz,baselines_ENU[i,:])
-    return baselines_xyz
+    return baselines_xyz,baseline_weights
 
 def calc_rot_synth_uv(baselines_xyz,lambda_obs=nu_HI_z0,num_hrs=24,num_timesteps=48): # take [:,:,0] for the instantaneous uv-coverage
     """
@@ -115,10 +117,14 @@ def calc_rot_synth_uv(baselines_xyz,lambda_obs=nu_HI_z0,num_hrs=24,num_timesteps
             uvw_synth[j,:,i]=np.dot(uvw_mat_current,baselines_xyz[j,:])/lambda_obs
     return uvw_synth
 
-def calc_dirty_image(uvw_synth,nbins=1024): # I remember from my difmap days that you tend to want to anecdotally optimize nbins to be high enough that you get decent resolution but low enough that the Fourier transforms don't take forever, but it would be nice to formalize my logic to get past the point of most of my simulation choices feeling super arbitrary
+def calc_dirty_image(uvw_synth,baseline_weights,nbins=1024): # I remember from my difmap days that you tend to want to anecdotally optimize nbins to be high enough that you get decent resolution but low enough that the Fourier transforms don't take forever, but it would be nice to formalize my logic to get past the point of most of my simulation choices feeling super arbitrary
     N_bl,_,N_hr_angles=uvw_synth.shape
     N_pts_to_bin=N_bl*N_hr_angles
-    binned_uvw_synth,_,_=np.histogram2d(np.reshape(uvw_synth[:,0,:],N_pts_to_bin),np.reshape(uvw_synth[:,1,:],N_pts_to_bin),bins=nbins) # [all baselines, x or y, all hour angles] ## discarded args are u_edges,v_edges. probably need to shuffle these along at some point in order to properly scale the dirty image axes and not just rely on pixel counts
+    reshaped_u=np.reshape(uvw_synth[:,0,:],N_pts_to_bin)
+    reshaped_v=np.reshape(uvw_synth[:,1,:],N_pts_to_bin)
+    baseline_weights_accumulated_reshaped=np.tile(baseline_weights,N_hr_angles)
+    print("reshaped_u.shape,reshaped_v.shape,baseline_weights.shape=",reshaped_u.shape,reshaped_v.shape,baseline_weights_accumulated_reshaped.shape)
+    binned_uvw_synth,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=nbins,weights=baseline_weights_accumulated_reshaped) # [all baselines, x or y, all hour angles] ## discarded args are u_edges,v_edges. probably need to shuffle these along at some point in order to properly scale the dirty image axes and not just rely on pixel counts
     return np.abs(fftshift(ifft2(binned_uvw_synth)))
 
 def scramble_primary_beams(uvw_synth,num_beams_to_perturb=0,beam_perturbation_sigma=1e-3):
@@ -126,28 +132,32 @@ def scramble_primary_beams(uvw_synth,num_beams_to_perturb=0,beam_perturbation_si
     uvw_synth starts ou
     """
 
+"""
+SHORTHAND:
+fidu = neither antenna nor weight (primary beam proxy) perturbations (fiducial array)
+antp = yes antenna perturbations but no weight (primary beam proxy) perturbations
+wgtp = no antenna perturbations but yes weight (primary beam proxy) perturbations
+both = both antenna and weight (primary beam proxy) perturbations
+"""
+
 t0=time.time()
 N_ant_to_pert=100
-ant_pert=1e-2
+ant_pert=1e-2 
 antennas_ENU_fidu,antenna_weights_fidu,_=                CHORD_antenna_positions()
-antennas_ENU_pert,antenna_weights_pert,indices_perturbed=CHORD_antenna_positions(num_antennas_to_perturb=N_ant_to_pert, antenna_perturbation_sigma=ant_pert) 
+antennas_ENU_antp,antenna_weights_antp,[indices_antp,_]= CHORD_antenna_positions(num_antennas_to_perturb=N_ant_to_pert, antenna_perturbation_sigma=ant_pert) # # antennas_ENU,ant_weights,[indices_ants,indices_wts]
 t1=time.time()
 print("initialized antennas in",t1-t0,"s")
 
-baselines_xyz_fidu=calc_baselines_xyz(antennas_ENU_fidu,N_NS=N_NS,N_EW=N_EW)
-baselines_xyz_pert=calc_baselines_xyz(antennas_ENU_pert,N_NS=N_NS,N_EW=N_EW)
+baselines_xyz_fidu,baseline_weights_fidu=calc_baselines_xyz(antennas_ENU_fidu,antenna_weights_fidu,N_NS=N_NS,N_EW=N_EW)
+baselines_xyz_antp,baseline_weights_antp=calc_baselines_xyz(antennas_ENU_antp,antenna_weights_antp,N_NS=N_NS,N_EW=N_EW)
 t2=time.time()
 print("calculated baselines in",t2-t1,"s")
 
 N_obs_hrs=12
 uvw_synth_fidu=calc_rot_synth_uv(baselines_xyz_fidu,num_hrs=N_obs_hrs) # precalculate outside the loop and rescale for other frequencies later
-uvw_synth_pert=calc_rot_synth_uv(baselines_xyz_pert,num_hrs=N_obs_hrs)
+uvw_synth_antp=calc_rot_synth_uv(baselines_xyz_antp,num_hrs=N_obs_hrs)
 t3=time.time()
 print("performed rotation synthesis in",t3-t2,"s")
-
-# introduce new cases where I also change the weights associated with the amplitude in each not-yet-binned uv-cell to mimic the effects of nondegenerate primary beams between antennas. eventually plot the dirty images for all four permutations
-uvw_synth_fidu_prdif=
-uvw_synth_pert_prdif=
 
 N_hr_angles=48
 colours_b=plt.cm.Blues( np.linspace(1,0.2,N_hr_angles))
@@ -159,13 +169,13 @@ for nu_obs in obs_freqs:
 
     # rescale the rotation-synthesized uv coverages to the survey frequency
     uvw_synth_fidu_here=uvw_synth_fidu*lambda_z0/lambda_obs
-    uvw_synth_pert_here=uvw_synth_pert*lambda_z0/lambda_obs
+    uvw_synth_antp_here=uvw_synth_antp*lambda_z0/lambda_obs
     uvw_inst_fidu_here=uvw_synth_fidu_here[:,:,0]
-    uvw_inst_pert_here=uvw_synth_pert_here[:,:,0]
+    uvw_inst_antp_here=uvw_synth_antp_here[:,:,0]
 
     # ift to get dirty images
-    dirty_image_fidu=calc_dirty_image(uvw_synth_fidu_here)
-    dirty_image_pert=calc_dirty_image(uvw_synth_pert_here)
+    dirty_image_fidu=calc_dirty_image(uvw_synth_fidu_here,baseline_weights_fidu)
+    dirty_image_antp=calc_dirty_image(uvw_synth_antp_here,baseline_weights_antp)
 
     # plot
     dotsize=1
@@ -200,18 +210,18 @@ for nu_obs in obs_freqs:
     axs[0,3].set_title("dirty image\n(rotation-synthesized uv-coverage \nbinned into "+str(1024)+" bins/axis)")
 
       # PERTURBED ARRAY
-    axs[1,0].scatter(antennas_ENU_pert[:,0],                antennas_ENU_pert[:,1],                s=dotsize,c=antennas_ENU_pert[:,2],                 cmap=trunc_Blues)
-    axs[1,0].scatter(antennas_ENU_pert[indices_perturbed,0],antennas_ENU_pert[indices_perturbed,1],s=dotsize,c="r")
+    axs[1,0].scatter(antennas_ENU_antp[:,0],                antennas_ENU_antp[:,1],                s=dotsize,c=antennas_ENU_antp[:,2],                 cmap=trunc_Blues)
+    axs[1,0].scatter(antennas_ENU_antp[indices_antp,0],antennas_ENU_antp[indices_antp,1],s=dotsize,c="r")
     axs[1,0].set_title("PERTURBED ARRAY\nperturbation magnitude="+str(ant_pert*1e3)+"mm")
-    axs[1,1].scatter(uvw_inst_pert_here[:,0],uvw_inst_pert_here[:,1],s=dotsize)
+    axs[1,1].scatter(uvw_inst_antp_here[:,0],uvw_inst_antp_here[:,1],s=dotsize)
     for i in range(N_hr_angles):
-        axs[1,2].scatter(uvw_synth_pert_here[:,0,i],uvw_synth_pert_here[:,1,i],color=colours_b[i],s=dotsize)
-    im=axs[1,3].imshow(dirty_image_pert,cmap="Blues",vmax=np.percentile(dirty_image_pert,99.5))
+        axs[1,2].scatter(uvw_synth_antp_here[:,0,i],uvw_synth_antp_here[:,1,i],color=colours_b[i],s=dotsize)
+    im=axs[1,3].imshow(dirty_image_antp,cmap="Blues",vmax=np.percentile(dirty_image_antp,99.5))
     plt.colorbar(im,ax=axs[1,3])
 
       # RATIOS
     axs[2,0].set_title("RATIO: FIDUCIAL/PERTURBED")
-    ratio=dirty_image_fidu/dirty_image_pert
+    ratio=dirty_image_fidu/dirty_image_antp
     print("np.max(ratio),np.min(ratio),np.mean(ratio),np.std(ratio)=",np.max(ratio),np.min(ratio),np.mean(ratio),np.std(ratio))
     im=axs[2,3].imshow(ratio,cmap="Blues")
     plt.colorbar(im,ax=axs[2,3])
@@ -219,7 +229,7 @@ for nu_obs in obs_freqs:
     
       # RESIDUALS
     axs[3,0].set_title("RESIDUAL: FIDUCIAL-PERTURBED")
-    residual=dirty_image_fidu-dirty_image_pert
+    residual=dirty_image_fidu-dirty_image_antp
     print("np.max(residual),np.min(residual),np.mean(residual),np.std(residual)=",np.max(residual),np.min(residual),np.mean(residual),np.std(residual))
     im=axs[3,3].imshow(residual,cmap="Blues")
     plt.colorbar(im,ax=axs[3,3])
