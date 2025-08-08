@@ -88,7 +88,7 @@ def calc_baselines_xyz(antennas_ENU,N_NS=N_NS,N_EW=N_EW): # as far as you can go
         baselines_xyz[i,:]=np.dot(ENU_to_xyz,baselines_ENU[i,:])
     return baselines_xyz
 
-def calc_rot_synth_uv(baselines_xyz,lambda_obs=nu_HI_z0,num_hrs=12,num_timesteps=48): # take [:,:,0] for the instantaneous uv-coverage
+def calc_rot_synth_uv(baselines_xyz,lambda_obs=nu_HI_z0,num_hrs=24,num_timesteps=48): # take [:,:,0] for the instantaneous uv-coverage
     # apply rotation synthesis (accumulate xyz->uvw transformations at each time step)
     hour_angle_ceiling=np.pi*num_hrs/12 # 2pi*num_hrs/24
     hour_angles=np.linspace(0,hour_angle_ceiling,num_timesteps)
@@ -108,7 +108,7 @@ def calc_dirty_image(uvw_synth,nbins=1024): # I remember from my difmap days tha
 t0=time.time()
 
 N_ant_to_pert=100
-ant_pert=1e-1
+ant_pert=1e-2
 antennas_ENU_fidu,_=                CHORD_antenna_positions()
 antennas_ENU_pert,indices_perturbed=CHORD_antenna_positions(num_antennas_to_perturb=N_ant_to_pert, antenna_perturbation_sigma=ant_pert) # see how many antennas I can get away with perturbing before the difference in the synthesized beam becomes 
 t1=time.time()
@@ -119,14 +119,14 @@ baselines_xyz_pert=calc_baselines_xyz(antennas_ENU_pert,N_NS=N_NS,N_EW=N_EW)
 t2=time.time()
 print("calculated baselines in",t2-t1,"s")
 
-uvw_synth_fidu=calc_rot_synth_uv(baselines_xyz_fidu) # precalculate outside the loop and rescale for other frequencies later
-uvw_synth_pert=calc_rot_synth_uv(baselines_xyz_pert)
+N_obs_hrs=12
+uvw_synth_fidu=calc_rot_synth_uv(baselines_xyz_fidu,num_hrs=N_obs_hrs) # precalculate outside the loop and rescale for other frequencies later
+uvw_synth_pert=calc_rot_synth_uv(baselines_xyz_pert,num_hrs=N_obs_hrs)
 t3=time.time()
 print("performed rotation synthesis in",t3-t2,"s")
 
 N_hr_angles=48
 colours_b=plt.cm.Blues( np.linspace(1,0.2,N_hr_angles))
-colours_g=plt.cm.Greens(np.linspace(1,0.2,N_bl))
 lambda_z0=c/(nu_HI_z0*1e6)
 tol=1e-16 # near the double precision noise floor
 for nu_obs in obs_freqs:
@@ -162,14 +162,14 @@ for nu_obs in obs_freqs:
 
       # FIDUCIAL ARRAY
     axs[0,0].scatter(antennas_ENU_fidu[:,0],antennas_ENU_fidu[:,1],s=dotsize,c=antennas_ENU_fidu[:,2],cmap=trunc_Blues)
-    axs[0,0].set_title("oversimplified array layout\n (no holes, eyeballed array rotation and\n elevation, colour ~ relative U-coord)\nFIDUCIAL ARRAY")
+    axs[0,0].set_title("oversimplified array layout\n (no receiver hut holes, eyeballed array rotation \nand elevation, colour ~ relative U-coord)\nFIDUCIAL ARRAY")
 
     axs[0,1].scatter(uvw_inst_fidu_here[:,0],uvw_inst_fidu_here[:,1],s=dotsize)
     axs[0,1].set_title("instantaneous uv-coverage/\ndirty beam")
 
     for i in range(N_hr_angles):
         axs[0,2].scatter(uvw_synth_fidu_here[:,0,i],uvw_synth_fidu_here[:,1,i],color=colours_b[i],s=dotsize) # all baselines, x/y coord, ith time step //one colour = one instance of instantaneous uv-coverage
-    axs[0,2].set_title("12-hr rotation-synthesized uv-coverage\nsampled every "+str(int(60/(N_hr_angles/12)))+" min (colour ~ baseline)")
+    axs[0,2].set_title(str(N_obs_hrs)+"-hr rotation-synthesized uv-coverage\nsampled every "+str(int(60/(N_hr_angles/N_obs_hrs)))+" min (colour ~ baseline)")
 
     im=axs[0,3].imshow(dirty_image_fidu,cmap="Blues",vmax=np.percentile(dirty_image_fidu,99.5))
     plt.colorbar(im,ax=axs[0,3])
@@ -191,9 +191,7 @@ for nu_obs in obs_freqs:
     print("np.max(ratio),np.min(ratio),np.mean(ratio),np.std(ratio)=",np.max(ratio),np.min(ratio),np.mean(ratio),np.std(ratio))
     im=axs[2,3].imshow(ratio,cmap="Blues")
     plt.colorbar(im,ax=axs[2,3])
-    criterion=np.nonzero(np.abs(ratio-1.)>tol)
-    if (len(criterion)>0):
-        axs[2,3].imshow(ratio[criterion],cmap="Reds")
+    # axs[2,3].imshow(np.ma.masked_where(np.abs(ratio-1.)>tol,ratio),cmap="Reds")
     
       # RESIDUALS
     axs[3,0].set_title("RESIDUAL: FIDUCIAL-PERTURBED")
@@ -201,9 +199,7 @@ for nu_obs in obs_freqs:
     print("np.max(residual),np.min(residual),np.mean(residual),np.std(residual)=",np.max(residual),np.min(residual),np.mean(residual),np.std(residual))
     im=axs[3,3].imshow(residual,cmap="Blues")
     plt.colorbar(im,ax=axs[3,3])
-    criterion=np.nonzero(np.abs(residual)>tol)
-    if (len(criterion)>0):
-        axs[3,3].imshow(residual[criterion],cmap="Reds")
+    axs[3,3].imshow(np.ma.masked_where(np.abs(residual)>tol,residual),cmap="Reds")
 
     plt.suptitle("simulated CHORD-512 observing at "+str(int(nu_obs))+" MHz (z="+str(round(z_obs,3))+")")
     plt.tight_layout()
