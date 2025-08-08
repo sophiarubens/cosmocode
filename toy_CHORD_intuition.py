@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib
 from matplotlib import pyplot as plt
 from numpy.fft import ifft2,fftshift,ifftshift
+import time
 
 # CHORD layout figures
 b_NS=8.5 # m
@@ -18,7 +19,7 @@ c=2.998e8
 
 # which survey frequencies do I want to examine?
 lo=350.        # expected min obs freq
-hi=nu_HI_z0    # can't do 21 cm forecasting in the extreme upper end of the CHORD band b/c that would correspond to blueshifted cosmological HI
+hi=nu_HI_z0    # can't do 21 cm forecasting in the extreme upper end of the CHORD band b/c that would correspond to "blueshifted cosmological HI"
 mid=(lo+hi)/2. # midpoint to help connect the dots
 obs_freqs=[lo,mid,hi] # MHz
 
@@ -99,42 +100,53 @@ def calc_rot_synth_uv(baselines_xyz,lambda_obs=nu_HI_z0,num_hrs=12,num_timesteps
             uvw_synth[j,:,i]=np.dot(uvw_mat_current,baselines_xyz[j,:])/lambda_obs
     return uvw_synth
 
-# def calc_dirty_image(uvw_synth):
-#     binned_uvw_synth_fidu,u_edges,v_edges=np.histogram2d(np.reshape(uvw_synth_fidu_here[:,0,:],N_bl*N_hr_angles),np.reshape(uvw_synth_fidu[:,1,:],N_bl*N_hr_angles),bins=nbins) # [all antennas, x or y, all baselines]
-#     dirty_image_fidu=np.abs(fftshift(ifft2(binned_uvw_synth_fidu)))
+def calc_dirty_image(uvw_synth,nbins=1024): # I remember from my difmap days that you tend to want to anecdotally optimize nbins to be high enough that you get decent resolution but low enough that the Fourier transforms don't take forever, but it would be nice to formalize my logic to get past the point of most of my simulation choices feeling super arbitrary
+    N_bl,_,N_hr_angles=uvw_synth.shape
+    N_pts_to_bin=N_bl*N_hr_angles
+    binned_uvw_synth,_,_=np.histogram2d(np.reshape(uvw_synth[:,0,:],N_pts_to_bin),np.reshape(uvw_synth[:,1,:],N_pts_to_bin),bins=nbins) # [all antennas, x or y, all baselines] ## discarded args are u_edges,v_edges. probably need to shuffle these along at some point in order to properly scale the dirty image axes and not just rely on pixel counts
+    return np.abs(fftshift(ifft2(binned_uvw_synth)))
+t0=time.time()
 
+N_ant_to_pert=100
+ant_pert=1e-1
 antennas_ENU_fidu,_=                CHORD_antenna_positions()
-antennas_ENU_pert,indices_perturbed=CHORD_antenna_positions(num_antennas_to_perturb=100) # twist the dial to see how many antennas I can get away with perturbing before the difference in the synthesized beam becomes 
+antennas_ENU_pert,indices_perturbed=CHORD_antenna_positions(num_antennas_to_perturb=N_ant_to_pert, antenna_perturbation_sigma=ant_pert) # see how many antennas I can get away with perturbing before the difference in the synthesized beam becomes 
+t1=time.time()
+print("initialized antennas in",t1-t0,"s")
 
 baselines_xyz_fidu=calc_baselines_xyz(antennas_ENU_fidu,N_NS=N_NS,N_EW=N_EW)
-baselines_xyz_pert=calc_baselines_xyz(antennas_ENU_fidu,N_NS=N_NS,N_EW=N_EW)
+baselines_xyz_pert=calc_baselines_xyz(antennas_ENU_pert,N_NS=N_NS,N_EW=N_EW)
+t2=time.time()
+print("calculated baselines in",t2-t1,"s")
 
 uvw_synth_fidu=calc_rot_synth_uv(baselines_xyz_fidu) # precalculate outside the loop and rescale for other frequencies later
 uvw_synth_pert=calc_rot_synth_uv(baselines_xyz_pert)
+t3=time.time()
+print("performed rotation synthesis in",t3-t2,"s")
 
 N_hr_angles=48
 colours_b=plt.cm.Blues( np.linspace(1,0.2,N_hr_angles))
 colours_g=plt.cm.Greens(np.linspace(1,0.2,N_bl))
-lambda_z0=c/nu_HI_z0
+lambda_z0=c/(nu_HI_z0*1e6)
+tol=1e-16 # near the double precision noise floor
 for nu_obs in obs_freqs:
     lambda_obs=c/(nu_obs*1e6)
     z_obs=nu_HI_z0/nu_obs-1.
 
+    # rescale the rotation-synthesized uv coverages to the survey frequency
     uvw_synth_fidu_here=uvw_synth_fidu*lambda_z0/lambda_obs
     uvw_synth_pert_here=uvw_synth_pert*lambda_z0/lambda_obs
     uvw_inst_fidu_here=uvw_synth_fidu_here[:,:,0]
     uvw_inst_pert_here=uvw_synth_pert_here[:,:,0]
 
-    # ift to get dirty image
-    nbins=1024
-    binned_uvw_synth_fidu,u_edges,v_edges=np.histogram2d(np.reshape(uvw_synth_fidu_here[:,0,:],N_bl*N_hr_angles),np.reshape(uvw_synth_fidu[:,1,:],N_bl*N_hr_angles),bins=nbins) # [all antennas, x or y, all baselines]
-    dirty_image_fidu=np.abs(fftshift(ifft2(binned_uvw_synth_fidu)))
-    binned_uvw_synth_pert,u_edges,v_edges=np.histogram2d(np.reshape(uvw_synth_pert_here[:,0,:],N_bl*N_hr_angles),np.reshape(uvw_synth_pert[:,1,:],N_bl*N_hr_angles),bins=nbins)
-    dirty_image_pert=np.abs(fftshift(ifft2(binned_uvw_synth_pert)))
+    # ift to get dirty images
+    dirty_image_fidu=calc_dirty_image(uvw_synth_fidu_here)
+    dirty_image_pert=calc_dirty_image(uvw_synth_pert_here)
 
+    # plot
     dotsize=1
     fig,axs=plt.subplots(4,4,figsize=(15,15))
-    # general stuff
+      # general stuff
     for i in range(4):
         axs[i,0].set_xlabel("E (m)")
         axs[i,0].set_ylabel("N (m)")
@@ -148,7 +160,7 @@ for nu_obs in obs_freqs:
         axs[i,3].set_xlabel("x pixel index")
         axs[i,3].set_ylabel("y pixel index")
 
-    # FIDUCIAL ARRAY
+      # FIDUCIAL ARRAY
     axs[0,0].scatter(antennas_ENU_fidu[:,0],antennas_ENU_fidu[:,1],s=dotsize,c=antennas_ENU_fidu[:,2],cmap=trunc_Blues)
     axs[0,0].set_title("oversimplified array layout\n (no holes, eyeballed array rotation and\n elevation, colour ~ relative U-coord)\nFIDUCIAL ARRAY")
 
@@ -161,30 +173,39 @@ for nu_obs in obs_freqs:
 
     im=axs[0,3].imshow(dirty_image_fidu,cmap="Blues",vmax=np.percentile(dirty_image_fidu,99.5))
     plt.colorbar(im,ax=axs[0,3])
-    axs[0,3].set_title("dirty image\n(rotation-synthesized uv-coverage \nbinned into "+str(nbins)+" bins/axis)")
+    axs[0,3].set_title("dirty image\n(rotation-synthesized uv-coverage \nbinned into "+str(1024)+" bins/axis)")
 
-    # PERTURBED ARRAY
+      # PERTURBED ARRAY
     axs[1,0].scatter(antennas_ENU_pert[:,0],                antennas_ENU_pert[:,1],                s=dotsize,c=antennas_ENU_pert[:,2],                 cmap=trunc_Blues)
     axs[1,0].scatter(antennas_ENU_pert[indices_perturbed,0],antennas_ENU_pert[indices_perturbed,1],s=dotsize,c="r")
-    axs[1,0].set_title("PERTURBED ARRAY")
+    axs[1,0].set_title("PERTURBED ARRAY\nperturbation magnitude="+str(ant_pert*1e3)+"mm")
     axs[1,1].scatter(uvw_inst_pert_here[:,0],uvw_inst_pert_here[:,1],s=dotsize)
     for i in range(N_hr_angles):
         axs[1,2].scatter(uvw_synth_pert_here[:,0,i],uvw_synth_pert_here[:,1,i],color=colours_b[i],s=dotsize)
     im=axs[1,3].imshow(dirty_image_pert,cmap="Blues",vmax=np.percentile(dirty_image_pert,99.5))
     plt.colorbar(im,ax=axs[1,3])
 
-    # RATIOS
+      # RATIOS
     axs[2,0].set_title("RATIO: FIDUCIAL/PERTURBED")
-    im=axs[2,3].imshow(dirty_image_fidu/dirty_image_pert,cmap="Blues")
+    ratio=dirty_image_fidu/dirty_image_pert
+    print("np.max(ratio),np.min(ratio),np.mean(ratio),np.std(ratio)=",np.max(ratio),np.min(ratio),np.mean(ratio),np.std(ratio))
+    im=axs[2,3].imshow(ratio,cmap="Blues")
     plt.colorbar(im,ax=axs[2,3])
+    criterion=np.nonzero(np.abs(ratio-1.)>tol)
+    if (len(criterion)>0):
+        axs[2,3].imshow(ratio[criterion],cmap="Reds")
     
-    # RESIDUALS
+      # RESIDUALS
     axs[3,0].set_title("RESIDUAL: FIDUCIAL-PERTURBED")
-    im=axs[3,3].imshow(dirty_image_fidu-dirty_image_pert,cmap="Blues")
-    plt.colorbar(im,ax=axs[2,3])
+    residual=dirty_image_fidu-dirty_image_pert
+    print("np.max(residual),np.min(residual),np.mean(residual),np.std(residual)=",np.max(residual),np.min(residual),np.mean(residual),np.std(residual))
+    im=axs[3,3].imshow(residual,cmap="Blues")
+    plt.colorbar(im,ax=axs[3,3])
+    criterion=np.nonzero(np.abs(residual)>tol)
+    if (len(criterion)>0):
+        axs[3,3].imshow(residual[criterion],cmap="Reds")
 
     plt.suptitle("simulated CHORD-512 observing at "+str(int(nu_obs))+" MHz (z="+str(round(z_obs,3))+")")
     plt.tight_layout()
-    plt.savefig("simulated_CHORD_512_"+str(int(nu_obs))+"_MHz.png",dpi=200)
+    plt.savefig("simulated_CHORD_512_"+str(int(nu_obs))+"_MHz_"+str(int(ant_pert*1e3))+"_mm_"+str(int(N_ant_to_pert))+"_ant.png",dpi=200)
     plt.show()
-    assert(1==0), "debugging with one survey only"
