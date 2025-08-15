@@ -4,6 +4,7 @@ from matplotlib import pyplot as plt
 from numpy.fft import ifft2,fftshift,ifftshift
 import time
 from numba import prange
+from scipy.interpolate import interpn
 
 # CHORD layout params
 b_NS=8.5 # m
@@ -133,7 +134,12 @@ def calc_rot_synth_uv(uvw,lambda_obs=nu_HI_z0,num_hrs=1./2.,num_timesteps=15,dec
         uv_synth[:,:,i]=uvw_rotated@project_to_dec.T/lambda_obs
     return uv_synth
 
-def calc_dirty_image(uv_synth,pbws,nbins=1024): # I remember from my difmap days that you tend to want to anecdotally optimize nbins to be high enough that you get decent resolution but low enough that the Fourier transforms don't take forever, but it would be nice to formalize my logic to get past the point of most of my simulation choices feeling super arbitrary
+def calc_dirty_image(uv_synth,pbws,nbins_coarse=16,nbins=1024): # I remember from my difmap days that you tend to want to anecdotally optimize nbins to be high enough that you get decent resolution but low enough that the Fourier transforms don't take forever, but it would be nice to formalize my logic to get past the point of most of my simulation choices feeling super arbitrary
+    """
+    nbins is only used in the first (loopy) step of the not-a-convolution branch
+    * the "all primary beam widths are the same" branch always uses nbins_out bins (convolution)
+    * the "some perturbed primary beam widths" branch runs the slow, loopy step with nbins bins and then interpolates to nbins_out to facilitate ratios etc. down the line
+    """
     N_bl,_,N_hr_angles=uv_synth.shape
     N_pts_to_bin=N_bl*N_hr_angles
     uvmin=np.min([np.min(uv_synth[:,0,:]),np.min(uv_synth[:,1,:])]) # better to deal with a square image
@@ -141,16 +147,31 @@ def calc_dirty_image(uv_synth,pbws,nbins=1024): # I remember from my difmap days
     thetamax=twopi/uvmax
     uvbins=np.linspace(uvmin,uvmax,nbins) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
     uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij")
-    uvplane=np.zeros((nbins,nbins))
+    # uvplane=np.zeros((nbins,nbins))
+
+    uvbins_coarse=np.linspace(uvmin,uvmax,nbins_coarse)
+    uubins_coarse,vvbins_coarse=np.meshgrid(uvbins_coarse,uvbins_coarse,indexing="ij")
+    uvplane_coarse=np.zeros((nbins_coarse,nbins_coarse))
     tprev=time.time()
 
     if (np.all(pbws)==pbws[0]): # if all the pbws are the same, do things the old way (fast, and with a fine pixelization)
         ###
         reshaped_u=np.reshape(uv_synth[:,0,:],N_pts_to_bin)
         reshaped_v=np.reshape(uv_synth[:,1,:],N_pts_to_bin)
-        baseline_pbs_accumulated_reshaped=np.tile(pbws,N_hr_angles)
-        # this is still doing things the peak height way, not the convolution way
-        uvplane,u_edges,v_edges=np.histogram2d(reshaped_u,reshaped_v,bins=nbins,weights=baseline_pbs_accumulated_reshaped) # [all baselines, x or y, all hour angles] ## discarded args are u_edges,v_edges. probably need to shuffle these along at some point in order to properly scale the dirty image axes and not just rely on pixel counts
+        # baseline_pbs_accumulated_reshaped=np.tile(pbws,N_hr_angles)
+        uvplane,u_edges,v_edges=np.histogram2d(reshaped_u,reshaped_v,bins=nbins) # [all baselines, x or y, all hour angles] ## discarded args are u_edges,v_edges. probably need to shuffle these along at some point in order to properly scale the dirty image axes and not just rely on pixel counts
+        kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.,],pbws[i])
+        ## need to do the convolution
+        ## worry about edge effects and stuff (learn from my misadventures with the first pipeline branch)
+
+        # ## the guts of my convolution code from last time
+        # s0,s1=self.Pcyl.shape # by now, P and Wcont have the same shapes
+        # pad0lo,pad0hi=self.get_padding(s0)
+        # pad1lo,pad1hi=self.get_padding(s1)
+        # Wcontp=np.pad(self.Wcont,((pad0lo,pad0hi),(pad1lo,pad1hi)),"edge")
+        # conv=convolve(Wcontp,self.Pcyl,mode="valid")
+        # ##
+        
         thetaxmin=twopi/u_edges[0] # bin edges apparently in descending order
         thetaxmax=twopi/u_edges[-1]
         thetaymin=twopi/v_edges[0]
@@ -159,6 +180,7 @@ def calc_dirty_image(uv_synth,pbws,nbins=1024): # I remember from my difmap days
         theta_lims=[thetaxmin,thetaxmax,thetaymin,thetaymax]
         ###
     else: # there are some perturbed pbws, so the convolution assumption breaks down, and it's necessary to do things the really slow way (use a correspondingly coarser gridding, and then interpolate to the fine pixelization to be able to calculate residuals and ratios)
+        # compromise approach to the slow alternative to convolution: start coarse...
         for i in prange(N_bl): # really an iteration over baselines
             if (i%(N_bl//10)==0):
                 t0=time.time()
@@ -166,9 +188,11 @@ def calc_dirty_image(uv_synth,pbws,nbins=1024): # I remember from my difmap days
                 tprev=t0
             for j in prange(N_hr_angles):
                 u0,v0=uv_synth[i,:,j] # ith baseline; u, v, and w; jth hour angle ... where to centre the Gaussian beam
-                # smeared_contribution=gaussian_primary_beam_uv(uubins,vvbins,[u0,v0],pbws[i])
-                smeared_contribution=np.exp(-((uubins-u0)**2*pbws[i]**2+(vvbins-v0)**2*pbws[1]**2)/(4*np.log(2)))
-                uvplane+=smeared_contribution
+                smeared_contribution=gaussian_primary_beam_uv(uubins_coarse,vvbins_coarse,[u0,v0],pbws[i])
+                uvplane_coarse+=smeared_contribution
+        # ...and interpolate later
+        uvplane= interpn((uubins,vvbins),uvplane_coarse,(uubins_coarse,vvbins_coarse),method="cubic",bounds_error=False,fill_value=None)
+
         uv_bin_edges=[uvbins,uvbins]
         theta_lims=[-thetamax,thetamax,-thetamax,thetamax]
     
