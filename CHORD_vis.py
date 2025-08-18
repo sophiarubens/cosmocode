@@ -86,7 +86,6 @@ def CHORD_antenna_positions(N_NS=N_NS,N_EW=N_EW,offset_deg=1.75,                
     if (num_pbs_to_perturb>0):
         indices_pbs=np.random.randint(0,N_ant,size=num_pbs_to_perturb) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
         pb_perturbations=np.zeros((N_ant,))
-        # pb_perturbations[indices_pbs]=np.random.normal(loc=0.,scale=pb_perturbation_sigma,size=np.insert(num_pbs_to_perturb,0,1)) # not great to draw from a normal distribution because I'm doing 1-eps and if 1-eps is negative, (1-eps)*fiducial_sigma is negative, the sigma is nonsense, and the evaled beam expression doesn't make sense, and things get even worse if the eps is close to 1
         pb_perturbations[indices_pbs]=np.random.uniform(size=np.insert(num_pbs_to_perturb,0,1))
         ant_pb_frac_widths+=pb_perturbations
     else:
@@ -141,60 +140,74 @@ def calc_rot_synth_uv(uvw,lambda_obs=nu_HI_z0,num_hrs=1./2.,num_timesteps=15,dec
         uv_synth[:,:,i]=uvw_rotated@project_to_dec.T/lambda_obs
     return uv_synth
 
-def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,nbins_coarse=16,nbins=1024): # I remember from my difmap days that you tend to want to anecdotally optimize nbins to be high enough that you get decent resolution but low enough that the Fourier transforms don't take forever, but it would be nice to formalize my logic to get past the point of most of my simulation choices feeling super arbitrary
+def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,nbins_coarse=32,nbins=1024): # I remember from my difmap days that you tend to want to anecdotally optimize nbins to be high enough that you get decent resolution but low enough that the Fourier transforms don't take forever, but it would be nice to formalize my logic to get past the point of most of my simulation choices feeling super arbitrary
     """
     nbins is only used in the first (loopy) step of the not-a-convolution branch
     * the "all primary beam widths are the same" branch always uses nbins_out bins (convolution)
     * the "some perturbed primary beam widths" branch runs the slow, loopy step with nbins bins and then interpolates to nbins_out to facilitate ratios etc. down the line
     """
     N_bl,_,N_hr_angles=uv_synth.shape
-    N_pts_to_bin=N_bl*N_hr_angles
     uvmin=np.min([np.min(uv_synth[:,0,:]),np.min(uv_synth[:,1,:])]) # better to deal with a square image
     uvmax=np.max([np.max(uv_synth[:,0,:]),np.max(uv_synth[:,1,:])])
     thetamax=twopi/uvmax
     uvbins=np.linspace(uvmin,uvmax,nbins) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
-    uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij")
-    # uvplane=np.zeros((nbins,nbins))
+    uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij") #,sparse=True)
+    baselines_w_perturbed_pbs=np.nonzero(pbws!=1)
+    baselines_w_unperturbed_pbs=np.nonzero(pbws==1)
+    N_pe_bl=np.count_nonzero(pbws!=1)
+    N_unpe_bl=N_bl-N_pe_bl
+    print("N_pe_bl=",N_pe_bl)
+    # print("baselines_w_unperturbed_pbs.shape=",baselines_w_unperturbed_pbs.shape) # can't technically ask for this bc baselines_w_unperturbed_pbs is a tuple (as per the np.nonzero docs, this is necessarily the case, b/c the output is designed to be suitable for array indexing)
+    # uv_synth_unpe_beam=uv_synth[baselines_w_unperturbed_pbs,:,:]
+    uv_synth_pert_beam=uv_synth[pbws!=1]
+    uv_synth_unpe_beam=uv_synth[pbws==1] # have to do it natively pythonically instead of with the np.nonzero output b/c the nonzero output is really only designed to index an array of the same shape as pbws, which is notably not the same shape as the actual list of uv-coverage points
+    print("uv_synth_unpe_beam.shape=",uv_synth_unpe_beam.shape)
+    pbws_pe=pbws[baselines_w_perturbed_pbs]
+    print("pbws_pe=",pbws_pe)
 
-    if (np.all(pbws)==np.min(pbws) and np.all(pbws)==np.max(pbws)): # if all the pbws are the same, do things the old way (fast, and with a fine pixelization)
-        print("entering convolution case")
-        reshaped_u=np.reshape(uv_synth[:,0,:],N_pts_to_bin)
-        reshaped_v=np.reshape(uv_synth[:,1,:],N_pts_to_bin)
-        uvplane,u_edges,v_edges=np.histogram2d(reshaped_u,reshaped_v,bins=nbins) # [all baselines, x or y, all hour angles] ## discarded args are u_edges,v_edges. probably need to shuffle these along at some point in order to properly scale the dirty image axes and not just rely on pixel counts
-        kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.,],pbws[0]*primary_beam_width_fidu) # doesn't matter which beam width you take bc they're all the same in this branch... could probably make things more efficient down the line by only carting around the single value in the case where the beam widths are all the same
-        pad_lo,pad_hi=get_padding(nbins)
-        kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge")
-        uvplane=convolve(kernel_padded,uvplane,mode="valid") # beam-smeared version of the uv-plane
-        
-        thetaxmin=twopi/u_edges[0] # bin edges apparently in descending order
-        thetaxmax=twopi/u_edges[-1]
-        thetaymin=twopi/v_edges[0]
-        thetaymax=twopi/v_edges[-1]
-        uv_bin_edges=[u_edges,v_edges]
-        theta_lims=[thetaxmin,thetaxmax,thetaymin,thetaymax]
-
-    else: # there are some perturbed pbws, so the convolution assumption breaks down, and it's necessary to do things the really slow way (use a correspondingly coarser gridding, and then interpolate to the fine pixelization to be able to calculate residuals and ratios)
+    if (N_pe_bl>0):     # handle baselines with    perturbed primary beams using the "accumulate Gaussians" strategy
         print("entering not-a-convolution case")
+        print("pbws_pe=",pbws_pe)
         # compromise approach to the slow alternative to convolution: start coarse...
-        uvbins_coarse=np.linspace(uvmin,uvmax,nbins_coarse)
-        uubins_coarse,vvbins_coarse=np.meshgrid(uvbins_coarse,uvbins_coarse,indexing="ij")
+        uvbins_coarse=np.linspace(uvmin,uvmax,nbins_coarse) # GET IT TO RUN FIRST, AND THEN TRY TO STEP BACK FROM THE CONVOLUTION
+        uubins_coarse,vvbins_coarse=np.meshgrid(uvbins_coarse,uvbins_coarse,indexing="ij") #,sparse=True)
         uvplane_coarse=np.zeros((nbins_coarse,nbins_coarse))
         tprev=time.time()
-        for i in prange(N_bl): # really an iteration over baselines
-            if (i%(N_bl//10)==0):
+        for i in prange(N_pe_bl):
+            if (i%(N_pe_bl//5)==0):
                 t0=time.time()
-                print("considering baseline",i,"of",N_bl,"...",t0-tprev,"s since last update")
+                print("considering baseline",i,"of",N_pe_bl,"...",t0-tprev,"s since last update")
                 tprev=t0
             for j in prange(N_hr_angles):
-                u0,v0=uv_synth[i,:,j] # ith baseline; u, v, and w; jth hour angle ... where to centre the Gaussian beam
-                smeared_contribution=gaussian_primary_beam_uv(uubins_coarse,vvbins_coarse,[u0,v0],pbws[i]*primary_beam_width_fidu)
+                u0,v0=uv_synth_pert_beam[i,:,j] # ith baseline; u, v, and w; jth hour angle ... where to centre the Gaussian beam
+                smeared_contribution=gaussian_primary_beam_uv(uubins_coarse,vvbins_coarse,[u0,v0],pbws_pe[i]*primary_beam_width_fidu)
                 uvplane_coarse+=smeared_contribution
         # ...and interpolate later
-        uvplane= interpn((uvbins_coarse,uvbins_coarse),uvplane_coarse,(uubins,vvbins),method="cubic",bounds_error=False,fill_value=None)
-        uv_bin_edges=[uvbins,uvbins]
-        theta_lims=[-thetamax,thetamax,-thetamax,thetamax]
+        uvplane_pert= interpn((uvbins_coarse,uvbins_coarse),uvplane_coarse,(uubins,vvbins),method="cubic",bounds_error=False,fill_value=None)
+    else:
+        uvplane_pert=0.*uubins
+
+    if (N_pe_bl!=N_bl): # handle baselines without perturbed primary beams using the convolution            strategy
+        print("entering convolution case")
+        print("uv_synth_unpe_beam.shape[0]")
+        print("N_unpe_bl,N_pe_bl,N_bl,N_hr_angles=",N_unpe_bl,N_pe_bl,N_bl,N_hr_angles)
+        N_pts_to_bin=N_unpe_bl*N_hr_angles
+        uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
+        reshaped_u=np.reshape(uv_synth_unpe_beam[:,0,:],N_pts_to_bin)
+        reshaped_v=np.reshape(uv_synth_unpe_beam[:,1,:],N_pts_to_bin)
+        uvplane,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use) # version that uses the same bins as in the other case, to make sure the residual and ratio calcs down the line are at least minimally well-conditioned
+        kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.,],primary_beam_width_fidu) # doesn't matter which beam width you take bc they're all the same in this branch... could probably make things more efficient down the line by only carting around the single value in the case where the beam widths are all the same
+        pad_lo,pad_hi=get_padding(nbins)
+        kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge")
+        uvplane_unpe=convolve(kernel_padded,uvplane,mode="valid") # beam-smeared version of the uv-plane
+    else:
+        uvplane_unpe=0.*uubins
     
+    uvplane=uvplane_pert+uvplane_unpe
     dirty_image=np.abs(fftshift(ifft2(uvplane)))
+    print("dirty_image.shape=",dirty_image.shape)
+    uv_bin_edges=[uvbins,uvbins]
+    theta_lims=[-thetamax,thetamax,-thetamax,thetamax]
     return dirty_image,uvplane,uv_bin_edges,theta_lims
 
 def primary_beam_crossing_time(nu,dec=30.,D=6.):
@@ -210,8 +223,6 @@ antp = antenna perturbations, but no primary beam perturbations
 prbp = no antenna perturbations, but yes primary beam perturbations
 both = both antenna and primary beam perturbations
 """
-
-# currently: laying the groundwork to turn pbs into an actual per_element primary beam perturbation (the p.b. terminology is a bit of an exaggeration for now, but it's just there as a road map/skeleton for what I'm working towards on the shortest timescales)
 
 t0=time.time()
 N_ant_to_pert=100
@@ -265,7 +276,6 @@ for nu_obs in obs_freqs:
     uvw_inst_both_here=uv_synth_both_here[:,:,0]
 
     # ift to get dirty images
-    # npix=16
     ta=time.time()
     dirty_image_fidu,binned_uv_synth_fidu,[u_edges_fidu,v_edges_fidu],[thetaxmin_fidu,thetaxmax_fidu,thetaymin_fidu,thetaymax_fidu]=calc_dirty_image(uv_synth_fidu_here,baseline_pbs_fidu,p_b_width_fidu)
     tb=time.time()
@@ -305,7 +315,7 @@ for nu_obs in obs_freqs:
     for i in range(N_hr_angles):
         axs[0,2].scatter(uv_synth_fidu_here[:,0,i],uv_synth_fidu_here[:,1,i],color=colours_b[i],s=dotsize) # all baselines, x/y coord, ith time step //one colour = one instance of instantaneous uv-coverage
     axs[0,2].set_title(str(round(N_obs_hrs,3))+"-hr rotation-synthesized uv-coverage\nsampled every "+str(int(60/(N_hr_angles/N_obs_hrs)))+" min (colour ~ baseline)")
-    im=axs[0,3].imshow(binned_uv_synth_fidu,cmap="Blues",vmin=0.,vmax=np.percentile(binned_uv_synth_fidu,99),origin="lower",
+    im=axs[0,3].imshow(binned_uv_synth_fidu,cmap="Blues",vmin=np.percentile(binned_uv_synth_fidu,1),vmax=np.percentile(binned_uv_synth_fidu,99),origin="lower",
                        extent=[u_edges_fidu[0],u_edges_fidu[-1],v_edges_fidu[0],v_edges_fidu[-1]])
     clb=plt.colorbar(im,ax=axs[0,3])
     clb.ax.set_title("#bl")
@@ -323,7 +333,7 @@ for nu_obs in obs_freqs:
     axs[1,1].scatter(uvw_inst_antp_here[:,0],uvw_inst_antp_here[:,1],s=dotsize)
     for i in range(N_hr_angles):
         axs[1,2].scatter(uv_synth_antp_here[:,0,i],uv_synth_antp_here[:,1,i],color=colours_b[i],s=dotsize)
-    im=axs[1,3].imshow(binned_uv_synth_antp,cmap="Blues",vmin=0.,vmax=np.percentile(binned_uv_synth_antp,99),origin="lower",
+    im=axs[1,3].imshow(binned_uv_synth_antp,cmap="Blues",vmin=np.percentile(binned_uv_synth_antp,1),vmax=np.percentile(binned_uv_synth_antp,99),origin="lower",
                        extent=[u_edges_antp[0],u_edges_antp[-1],v_edges_antp[0],v_edges_antp[-1]])
     clb=plt.colorbar(im,ax=axs[1,3])
     clb.ax.set_title("#bl")
@@ -348,7 +358,7 @@ for nu_obs in obs_freqs:
     axs[2,1].scatter(uvw_inst_antp_here[:,0],uvw_inst_antp_here[:,1],s=dotsize)
     for i in range(N_hr_angles):
         axs[2,2].scatter(uv_synth_prbp_here[:,0,i],uv_synth_prbp_here[:,1,i],color=colours_b[i],s=dotsize)
-    im=axs[2,3].imshow(binned_uv_synth_prbp,cmap="Blues",vmin=0.,vmax=np.percentile(binned_uv_synth_prbp,99),origin="lower",
+    im=axs[2,3].imshow(binned_uv_synth_prbp,cmap="Blues",vmin=np.percentile(binned_uv_synth_prbp,1),vmax=np.percentile(binned_uv_synth_prbp,99),origin="lower",
                        extent=[u_edges_prbp[0],u_edges_prbp[-1],v_edges_prbp[0],v_edges_prbp[-1]])
     clb=plt.colorbar(im,ax=axs[2,3])
     clb.ax.set_title("#bl")
@@ -372,7 +382,7 @@ for nu_obs in obs_freqs:
     axs[3,1].scatter(uvw_inst_both_here[:,0],uvw_inst_both_here[:,1],s=dotsize)
     for i in range(N_hr_angles):
         axs[3,2].scatter(uv_synth_both_here[:,0,i],uv_synth_both_here[:,1,i],color=colours_b[i],s=dotsize)
-    im=axs[3,3].imshow(binned_uv_synth_both,cmap="Blues",vmin=0.,vmax=np.percentile(binned_uv_synth_both,99),origin="lower",
+    im=axs[3,3].imshow(binned_uv_synth_both,cmap="Blues",vmin=np.percentile(binned_uv_synth_both,1),vmax=np.percentile(binned_uv_synth_both,99),origin="lower",
                        extent=[u_edges_both[0],u_edges_both[-1],v_edges_both[0],v_edges_both[-1]])
     clb=plt.colorbar(im,ax=axs[3,3])
     clb.ax.set_title("#bl")
@@ -393,4 +403,4 @@ for nu_obs in obs_freqs:
     plt.savefig("simulated_CHORD_512_"+str(int(nu_obs))+"_MHz_"+str(int(ant_pert*1e3))+"_mm_"+str(int(N_ant_to_pert))+"_ant.png",dpi=200)
     plt.show()
 
-    assert(1==0), "refining workflow with one frequency por ahora"
+    # assert(1==0), "refining workflow with one frequency por ahora"
