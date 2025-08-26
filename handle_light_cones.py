@@ -19,7 +19,6 @@ def stack_to_box(light_cone,
     Lxy_lc_low_z=lc_xy_bins[-1,0]-lc_xy_bins[0,0]
     Lz_lc=lc_z_bins[-1]-lc_z_bins[0]
     Delta=Lz_lc/Nz_lc
-    print("Nz_lc,Lxy_lc_low_z,Lz_lc,Delta=",Nz_lc,Lxy_lc_low_z,Lz_lc,Delta)
     Nxy=int(Lxy_lc_low_z/Delta)
     xy_ref=lc_xy_bins[0,0]
     box_xy=xy_ref+np.linspace(0,Lxy_lc_low_z,Nxy) # this one is dif, but box_z is the same as lc_z
@@ -27,20 +26,19 @@ def stack_to_box(light_cone,
 
     box=np.zeros((Nxy,Nxy,Nz_lc))
     for i in range(Nz_lc):
-        print("i=",i,": lc_xy_bins[:,i],box_xy=\n",lc_xy_bins[:,i],"\n",box_xy)
         lc_xy_bins_slice=lc_xy_bins[:,i]
-        box[:,:,i]=interpn((lc_xy_bins_slice,lc_xy_bins_slice),light_cone[:,:,i],(box_xx,box_yy),        method="cubic",bounds_error=False,fill_value=None)
+        box[:,:,i]=interpn((lc_xy_bins_slice,lc_xy_bins_slice),light_cone[:,:,i],(box_xx,box_yy),method=interp_method,bounds_error=avoid_extrap,fill_value=fill_value)
     
     return box,box_xy
 
-# create something (Nxy,Nxy,Nz) but that, if you were to plot it on a uniform grid, would be a truncated pyramid/ have light cone shape
+# test: create something (Nxy,Nxy,Nz) but that, if you were to plot it on a uniform grid, would be a truncated pyramid/ have light cone shape
 Nxy=7
 Nz=8
 xy_half=3.52
 z_range=9.12
 z_lo=1.6
 lc_z_bins=z_lo+np.linspace(0,z_range,Nz)
-lc_multiplier=1.05
+lc_multiplier=1.1
 lc_xy_bins=np.zeros((Nxy,Nz))
 lc_vals=np.zeros((Nxy,Nxy,Nz))
 for i in range(Nz):
@@ -51,14 +49,14 @@ for i in range(Nz):
 
 box,box_xy=stack_to_box(lc_vals,lc_xy_bins,lc_z_bins)
 
-fig,axs=plt.subplots(1,3)
-im=axs[0].imshow(box[0,:,:],origin="lower")
-plt.colorbar(im,ax=axs[0])
-im=axs[1].imshow(box[:,0,:],origin="lower")
-plt.colorbar(im,ax=axs[1])
-im=axs[2].imshow(box[:,:,0],origin="lower")
-plt.colorbar(im,ax=axs[2])
-plt.show()
+# fig,axs=plt.subplots(1,3)
+# im=axs[0].imshow(box[0,:,:],origin="lower")
+# plt.colorbar(im,ax=axs[0])
+# im=axs[1].imshow(box[:,0,:],origin="lower")
+# plt.colorbar(im,ax=axs[1])
+# im=axs[2].imshow(box[:,:,0],origin="lower")
+# plt.colorbar(im,ax=axs[2])
+# plt.show()
 
 fig,axs=plt.subplots(2,Nz,figsize=(25,7))
 title_prefix0=["light cone","","","","","","",""]
