@@ -2,7 +2,7 @@ import numpy as np
 import camb
 from camb import model
 from scipy.signal import convolve
-from scipy.interpolate import interpn,interp1d
+from scipy.interpolate import interpn,interp1d,RectBivariateSpline
 from scipy.special import j1
 from numpy.fft import fftshift,ifftshift,fftn,irfftn,fftfreq
 from cosmo_distances import *
@@ -75,9 +75,8 @@ def AiryGaussian_primary(X,Y,Z,sigLoS,fwhm_x,fwhm_y,r0):
     perp=((j1(argX+eps)*j1(argY+eps))/((argX+eps)*(argY+eps)))**2
     return par*perp
 
-
 """
-this module helps compute contaminant power and cosmological parameter biases using
+this class helps compute contaminant power and cosmological parameter biases using
 a Fisher-based formalism using two complementary strategies with different scopes:
 1. analytical windowing for a cylindrically symmetric Gaussian beam
 2. numerical  windowing for a Gaussian beam with different x- and y-pol widths
@@ -481,8 +480,9 @@ class window_calcs(object):
         print("........................................................................................")
         print("survey centred at.......................................................................\n    nu ={:>7.4}     MHz \n    z  = {:>9.4} \n    Dc = {:>9.4f}  Mpc\n".format(self.nu_ctr,self.z_ctr,self.r0))
         print("survey spans............................................................................\n    nu =  {:>5.4}    -  {:>5.4}    MHz (deltanu = {:>6.4}    MHz) \n    z =  {:>9.4} - {:>9.4}     (deltaz  = {:>9.4}    ) \n    Dc = {:>9.4f} - {:>9.4f} Mpc (deltaDc = {:>9.4f} Mpc)\n".format(self.nu_lo,self.nu_hi,self.bw,self.z_hi,self.z_lo,self.z_hi-self.z_lo,self.Dc_hi,self.Dc_lo,self.Dc_hi-self.Dc_lo))
-        print("characteristic instrument response widths...............................................\n    sigLoS = {:>7.4}     Mpc (frac. uncert. {:>7.4})\n    beamFWHM = {:>=8.4}  rad (frac. uncert. {:>7.4})\n".format(self.sigLoS,self.epsLoS,self.fwhm_x,self.epsx))
-        print("specific to the cylindrically asymmetric beam...........................................\n    beamFWHM1 {:>8.4} = rad (frac. uncert. {:>7.4}) \n".format(self.fwhm_y,self.epsy))
+        if (self.primary_beam_type.lower()!="manual"):
+            print("characteristic instrument response widths...............................................\n    sigLoS = {:>7.4}     Mpc (frac. uncert. {:>7.4})\n    beamFWHM = {:>=8.4}  rad (frac. uncert. {:>7.4})\n".format(self.sigLoS,self.epsLoS,self.fwhm_x,self.epsx))
+            print("specific to the cylindrically asymmetric beam...........................................\n    beamFWHM1 {:>8.4} = rad (frac. uncert. {:>7.4}) \n".format(self.fwhm_y,self.epsy))
         print("cylindrically binned wavenumbers of the survey..........................................\n    kparallel {:>8.4} - {:>8.4} Mpc**(-1) ({:>4} channels of width {:>7.4}  Mpc**(-1)) \n    kperp     {:>8.4} - {:>8.4} Mpc**(-1) ({:>4} bins of width {:>8.4} Mpc**(-1))\n".format(self.kpar_surv[0],self.kpar_surv[-1],self.Nkpar_surv,self.kpar_surv[-1]-self.kpar_surv[-2],   self.kperp_surv[0],self.kperp_surv[-1],self.Nkperp_surv,self.kperp_surv[-1]-self.kperp_surv[-2]))
         print("cylindrically binned k-bin sensitivity..................................................\n    fraction of Pcyl amplitude = {:>7.4}".format(self.frac_unc))
 
@@ -494,7 +494,7 @@ class window_calcs(object):
         return None
 
 """
-this module helps connect ensemble-averaged power spectrum estimates and 
+this class helps connect ensemble-averaged power spectrum estimates and 
 cosmological brighness temperature boxes for assorted interconnected use cases:
 1. generate a power spectrum that describes the statistics of a cosmo box
 2. generate realizations of a cosmo box consistent with a known power spectrum
@@ -504,8 +504,8 @@ cosmological brighness temperature boxes for assorted interconnected use cases:
 
 class cosmo_stats(object):
     def __init__(self,
-                 Lsurvey,                                                                # nonnegotiable for box->spec and spec->box calcs
-                 T_pristine=None,T_primary=None,P_fid=None,Nvox=None,                    # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
+                 Lxy,                                                                    # nonnegotiable for box->spec and spec->box calcs
+                 T_pristine=None,T_primary=None,P_fid=None,Nvox=None,Nvoxz=None,        # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
                  primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian",  # primary beam considerations
                  Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
                  frac_tol=0.1,                                                           # max number of realizations
@@ -514,42 +514,50 @@ class cosmo_stats(object):
                  verbose=False,                                                          # status updates for averaging over realizations
                  k_fid=None,kind="cubic",avoid_extrapolation=False,                      # helper vars for converting a 1d fid power spec to a box sampling
                  no_monopole=False,                                                      # consideration when generating boxes
-                 manual_primary_beam_modes=None                                          # when using a discretely sampled primary beam not sampled internally using a callable, it is necessary to provide knowledge of the modes at which it was sampled
+                 manual_primary_beam_modes=None,                                         # when using a discretely sampled primary beam not sampled internally using a callable, it is necessary to provide knowledge of the modes at which it was sampled
+                 Lz=None                                                                 # if passed: use rectangular prism box considerations (sky plane slice is square, but LoS extent can differ)
                  ):                                                                      # implement soon: synthesized beam considerations, other primary beam types, and more
         """
-        Lsurvey                   :: float                       :: side length of cosmo box         :: Mpc
-        T_pristine                :: (Nvox,Nvox,Nvox) of floats  :: cosmo box (just physics/no beam) :: K
-        T_primary                 :: (Nvox,Nvox,Nvox) of floats  :: cosmo box * primary beam         :: K
-        P_fid                     :: (Nk0_fid,) of floats        :: sph binned fiducial power spec   :: K^2 Mpc^3
-        Nvox                      :: float                       :: # voxels PER SIDE of cosmo box   :: ---
-        primary_beam              :: callable (or, if            :: power beam in Cartesian coords   :: ---
+        Lxy                       :: float                       :: side length of cosmo box          :: Mpc
+        T_pristine                :: (Nvox,Nvox,Nvox) of floats  :: cosmo box (just physics/no beam)  :: K
+        T_primary                 :: (Nvox,Nvox,Nvox) of floats  :: cosmo box * primary beam          :: K
+        P_fid                     :: (Nk0_fid,) of floats        :: sph binned fiducial power spec    :: K^2 Mpc^3
+        Nvox,Nvoxz                :: float                       :: cosmobox#vox/side,z-ax can differ :: ---
+        primary_beam              :: callable (or, if            :: power beam in Cartesian coords    :: ---
                                      primary_beam_type=="manual" 
                                      a 3D array)          
-        primary_beam_args         :: tuple of floats             :: Gaussian, AiryGaussian: μ, σ     :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
-        primary_beam_type         :: str                         :: for now: Gaussian / AiryGaussian :: ---
-        Nk0, Nk1                  :: int                         :: # power spec bins for axis 0/1   :: ---
-        binning_mode              :: str                         :: lin/log sp. P_realizations bins  :: ---
-        frac_tol                  :: float                       :: max fractional amount by which   :: ---
+        primary_beam_args         :: tuple of floats             :: Gaussian, AiryGaussian: μ, σ      :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
+        primary_beam_type         :: str                         :: for now: Gaussian / AiryGaussian  :: ---
+        Nk0, Nk1                  :: int                         :: # power spec bins for axis 0/1    :: ---
+        binning_mode              :: str                         :: lin/log sp. P_realizations bins   :: ---
+        frac_tol                  :: float                       :: max fractional amount by which    :: ---
                                                                     the p.s. avg can change w/ the 
                                                                     addition of the latest realiz. 
                                                                     and the ensemble average is 
                                                                     considered converged
-        k0bins_interp,            :: (Nk0_interp,) of floats     :: bins to which to interpolate the :: 1/Mpc
+        k0bins_interp,            :: (Nk0_interp,) of floats     :: bins to which to interpolate the  :: 1/Mpc
         k1bins_interp                (Nk1_interp,) of floats        converged power spec (prob set
                                                                     by survey considerations)
-        P_realizations            :: if Nk1==0: (Nk0,)    floats :: sph/cyl power specs for dif      :: K^2 Mpc^3
+        P_realizations            :: if Nk1==0: (Nk0,)    floats :: sph/cyl power specs for dif       :: K^2 Mpc^3
                                      if Nk1>0:  (Nk0,Nk1) floats    realizations of a cosmo box 
-        P_converged               :: same as that of P_fid       :: average of P_realizations        :: K^2 Mpc^3
-        verbose                   :: bool                        :: every 10% of realization_ceil    :: ---
-        k_fid                     :: (Nk0_fid,) of floats        :: modes where P_fid is sampled     :: 1/Mpc
-        kind                      :: str                         :: interp type                      :: ---
-        avoid_extrapolation       :: bool                        :: when calling scipy interpolators :: ---
-        no_monopole               :: bool                        :: y/n subtr. from generated boxes  :: ---
-        manual_primary_beam_modes :: primary_beam.shape of       :: domain of a discrete sampling    :: Mpc
+        P_converged               :: same as that of P_fid       :: average of P_realizations         :: K^2 Mpc^3
+        verbose                   :: bool                        :: every 10% of realization_ceil     :: ---
+        k_fid                     :: (Nk0_fid,) of floats        :: modes where P_fid is sampled      :: 1/Mpc
+        kind                      :: str                         :: interp type                       :: ---
+        avoid_extrapolation       :: bool                        :: when calling scipy interpolators  :: ---
+        no_monopole               :: bool                        :: y/n subtr. from generated boxes   :: ---
+        manual_primary_beam_modes :: primary_beam.shape of       :: domain of a discrete sampling     :: Mpc
                                      floats (when not callable) 
+        Lz                        :: float                       :: LoS box extent (if different)     :: Mpc
         """
         # spectrum and box
-        self.Lsurvey=Lsurvey
+        if (Lz is None): # cubic box
+            self.Lz=Lxy
+            self.Lxy=Lxy
+        else:            # the kind of rectangular prism box I care about for dirty image stacking
+            self.Lz=Lz
+            self.Lxy=Lxy
+        # self.Lsurvey=Lsurvey
         self.P_fid=P_fid
         self.T_primary=T_primary
         self.T_pristine=T_pristine
@@ -558,21 +566,31 @@ class cosmo_stats(object):
             raise NotEnoughInfoError
         elif ((P_fid is not None) and (T_primary is None) and (T_pristine is None) and (Nvox is None)):  # to generate boxes from a power spec, il faut some way of determining how many voxels to use per side
             raise NotEnoughInfoError
-        else:                                                           # there is possibly enough info to proceed, but still need to check for conflicts
+        else:                                                           # there is possibly enough info to proceed, but still need to check for conflicts and gaps
             if ((T_pristine is not None) and (T_primary is not None)):
                 print("WARNING: T_pristine and T_primary both passed; T_primary will be temporarily ignored and then internally overwritten to ensure consistency with primary_beam")
                 if (T_pristine.shape!=T_primary.shape):
                     raise ConflictingInfoError
+                else:                                                   # use box shape to set cubic/ rectangular prism box attributes
+                    self.Nvox,_,self.Nvoxz=T_primary.shape
             if ((Nvox is not None) and (T_pristine is not None)):       # possible conflict: if both Nvox and a box are passed, 
-                T_pristine_shape0=T_pristine.shape[0]
+                T_pristine_shape0,_,T_pristine_shape2=T_pristine.shape
                 if (Nvox!=T_pristine.shape[0]):                         # but Nvox and the box shape disagree,
                     raise ConflictingInfoError                          # estamos en problemas
                 else:
-                    self.Nvox=T_pristine_shape0                         # otherwise, initialize the Nvox attribute
-            elif (Nvox is not None):                                    # if Nvox was passed but T was not, use Nvox to initialize the Nvox attribute
-                self.Nvox=Nvox
-            else:                                                       # remaining case: T was passed but Nvox was not, so use the shape of T to initialize the Nvox attribute
-                self.Nvox=self.T_pristine_shape0
+                    self.Nvox= T_pristine_shape0                         # otherwise, initialize the Nvox attributes
+                    self.Nvoxz=T_pristine_shape2
+            elif (Nvox is not None):                                    # if Nvox was passed but T was not, use Nvox to initialize the Nvox attributes
+                self.Nvox=Nvox 
+                if (Nvoxz is None):
+                    self.Nvoxz=Nvox
+                else:
+                    self.Nvoxz=Nvoxz
+            else:                                                       # remaining case: T was passed but Nvox was not, so use the shape of T to initialize the Nvox attributes
+                self.Nvox= T_pristine_shape0
+                self.Nvoxz=T_pristine_shape2
+            if ((T_primary is not None) and (T_pristine is None)):      # passing T_primary but not T_pristine is not handled anywhere up to this point
+                self.Nvox,_,self.Nvoxz=T_primary.shape
             
             if (P_fid is not None): # no hi fa res si the fiducial power spectrum has a different dimensionality or bin width than the realizations you plan to generate (boxes will be generated from a grid-interpolated P_fid, anyway)
                 Pfidshape=P_fid.shape
@@ -581,10 +599,10 @@ class cosmo_stats(object):
                     if primary_beam is None: # trying to do a minimalistic instantiation where I merely provide a fiducial power spectrum and interpolate it
                         self.fid_Nk0,self.fid_Nk1=Pfidshape
                     else:
-                        try:
+                        try: # see if the power spec is a CAMB-esque (1,npts) array
                             P_fid=np.reshape(P_fid,(Pfidshape[-1],)) # make the CAMB MPS shape amenable to the calcs internal to this class
-                        except:
-                            raise NotYetImplementedError
+                        except: # barring that...
+                            pass # treat the power spectrum as being truly cylindrically binned
                 elif (Pfiddims==1):
                     self.fid_Nk0=Pfidshape[0] # already checked that P_fid is 1d, so no info is lost by extracting the int in this one-element tuple, and fid_Nk0 being an integer makes things work the way they should down the line
                     self.fid_Nk1=0
@@ -592,12 +610,16 @@ class cosmo_stats(object):
                     raise UnsupportedBinningMode
         
         # config space
-        self.Delta=self.Lsurvey/self.Nvox                            # voxel side length
-        self.d3r=self.Delta**3                                       # volume element / voxel volume
-        self.r_vec_for_box=self.Lsurvey*fftshift(fftfreq(self.Nvox))           # one Cartesian coordinate axis
-        self.xx_grid,self.yy_grid,self.zz_grid=np.meshgrid(self.r_vec_for_box,
-                                                           self.r_vec_for_box,
-                                                           self.r_vec_for_box,
+        self.Deltaxy=self.Lxy/self.Nvox                           # sky plane: voxel side length
+        self.xy_vec_for_box=self.Lxy*fftshift(fftfreq(self.Nvox)) # sky plane Cartesian config space coordinate axis
+        self.Deltaz=self.Lz/self.Nvox                             # line of sight voxel side length
+        self.z_vec_for_box=self.Lz*fftshift(fftfreq(self.Nvox))   # line of sight Cartesian config space coordinate axis
+        self.d3r=self.Deltaz*self.Deltaxy**2                      # volume element = voxel volume
+
+
+        self.xx_grid,self.yy_grid,self.zz_grid=np.meshgrid(self.xy_vec_for_box,
+                                                           self.xy_vec_for_box,
+                                                           self.z_vec_for_box,
                                                            indexing="ij")      # box-shaped Cartesian coords
         self.r_grid=np.sqrt(self.xx_grid**2+self.yy_grid**2+self.zz_grid**2)   # r magnitudes at each voxel
         self.rmag_grid_centre_flat=np.reshape(self.r_grid,(Nvox**3,))
@@ -617,20 +639,20 @@ class cosmo_stats(object):
                                                                                 self.k_vec_for_box_centre,
                                                                                 self.k_vec_for_box_centre,
                                                                                 indexing="ij")
-        # self.kmag_grid_centre=np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)
-        # self.kmag_grid_centre_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
 
         # if P_fid was passed, establish its values on the k grid (helpful when generating a box)
         self.k_fid=k_fid
         self.kind=kind
         self.avoid_extrapolation=avoid_extrapolation
         if (self.P_fid is not None and self.k_fid is not None):
-            try:
-                self.P_fid=np.reshape(self.P_fid,self.P_fid.shape[1])
+            if (len(self.P_fid.shape)==1): # truly 1d fiducial power spec (by this point, even CAMB-like shapes have been reshuffled)
+                # self.P_fid=np.reshape(self.P_fid,self.P_fid.shape[1])
                 self.P_fid_interp_1d_to_3d()
-            except:
-                print("no gridded P_fid was calculated because a 2D P_fid was passed")
-        # no gridded P_fid is established when a 2D P_fid is passed (this should only be when the only computation I'm interested in doing is an interpolation of a cyl binned power spec that I pass as P_fid for convenience)
+            elif (len(self.P_fid.shape)==2):
+                self.k_fid0,self.kfid1=self.k_fid # fiducial k-modes should be unpackable, since P_fid has been verified to be truly 2d
+                self.P_fid_interp_2d_to_3d()
+            else: # so far, I do not anticipate working with "truly three dimensional"/ unbinned power spectra
+                raise NotYetImplementedError
         
         # binning considerations
         self.binning_mode=binning_mode
@@ -675,7 +697,6 @@ class cosmo_stats(object):
                 self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
                 evaled_primary=self.primary_beam(self.xx_grid,self.yy_grid,self.zz_grid,self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0)
             elif (self.primary_beam_type=="manual"):
-                # self.manual_primary_beam_modes0,self.manual_primary_beam_modes1,self.manual_primary_beam_modes2=manual_primary_beam_modes
                 try:    # to access this branch, the manual/ numerically sampled primary beam needs to be close enough to a numpy array that it has a shape and not, e.g. a callable
                     primary_beam.shape
                 except: # primary beam is a callable (or something else without a shape method), which is not in line with how this part of the code is supposed to work
@@ -687,7 +708,6 @@ class cosmo_stats(object):
                                        self.primary_beam,
                                        (self.xx_grid,self.yy_grid,self.zz_grid),
                                        method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
-                # interpn((self.k0bins,self.k1bins),self.P_converged,(self.k0_interp_grid,self.k1_interp_grid),method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
             
             else:
                 raise NotYetImplementedError
@@ -723,7 +743,7 @@ class cosmo_stats(object):
 
     def calc_bins(self,Nki):
         """
-        philosophy: generate a set of bins spaced according to the desired scheme with max and min
+        generate a set of bins spaced according to the desired scheme with max and min
         """
         if (self.binning_mode=="log"):
             kbins=np.logspace(np.log10(self.kmin_box),np.log10(self.kmax_box),num=Nki)
@@ -738,12 +758,22 @@ class cosmo_stats(object):
     
     def P_fid_interp_1d_to_3d(self):
         """
-        interpolate a "physics-only" (spherically symmetric) power spectrum (e.g. from CAMB) to a 3D cosmological box.
-        for now, I don't have a solution better than overwriting the k=0 term after the fact (because extrapolation to this term based on a reasonable CAMB call leads to negative power there)
+        * interpolate a "physics-only" (spherically symmetric) power spectrum (e.g. from CAMB) to a 3D cosmological box.
+        * for now, I don't have a solution better than overwriting the k=0 term after the fact (because extrapolation to this term based on a reasonable CAMB call leads to negative power there)
         """
         P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
         P_interp_flat=P_fid_interpolator(self.kmag_grid_corner_flat)
         self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
+
+    def P_fid_interp_2d_to_3d(self):
+        """
+        * interpolate a systematics-/RSD-aware (cylindrically binned) power spectrum to a 3D cosmological box
+        * for the time being: same disclaimer about overwriting the k=0 term after the fact as for P_fid_interp_1d_to_3d
+        """
+         # only called when
+        P_fid_interpolator=RectBivariateSpline(self.k_fid0,self.k_fid1,self.P_fid.T)
+        # P_fid_interpolator=
+        raise NotYetImplementedError
             
     def generate_P(self,send_to_P_fid=False):
         """
@@ -834,6 +864,12 @@ class cosmo_stats(object):
         self.T_primary=T*self.evaled_primary
 
     def avg_realizations(self):
+        """
+        philosophy:
+        * since P->box is not deterministic,
+        * compute the power spectra from a bunch of generated boxes and average them together
+        * realization ceiling precalculated from the Poisson noise–related fractional tolerance
+        """
         assert(self.P_fid is not None), "cannot average over numerically windowed realizations without a fiducial power spec"
         self.not_converged=True
         i=0
@@ -857,6 +893,8 @@ class cosmo_stats(object):
 
     def interpolate_P(self,use_P_fid=False):
         """
+        typical use: interpolate a power spectrum binned sph/cyl to modes accessible by the box to modes of interest for the survey being forecast
+
         notes
         * default behaviour upon requesting extrapolation: 
           "ValueError: One of the requested xi is out of bounds in dimension 0"
