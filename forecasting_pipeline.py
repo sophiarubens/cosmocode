@@ -161,7 +161,7 @@ class window_calcs(object):
         self.dpar=dpar
         self.nu_ctr=nu_ctr
         self.Deltanu=delta_nu
-        self.bw=nu_ctr*evol_restriction_threshold # previously called NDeltanu
+        self.bw=nu_ctr*evol_restriction_threshold # previously NDeltanu
         self.Nchan=int(self.bw/self.Deltanu)
         self.z_ctr=freq2z(nu_rest_21,nu_ctr)
         self.nu_lo=self.nu_ctr-self.bw/2.
@@ -624,9 +624,11 @@ class cosmo_stats(object):
         self.Deltakz= twopi/self.Lz
         self.d3k=self.Deltakxy**2*self.Deltakz                              # volume element / voxel volume
         self.kxy_vec_for_box_corner=twopi*fftfreq(self.Nvox,d=self.Deltaxy) # one Cartesian coordinate axis - non-fftshifted/ corner origin
-        self.kz_vec_for_box_corner= twopi*fftfreq(self.Nvox,d=self.Deltaz)
-        self.kxy_vec_for_box_centre=fftshift(self.kxy_vec_for_box_corner)     # one Cartesian coordinate axis -     fftshifted/ centre origin
+        self.kz_vec_for_box_corner= twopi*fftfreq(self.Nvoxz,d=self.Deltaz)
+        self.kxy_vec_for_box_centre=fftshift(self.kxy_vec_for_box_corner)   # one Cartesian coordinate axis -     fftshifted/ centre origin
         self.kz_vec_for_box_centre= fftshift(self.kz_vec_for_box_corner)
+        # self.kxy_vec_for_box_centre=twopi*fftshift(fftfreq(self.Nvox, d=self.Deltakxy)) ###
+        self.kz_vec_for_box_centre= twopi*fftshift(fftfreq(self.Nvoxz,d=self.Deltaz)) ###
         self.kx_grid_corner,self.ky_grid_corner,self.kz_grid_corner=np.meshgrid(self.kxy_vec_for_box_corner,
                                                                                 self.kxy_vec_for_box_corner,
                                                                                 self.kz_vec_for_box_corner,
@@ -659,7 +661,6 @@ class cosmo_stats(object):
         self.kmax_box_z=  pi/self.Deltaz
         self.kmin_box_xy= twopi/self.Lxy
         self.kmin_box_z=  twopi/self.Lz
-        # /// RETROFITTING CALC_BINS TO ALLOW SPECIFICATION FOR RECT PRISM VS CUBIC BOXES # calc_bins(self,Nki,Nvox_to_use,kmin_to_use,kmax_to_use)
         self.k0bins,self.limiting_spacing_0=self.calc_bins(self.Nk0,self.Nvoxz,self.kmin_box_z,self.kmax_box_z)
         if self.limiting_spacing_0<self.Deltakz: # trying to bin more finely than the box can tell you about (guaranteed to have >=1 empty bin)
             raise ResolutionError
@@ -671,17 +672,14 @@ class cosmo_stats(object):
         else:
             self.k1bins=None
         
-            # voxel grids for sph binning
-        self.sph_bin_indices_corner=      np.digitize(self.kmag_grid_corner,self.k0bins)                                  # sph bin that each voxel falls into
-        self.sph_bin_indices_1d_corner=   np.reshape(self.sph_bin_indices_corner, (self.Nvox**2*self.Nvoxz,)) # 1d version of ^ (compatible with np.bincount)
-        
-        self.k_grid_centre=               np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)   # same thing but fftshifted/ centre-origin (need for the generate_P direction)
+            # voxel grids for sph binning        
+        self.k_grid_centre=               np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)   # useful for the generate_P direction
         self.sph_bin_indices_centre=      np.digitize(self.k_grid_centre,self.k0bins)
         self.sph_bin_indices_1d_centre=   np.reshape(self.sph_bin_indices_centre, (self.Nvox**2*self.Nvoxz,))
 
             # voxel grids for cyl binning
         if (self.Nk1>0):
-            self.kpar_column_centre= np.abs(self.kz_vec_for_box_centre)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
+            self.kpar_column_centre= np.abs(self.kz_vec_for_box_centre)                                         # magnitudes of kpar for a representative column along the line of sight (z-like)
             self.kperp_slice_centre= np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2)[:,:,0]              # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
             self.perpbin_indices_slice_centre=    np.digitize(self.kperp_slice_centre,self.k1bins)              # cyl kperp bin that each voxel falls into
             self.perpbin_indices_slice_1d_centre= np.reshape(self.perpbin_indices_slice_centre,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
@@ -762,6 +760,7 @@ class cosmo_stats(object):
         * for now, I don't have a solution better than overwriting the k=0 term after the fact (because extrapolation to this term based on a reasonable CAMB call leads to negative power there)
         """
         P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
+        # P_interp_flat=P_fid_interpolator(fftshift(self.kmag_grid_centre_flat)) # need to ifftshift to bring to corner (numpy's default is corner, fftshift takes that to centre, and ifftshift takes centre to corner)
         P_interp_flat=P_fid_interpolator(self.kmag_grid_corner_flat)
         self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
             
@@ -776,8 +775,7 @@ class cosmo_stats(object):
 
         T_tilde=            fftshift(fftn((ifftshift(self.T_pristine)*self.d3r)))
         modsq_T_tilde=     (T_tilde*np.conjugate(T_tilde)).real
-        modsq_T_tilde[:,:,self.Nvox//2]*=2 # attempt to fix the line of sight stripe numerically (study the formerly stripy plot) (LOOKS OKAY FOR ODD NVOX/SIDE) (there is a corner-L that remains stripy this way for EVEN Nvox/side, but that follows from the math iirc)
-
+        modsq_T_tilde[:,:,self.Nvox//2]*=2 # fix pos/neg duplication issue at the origin
         if (self.Nk1==0):   # bin to sph
             modsq_T_tilde_1d= np.reshape(modsq_T_tilde,    (self.Nvox**3,))
 
