@@ -504,8 +504,8 @@ cosmological brighness temperature boxes for assorted interconnected use cases:
 
 class cosmo_stats(object):
     def __init__(self,
-                 Lxy,                                                                    # nonnegotiable for box->spec and spec->box calcs
-                 T_pristine=None,T_primary=None,P_fid=None,Nvox=None,Nvoxz=None,        # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
+                 Lxy,Lz=None,                                                            # one scaling is nonnegotiable for box->spec and spec->box calcs; the other would be useful for rectangular prism box considerations (sky plane slice is square, but LoS extent can differ)
+                 T_pristine=None,T_primary=None,P_fid=None,Nvox=None,Nvoxz=None,         # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
                  primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian",  # primary beam considerations
                  Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
                  frac_tol=0.1,                                                           # max number of realizations
@@ -515,10 +515,9 @@ class cosmo_stats(object):
                  k_fid=None,kind="cubic",avoid_extrapolation=False,                      # helper vars for converting a 1d fid power spec to a box sampling
                  no_monopole=False,                                                      # consideration when generating boxes
                  manual_primary_beam_modes=None,                                         # when using a discretely sampled primary beam not sampled internally using a callable, it is necessary to provide knowledge of the modes at which it was sampled
-                 Lz=None                                                                 # if passed: use rectangular prism box considerations (sky plane slice is square, but LoS extent can differ)
                  ):                                                                      # implement soon: synthesized beam considerations, other primary beam types, and more
         """
-        Lxy                       :: float                       :: side length of cosmo box          :: Mpc
+        Lxy,Lz                    :: float                       :: side length of cosmo box          :: Mpc
         T_pristine                :: (Nvox,Nvox,Nvox) of floats  :: cosmo box (just physics/no beam)  :: K
         T_primary                 :: (Nvox,Nvox,Nvox) of floats  :: cosmo box * primary beam          :: K
         P_fid                     :: (Nk0_fid,) of floats        :: sph binned fiducial power spec    :: K^2 Mpc^3
@@ -548,7 +547,6 @@ class cosmo_stats(object):
         no_monopole               :: bool                        :: y/n subtr. from generated boxes   :: ---
         manual_primary_beam_modes :: primary_beam.shape of       :: domain of a discrete sampling     :: Mpc
                                      floats (when not callable) 
-        Lz                        :: float                       :: LoS box extent (if different)     :: Mpc
         """
         # spectrum and box
         if (Lz is None): # cubic box
@@ -562,34 +560,32 @@ class cosmo_stats(object):
         self.T_primary=T_primary
         self.T_pristine=T_pristine
         self.no_monopole=no_monopole
-        if ((T_primary is None) and (T_pristine is None) and (P_fid is None)):                           # must start with either a box or a fiducial power spec
+        if ((T_primary is None) and (T_pristine is None) and (P_fid is None)): # require either a box or a fiducial power spec (il faut some way of determining #voxels/side; passing just Nvox is not good enough)
             raise NotEnoughInfoError
-        elif ((P_fid is not None) and (T_primary is None) and (T_pristine is None) and (Nvox is None)):  # to generate boxes from a power spec, il faut some way of determining how many voxels to use per side
-            raise NotEnoughInfoError
-        else:                                                           # there is possibly enough info to proceed, but still need to check for conflicts and gaps
+        else:                                                                  # there is possibly enough info to proceed, but still need to check for conflicts and gaps
             if ((T_pristine is not None) and (T_primary is not None)):
                 print("WARNING: T_pristine and T_primary both passed; T_primary will be temporarily ignored and then internally overwritten to ensure consistency with primary_beam")
                 if (T_pristine.shape!=T_primary.shape):
                     raise ConflictingInfoError
-                else:                                                   # use box shape to set cubic/ rectangular prism box attributes
+                else:                                                          # use box shape to set cubic/ rectangular prism box attributes
                     self.Nvox,_,self.Nvoxz=T_primary.shape
-            if ((Nvox is not None) and (T_pristine is not None)):       # possible conflict: if both Nvox and a box are passed, 
+            if ((Nvox is not None) and (T_pristine is not None)):              # possible conflict: if both Nvox and a box are passed, 
                 T_pristine_shape0,_,T_pristine_shape2=T_pristine.shape
-                if (Nvox!=T_pristine.shape[0]):                         # but Nvox and the box shape disagree,
-                    raise ConflictingInfoError                          # estamos en problemas
+                if (Nvox!=T_pristine.shape[0]):                                # but Nvox and the box shape disagree,
+                    raise ConflictingInfoError                                 # estamos en problemas
                 else:
-                    self.Nvox= T_pristine_shape0                         # otherwise, initialize the Nvox attributes
+                    self.Nvox= T_pristine_shape0                               # otherwise, initialize the Nvox attributes
                     self.Nvoxz=T_pristine_shape2
-            elif (Nvox is not None):                                    # if Nvox was passed but T was not, use Nvox to initialize the Nvox attributes
+            elif (Nvox is not None):                                           # if Nvox was passed but T was not, use Nvox to initialize the Nvox attributes
                 self.Nvox=Nvox 
-                if (Nvoxz is None):
+                if (Nvoxz is None):                                            # if no Nvoxz was provided, make the box cubic
                     self.Nvoxz=Nvox
                 else:
                     self.Nvoxz=Nvoxz
-            else:                                                       # remaining case: T was passed but Nvox was not, so use the shape of T to initialize the Nvox attributes
+            else:                                                              # remaining case: T was passed but Nvox was not, so use the shape of T to initialize the Nvox attributes
                 self.Nvox= T_pristine_shape0
                 self.Nvoxz=T_pristine_shape2
-            if ((T_primary is not None) and (T_pristine is None)):      # passing T_primary but not T_pristine is not handled anywhere up to this point
+            if ((T_primary is not None) and (T_pristine is None)):             # passing T_primary but not T_pristine is not handled anywhere up to this point
                 self.Nvox,_,self.Nvoxz=T_primary.shape
             
             if (P_fid is not None): # no hi fa res si the fiducial power spectrum has a different dimensionality or bin width than the realizations you plan to generate (boxes will be generated from a grid-interpolated P_fid, anyway)
@@ -600,7 +596,7 @@ class cosmo_stats(object):
                         self.fid_Nk0,self.fid_Nk1=Pfidshape
                     else:
                         try: # see if the power spec is a CAMB-esque (1,npts) array
-                            P_fid=np.reshape(P_fid,(Pfidshape[-1],)) # make the CAMB MPS shape amenable to the calcs internal to this class
+                            self.P_fid=np.reshape(P_fid,(Pfidshape[-1],)) # make the CAMB MPS shape amenable to the calcs internal to this class
                         except: # barring that...
                             pass # treat the power spectrum as being truly cylindrically binned
                 elif (Pfiddims==1):
@@ -612,32 +608,34 @@ class cosmo_stats(object):
         # config space
         self.Deltaxy=self.Lxy/self.Nvox                           # sky plane: voxel side length
         self.xy_vec_for_box=self.Lxy*fftshift(fftfreq(self.Nvox)) # sky plane Cartesian config space coordinate axis
-        self.Deltaz=self.Lz/self.Nvox                             # line of sight voxel side length
-        self.z_vec_for_box=self.Lz*fftshift(fftfreq(self.Nvox))   # line of sight Cartesian config space coordinate axis
+        self.Deltaz= self.Lz/self.Nvoxz                           # line of sight voxel side length
+        self.z_vec_for_box= self.Lz*fftshift(fftfreq(self.Nvoxz)) # line of sight Cartesian config space coordinate axis
         self.d3r=self.Deltaz*self.Deltaxy**2                      # volume element = voxel volume
-
 
         self.xx_grid,self.yy_grid,self.zz_grid=np.meshgrid(self.xy_vec_for_box,
                                                            self.xy_vec_for_box,
                                                            self.z_vec_for_box,
                                                            indexing="ij")      # box-shaped Cartesian coords
         self.r_grid=np.sqrt(self.xx_grid**2+self.yy_grid**2+self.zz_grid**2)   # r magnitudes at each voxel
-        self.rmag_grid_centre_flat=np.reshape(self.r_grid,(Nvox**3,))
+        self.rmag_grid_centre_flat=np.reshape(self.r_grid,(self.Nvox*self.Nvoxz**2,))
 
         # Fourier space
-        self.Deltak=twopi/self.Lsurvey                                  # voxel side length
-        self.d3k=self.Deltak**3                                         # volume element / voxel volume
-        self.k_vec_for_box_corner=twopi*fftfreq(self.Nvox,d=self.Delta) # one Cartesian coordinate axis - non-fftshifted/ corner origin
-        self.k_vec_for_box_centre=fftshift(self.k_vec_for_box_corner)   # one Cartesian coordinate axis -     fftshifted/ centre origin
-        self.kx_grid_corner,self.ky_grid_corner,self.kz_grid_corner=np.meshgrid(self.k_vec_for_box_corner,
-                                                                                self.k_vec_for_box_corner,
-                                                                                self.k_vec_for_box_corner,
+        self.Deltakxy=twopi/self.Lxy                                        # voxel side length
+        self.Deltakz= twopi/self.Lz
+        self.d3k=self.Deltakxy**2*self.Deltakz                              # volume element / voxel volume
+        self.kxy_vec_for_box_corner=twopi*fftfreq(self.Nvox,d=self.Deltaxy) # one Cartesian coordinate axis - non-fftshifted/ corner origin
+        self.kz_vec_for_box_corner= twopi*fftfreq(self.Nvox,d=self.Deltaz)
+        self.kxy_vec_for_box_centre=fftshift(self.kxy_vec_for_box_corner)     # one Cartesian coordinate axis -     fftshifted/ centre origin
+        self.kz_vec_for_box_centre= fftshift(self.kz_vec_for_box_corner)
+        self.kx_grid_corner,self.ky_grid_corner,self.kz_grid_corner=np.meshgrid(self.kxy_vec_for_box_corner,
+                                                                                self.kxy_vec_for_box_corner,
+                                                                                self.kz_vec_for_box_corner,
                                                                                 indexing="ij")               # box-shaped Cartesian coords
         self.kmag_grid_corner= np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2+self.kz_grid_corner**2) # k magnitudes for each voxel (need for the generate_box direction)
-        self.kmag_grid_corner_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**3,))
-        self.kx_grid_centre,self.ky_grid_centre,self.kz_grid_centre=np.meshgrid(self.k_vec_for_box_centre,
-                                                                                self.k_vec_for_box_centre,
-                                                                                self.k_vec_for_box_centre,
+        self.kmag_grid_corner_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**2*self.Nvoxz,))
+        self.kx_grid_centre,self.ky_grid_centre,self.kz_grid_centre=np.meshgrid(self.kxy_vec_for_box_centre,
+                                                                                self.kxy_vec_for_box_centre,
+                                                                                self.kz_vec_for_box_centre,
                                                                                 indexing="ij")
 
         # if P_fid was passed, establish its values on the k grid (helpful when generating a box)
@@ -646,7 +644,6 @@ class cosmo_stats(object):
         self.avoid_extrapolation=avoid_extrapolation
         if (self.P_fid is not None and self.k_fid is not None):
             if (len(self.P_fid.shape)==1): # truly 1d fiducial power spec (by this point, even CAMB-like shapes have been reshuffled)
-                # self.P_fid=np.reshape(self.P_fid,self.P_fid.shape[1])
                 self.P_fid_interp_1d_to_3d()
             elif (len(self.P_fid.shape)==2):
                 self.k_fid0,self.kfid1=self.k_fid # fiducial k-modes should be unpackable, since P_fid has been verified to be truly 2d
@@ -658,30 +655,33 @@ class cosmo_stats(object):
         self.binning_mode=binning_mode
         self.Nk0=Nk0 # the number of bins to put in power spec realizations you construct (ok if not the same as the number of bins in the fiducial power spec)
         self.Nk1=Nk1
-        self.kmax_box=   pi/self.Delta
-        self.kmin_box=twopi/self.Lsurvey
-        self.k0bins,self.limiting_spacing_0=self.calc_bins(self.Nk0)
-        if self.limiting_spacing_0<self.Deltak: # trying to bin more finely than the box can tell you about (guaranteed to have >=1 empty bin)
+        self.kmax_box_xy= pi/self.Deltaxy
+        self.kmax_box_z=  pi/self.Deltaz
+        self.kmin_box_xy= twopi/self.Lxy
+        self.kmin_box_z=  twopi/self.Lz
+        # /// RETROFITTING CALC_BINS TO ALLOW SPECIFICATION FOR RECT PRISM VS CUBIC BOXES # calc_bins(self,Nki,Nvox_to_use,kmin_to_use,kmax_to_use)
+        self.k0bins,self.limiting_spacing_0=self.calc_bins(self.Nk0,self.Nvoxz,self.kmin_box_z,self.kmax_box_z)
+        if self.limiting_spacing_0<self.Deltakz: # trying to bin more finely than the box can tell you about (guaranteed to have >=1 empty bin)
             raise ResolutionError
         
         if (self.Nk1>0):
-            self.k1bins,self.limiting_spacing_1=self.calc_bins(self.Nk1)
-            if (self.limiting_spacing_1<self.Deltak): # idem ^
+            self.k1bins,self.limiting_spacing_1=self.calc_bins(self.Nk1,self.Nvox,self.kmin_box_xy,self.kmax_box_xy)
+            if (self.limiting_spacing_1<self.Deltakxy): # idem ^
                 raise ResolutionError
         else:
             self.k1bins=None
         
             # voxel grids for sph binning
         self.sph_bin_indices_corner=      np.digitize(self.kmag_grid_corner,self.k0bins)                                  # sph bin that each voxel falls into
-        self.sph_bin_indices_1d_corner=   np.reshape(self.sph_bin_indices_corner, (self.Nvox**3,)) # 1d version of ^ (compatible with np.bincount)
+        self.sph_bin_indices_1d_corner=   np.reshape(self.sph_bin_indices_corner, (self.Nvox**2*self.Nvoxz,)) # 1d version of ^ (compatible with np.bincount)
         
         self.k_grid_centre=               np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)   # same thing but fftshifted/ centre-origin (need for the generate_P direction)
         self.sph_bin_indices_centre=      np.digitize(self.k_grid_centre,self.k0bins)
-        self.sph_bin_indices_1d_centre=   np.reshape(self.sph_bin_indices_centre, (self.Nvox**3,))
+        self.sph_bin_indices_1d_centre=   np.reshape(self.sph_bin_indices_centre, (self.Nvox**2*self.Nvoxz,))
 
             # voxel grids for cyl binning
         if (self.Nk1>0):
-            self.kpar_column_centre= np.abs(self.k_vec_for_box_centre)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
+            self.kpar_column_centre= np.abs(self.kz_vec_for_box_centre)                                          # magnitudes of kpar for a representative column along the line of sight (z-like)
             self.kperp_slice_centre= np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2)[:,:,0]              # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
             self.perpbin_indices_slice_centre=    np.digitize(self.kperp_slice_centre,self.k1bins)              # cyl kperp bin that each voxel falls into
             self.perpbin_indices_slice_1d_centre= np.reshape(self.perpbin_indices_slice_centre,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
@@ -711,11 +711,11 @@ class cosmo_stats(object):
             
             else:
                 raise NotYetImplementedError
-            self.Veff=np.sum(evaled_primary*self.d3r)        # rectangular sum method
+            self.Veff=np.sum(evaled_primary*self.d3r)           # rectangular sum method
             evaled_primary[evaled_primary<nearly_zero]=maxfloat # protect against division-by-zero errors
             self.evaled_primary=evaled_primary
         else:                               # identity primary beam
-            self.Veff=self.Lsurvey**3
+            self.Veff=self.Lxy**2*self.Lz
             self.evaled_primary=np.ones((self.Nvox,self.Nvox,self.Nvox))
         if (self.T_pristine is not None):
             self.T_primary=self.T_pristine*self.evaled_primary
@@ -741,16 +741,16 @@ class cosmo_stats(object):
         self.P_interp=None                     # can't init with this because, if you had one, there'd be no point of using cosmo_stats b/c the job is already done (at best, you can provide a P_fid)
         self.not_converged=None
 
-    def calc_bins(self,Nki):
+    def calc_bins(self,Nki,Nvox_to_use,kmin_to_use,kmax_to_use):
         """
         generate a set of bins spaced according to the desired scheme with max and min
         """
         if (self.binning_mode=="log"):
-            kbins=np.logspace(np.log10(self.kmin_box),np.log10(self.kmax_box),num=Nki)
-            limiting_spacing=twopi*(10.**(self.kmax_box)-10.**(self.kmax_box-(np.log10(self.Nvox)/Nki)))
+            kbins=np.logspace(np.log10(kmin_to_use),np.log10(kmax_to_use),num=Nki)
+            limiting_spacing=twopi*(10.**(kmax_to_use)-10.**(kmax_to_use-(np.log10(Nvox_to_use)/Nki))) # twopi*(10.**(self.kmax_box)-10.**(self.kmax_box-(np.log10(self.Nvox)/Nki)))
         elif (self.binning_mode=="lin"):
-            kbins=np.linspace(self.kmin_box,self.kmax_box,Nki)
-            limiting_spacing=twopi*(0.5*self.Nvox-1)/(Nki) # version for a kmax that is "aware that" there are +/- k-coordinates in the box
+            kbins=np.linspace(kmin_to_use,kmax_to_use,Nki)
+            limiting_spacing=twopi*(0.5*Nvox_to_use-1)/(Nki) # version for a kmax that is "aware that" there are +/- k-coordinates in the box
         else:
             raise UnsupportedBinningMode
         return kbins,limiting_spacing # kbins            -> floors of the bins to which the power spectrum will be binned (along one axis)
@@ -764,16 +764,6 @@ class cosmo_stats(object):
         P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
         P_interp_flat=P_fid_interpolator(self.kmag_grid_corner_flat)
         self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
-
-    def P_fid_interp_2d_to_3d(self):
-        """
-        * interpolate a systematics-/RSD-aware (cylindrically binned) power spectrum to a 3D cosmological box
-        * for the time being: same disclaimer about overwriting the k=0 term after the fact as for P_fid_interp_1d_to_3d
-        """
-         # only called when
-        P_fid_interpolator=RectBivariateSpline(self.k_fid0,self.k_fid1,self.P_fid.T)
-        # P_fid_interpolator=
-        raise NotYetImplementedError
             
     def generate_P(self,send_to_P_fid=False):
         """
