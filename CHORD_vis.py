@@ -45,15 +45,15 @@ def get_padding(n):
     padding_hi=padding-padding_lo
     return padding_lo,padding_hi
 
-def CHORD_antenna_positions(N_NS=N_NS,N_EW=N_EW,offset_deg=1.75,                    # basics required to specify a CHORD-like array
-                            num_antpos_to_perturb=0,antpos_perturbation_sigma=1e-3, # controls for examining the effect of misplaced antennas
-                            num_pbs_to_perturb=0,pb_perturbation_sigma=1e-3,        # controls for examining the effect of primary beam width mischaracterizations on a per-antenna basis
+def CHORD_antenna_positions(b_NS=b_NS,b_EW=b_EW,N_NS=N_NS,N_EW=N_EW,offset_deg=1.75, # basics required to specify a CHORD-like array
+                            num_antpos_to_perturb=0,antpos_perturbation_sigma=1e-3,  # controls for examining the effect of misplaced antennas
+                            num_pbs_to_perturb=0,pb_perturbation_sigma=1e-3,         # controls for examining the effect of primary beam width mischaracterizations on a per-antenna basis
                             observatory_latitude=DRAO_lat):       
     N_ant=N_NS*N_EW
     antennas_EN=np.zeros((N_ant,2))
     for i in range(N_NS):
         for j in range(N_EW):
-            antennas_EN[i*N_EW+j,:]=[i*N_NS,j*N_EW]
+            antennas_EN[i*N_EW+j,:]=[j*b_EW,i*b_NS]
     antennas_EN-=np.mean(antennas_EN,axis=0) # centre the Easting-Northing axes in the middle of the array
     offset=offset_deg*np.pi/180. # actual CHORD is not perfectly aligned to the NS/EW grid. Eyeballed angular offset.
     offset_from_latlon_rotmat=np.array([[np.cos(offset),-np.sin(offset)],[np.sin(offset),np.cos(offset)]]) # use this rotation matrix to adjust the NS/EW-only coords
@@ -86,7 +86,7 @@ def CHORD_antenna_positions(N_NS=N_NS,N_EW=N_EW,offset_deg=1.75,                
     if (num_pbs_to_perturb>0):
         indices_pbs=np.random.randint(0,N_ant,size=num_pbs_to_perturb) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
         pb_perturbations=np.zeros((N_ant,))
-        pb_perturbations[indices_pbs]=np.random.uniform(size=np.insert(num_pbs_to_perturb,0,1))
+        pb_perturbations[indices_pbs]=pb_perturbation_sigma*np.random.uniform(size=np.insert(num_pbs_to_perturb,0,1))
         ant_pb_frac_widths+=pb_perturbations
     else:
         indices_pbs=None
@@ -94,9 +94,9 @@ def CHORD_antenna_positions(N_NS=N_NS,N_EW=N_EW,offset_deg=1.75,                
 
 def gaussian_primary_beam_uv(u,v,ctr,fwhm):
     u0,v0=ctr
-    evaled=((pi*log2)/(fwhm**2))*np.exp(-(((u-u0)**2+(v-v0)**2)*fwhm**2)/(4*np.log(2)))
+    evaled=((pi*log2)/(fwhm**2))*np.exp(-pi**2*(((u-u0)**2+(v-v0)**2)*fwhm**2)/np.log(2))
     # fwhmx,fwhmy=fwhm
-    # evaled=((pi*log2)/(fwhmx*fwhmy))*np.exp(-((u-u0)**2*fwhmx**2+(v-v0)**2*fwhmy**2)/(4*np.log(2)))
+    # evaled=((pi*log2)/(fwhmx*fwhmy))*np.exp(-pi**2*((u-u0)**2*fwhmx**2+(v-v0)**2*fwhmy**2)/np.log(2))
     return evaled
 
 def calc_inst_uvw(antennas_xyz,antenna_pbs,N_NS=N_NS,N_EW=N_EW):
@@ -116,7 +116,7 @@ def calc_inst_uvw(antennas_xyz,antenna_pbs,N_NS=N_NS,N_EW=N_EW):
     pbw=np.hstack((pbw,pbw))
     return uvw,pbw
 
-def calc_rot_synth_uv(uvw,lambda_obs=nu_HI_z0,num_hrs=1./2.,num_timesteps=15,dec=30.): # take [:,:,0] for the instantaneous uv-coverage
+def calc_rot_synth_uv(uvw,lambda_obs=c/(nu_HI_z0*1e6),num_hrs=1./2.,num_timesteps=15,dec=30.): # take [:,:,0] for the instantaneous uv-coverage
     """
     * output shape is (N_bl,3,num_timesteps)
     * accumulate xyz->uvw transformations at each time step
@@ -149,34 +149,26 @@ def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,nbins_coarse=32,nbins
     N_bl,_,N_hr_angles=uv_synth.shape
     uvmin=np.min([np.min(uv_synth[:,0,:]),np.min(uv_synth[:,1,:])]) # better to deal with a square image
     uvmax=np.max([np.max(uv_synth[:,0,:]),np.max(uv_synth[:,1,:])])
-    thetamax=twopi/uvmax
+    thetamax=1/uvmax # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
     uvbins=np.linspace(uvmin,uvmax,nbins) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
+    d2u=uvbins[1]-uvbins[0]
     uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij") #,sparse=True)
     baselines_w_perturbed_pbs=np.nonzero(pbws!=1)
-    baselines_w_unperturbed_pbs=np.nonzero(pbws==1)
     N_pe_bl=np.count_nonzero(pbws!=1)
     N_unpe_bl=N_bl-N_pe_bl
-    print("N_pe_bl=",N_pe_bl)
-    # print("baselines_w_unperturbed_pbs.shape=",baselines_w_unperturbed_pbs.shape) # can't technically ask for this bc baselines_w_unperturbed_pbs is a tuple (as per the np.nonzero docs, this is necessarily the case, b/c the output is designed to be suitable for array indexing)
-    # uv_synth_unpe_beam=uv_synth[baselines_w_unperturbed_pbs,:,:]
     uv_synth_pert_beam=uv_synth[pbws!=1]
     uv_synth_unpe_beam=uv_synth[pbws==1] # have to do it natively pythonically instead of with the np.nonzero output b/c the nonzero output is really only designed to index an array of the same shape as pbws, which is notably not the same shape as the actual list of uv-coverage points
-    print("uv_synth_unpe_beam.shape=",uv_synth_unpe_beam.shape)
     pbws_pe=pbws[baselines_w_perturbed_pbs]
-    print("pbws_pe=",pbws_pe)
 
     if (N_pe_bl>0):     # handle baselines with    perturbed primary beams using the "accumulate Gaussians" strategy
-        print("entering not-a-convolution case")
-        print("pbws_pe=",pbws_pe)
         # compromise approach to the slow alternative to convolution: start coarse...
-        uvbins_coarse=np.linspace(uvmin,uvmax,nbins_coarse) # GET IT TO RUN FIRST, AND THEN TRY TO STEP BACK FROM THE CONVOLUTION
+        uvbins_coarse=np.linspace(uvmin,uvmax,nbins_coarse)
         uubins_coarse,vvbins_coarse=np.meshgrid(uvbins_coarse,uvbins_coarse,indexing="ij") #,sparse=True)
         uvplane_coarse=np.zeros((nbins_coarse,nbins_coarse))
         tprev=time.time()
         for i in prange(N_pe_bl):
             if (i%(N_pe_bl//5)==0):
                 t0=time.time()
-                print("considering baseline",i,"of",N_pe_bl,"...",t0-tprev,"s since last update")
                 tprev=t0
             for j in prange(N_hr_angles):
                 u0,v0=uv_synth_pert_beam[i,:,j] # ith baseline; u, v, and w; jth hour angle ... where to centre the Gaussian beam
@@ -188,9 +180,6 @@ def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,nbins_coarse=32,nbins
         uvplane_pert=0.*uubins
 
     if (N_pe_bl!=N_bl): # handle baselines without perturbed primary beams using the convolution            strategy
-        print("entering convolution case")
-        print("uv_synth_unpe_beam.shape[0]")
-        print("N_unpe_bl,N_pe_bl,N_bl,N_hr_angles=",N_unpe_bl,N_pe_bl,N_bl,N_hr_angles)
         N_pts_to_bin=N_unpe_bl*N_hr_angles
         uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
         reshaped_u=np.reshape(uv_synth_unpe_beam[:,0,:],N_pts_to_bin)
@@ -204,8 +193,7 @@ def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,nbins_coarse=32,nbins
         uvplane_unpe=0.*uubins
     
     uvplane=uvplane_pert+uvplane_unpe
-    dirty_image=np.abs(fftshift(ifft2(uvplane)))
-    print("dirty_image.shape=",dirty_image.shape)
+    dirty_image=np.abs(fftshift(ifft2(uvplane*d2u,norm="forward")))
     uv_bin_edges=[uvbins,uvbins]
     theta_lims=[-thetamax,thetamax,-thetamax,thetamax]
     return dirty_image,uvplane,uv_bin_edges,theta_lims
@@ -229,10 +217,11 @@ N_ant_to_pert=100
 ant_pert=1e-2 
 N_pbs_to_pert=100
 prb_pert=1e-2
-antennas_xyz_fidu,antenna_pbs_fidu,_=                   CHORD_antenna_positions()
+antennas_xyz_fidu,antenna_pbs_fidu,_=                    CHORD_antenna_positions()
 np.savetxt("CHORD_ant_pos_unperturbed.txt",antennas_xyz_fidu)
-antennas_xyz_antp,antenna_pbs_antp,[indices_antp_a,_]=  CHORD_antenna_positions(num_antpos_to_perturb=N_ant_to_pert, antpos_perturbation_sigma=ant_pert)
-antennas_xyz_prbp,antenna_pbs_prbp,[_,indices_prbp_p]=  CHORD_antenna_positions(num_pbs_to_perturb=N_pbs_to_pert,pb_perturbation_sigma=prb_pert)
+
+antennas_xyz_antp,antenna_pbs_antp,[indices_antp_a,_]=   CHORD_antenna_positions(num_antpos_to_perturb=N_ant_to_pert, antpos_perturbation_sigma=ant_pert)
+antennas_xyz_prbp,antenna_pbs_prbp,[_,indices_prbp_p]=   CHORD_antenna_positions(num_pbs_to_perturb=N_pbs_to_pert,pb_perturbation_sigma=prb_pert)
 antennas_xyz_both,antenna_pbs_both,[indices_both_a,
                                         indices_both_p]= CHORD_antenna_positions(num_antpos_to_perturb=N_ant_to_pert, antpos_perturbation_sigma=ant_pert,
                                                                                  num_pbs_to_perturb=N_pbs_to_pert,pb_perturbation_sigma=prb_pert)
@@ -276,17 +265,18 @@ for nu_obs in obs_freqs:
     uvw_inst_both_here=uv_synth_both_here[:,:,0]
 
     # ift to get dirty images
+    npix=256
     ta=time.time()
-    dirty_image_fidu,binned_uv_synth_fidu,[u_edges_fidu,v_edges_fidu],[thetaxmin_fidu,thetaxmax_fidu,thetaymin_fidu,thetaymax_fidu]=calc_dirty_image(uv_synth_fidu_here,baseline_pbs_fidu,p_b_width_fidu)
+    dirty_image_fidu,binned_uv_synth_fidu,[u_edges_fidu,v_edges_fidu],[thetaxmin_fidu,thetaxmax_fidu,thetaymin_fidu,thetaymax_fidu]=calc_dirty_image(uv_synth_fidu_here,baseline_pbs_fidu,p_b_width_fidu,nbins=npix)
     tb=time.time()
     print("dirty_image_fidu evaluated in",tb-ta,"s")
-    dirty_image_antp,binned_uv_synth_antp,[u_edges_antp,v_edges_antp],[thetaxmin_antp,thetaxmax_antp,thetaymin_antp,thetaymax_antp]=calc_dirty_image(uv_synth_antp_here,baseline_pbs_antp,p_b_width_fidu)
+    dirty_image_antp,binned_uv_synth_antp,[u_edges_antp,v_edges_antp],[thetaxmin_antp,thetaxmax_antp,thetaymin_antp,thetaymax_antp]=calc_dirty_image(uv_synth_antp_here,baseline_pbs_antp,p_b_width_fidu,nbins=npix)
     tc=time.time()
     print("dirty_image_antp evaluated in",tc-tb,"s")
-    dirty_image_prbp,binned_uv_synth_prbp,[u_edges_prbp,v_edges_prbp],[thetaxmin_prbp,thetaxmax_prbp,thetaymin_prbp,thetaymax_prbp]=calc_dirty_image(uv_synth_prbp_here,baseline_pbs_prbp,p_b_width_fidu)
+    dirty_image_prbp,binned_uv_synth_prbp,[u_edges_prbp,v_edges_prbp],[thetaxmin_prbp,thetaxmax_prbp,thetaymin_prbp,thetaymax_prbp]=calc_dirty_image(uv_synth_prbp_here,baseline_pbs_prbp,p_b_width_fidu,nbins=npix)
     td=time.time()
     print("dirty_image_prbp evaluated in",td-tc,"s")
-    dirty_image_both,binned_uv_synth_both,[u_edges_both,v_edges_both],[thetaxmin_both,thetaxmax_both,thetaymin_both,thetaymax_both]=calc_dirty_image(uv_synth_both_here,baseline_pbs_both,p_b_width_fidu)
+    dirty_image_both,binned_uv_synth_both,[u_edges_both,v_edges_both],[thetaxmin_both,thetaxmax_both,thetaymin_both,thetaymax_both]=calc_dirty_image(uv_synth_both_here,baseline_pbs_both,p_b_width_fidu,nbins=npix)
     te=time.time()
     print("dirty_image_both evaluated in",te-td,"s")
 

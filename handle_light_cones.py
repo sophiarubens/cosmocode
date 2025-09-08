@@ -1,35 +1,41 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.interpolate import interpn
+from CHORD_vis import *
+from cosmo_distances import *
 
-def stack_to_box(light_cone,
-                 lc_xy_bins,lc_z_bins,
-                 interp_method="cubic",avoid_extrap=False,fill_value=None):
-    """
-    light_cone    :: (Nx_lc,Ny_lc,Nz_lc) of floats :: lc from stacking dirty images         :: arbitrary (do some better documentation of the relative scaling thing)
-    Lxy_lc_low_z  :: float                         :: sky plane lc extent of lowest-z slice :: Mpc
-    Lz_lc         :: float                         :: LoS lc extent                         :: Mpc
-    lc_xy_bins    :: (Nxy,Nz) of floats            :: 1d arr of transv. bin fl. per slice   :: Mpc
-    lc_z_bins     :: (Nz,) of floats               :: 1d arr of comoving dists. per slice   :: Mpc
-    interp_method :: str                           :: interpolation method for interpn      :: ---
-    avoid_extrap  :: bool                          :: y/n avoid extrapolation in interpn    :: ---
-    fill_value    :: NoneType/float                :: what to do about extrapolated pts     :: ---/Mpc
-    """
-    Nz_lc=light_cone.shape[-1]
-    Lxy_lc_low_z=lc_xy_bins[-1,0]-lc_xy_bins[0,0]
-    Lz_lc=lc_z_bins[-1]-lc_z_bins[0]
-    Delta=Lz_lc/Nz_lc
-    Nxy=int(Lxy_lc_low_z/Delta)
-    xy_ref=lc_xy_bins[0,0]
-    box_xy=xy_ref+np.linspace(0,Lxy_lc_low_z,Nxy) # this one is dif, but box_z is the same as lc_z
-    box_xx,box_yy=np.meshgrid(box_xy,box_xy,indexing="ij")
-
-    box=np.zeros((Nxy,Nxy,Nz_lc))
-    for i in range(Nz_lc):
-        lc_xy_bins_slice=lc_xy_bins[:,i]
-        box[:,:,i]=interpn((lc_xy_bins_slice,lc_xy_bins_slice),light_cone[:,:,i],(box_xx,box_yy),method=interp_method,bounds_error=avoid_extrap,fill_value=fill_value)
+def stack_to_box(N_NS,N_EW,offset_deg,num_antpos_to_perturb,antpos_perturbation_sigma,num_pbs_to_perturb,pb_perturbation_sigma,observatory_latitude,
+                 survey_freqs,fiducial_beam_args,
+                 num_hrs=1./2.,num_timesteps=15,dec=30.,
+                 nbins_coarse=32,nbins=1024):
     
-    return box,box_xy
+    perp_fwhm,par_fwhm=fiducial_beam_args # how to unpack for now, given that I'm not back to elliptical beams over here
+    antennas_xyz,ant_pb_frac_widths,_=CHORD_antenna_positions(N_NS=N_NS,N_EW=N_EW,offset_deg=offset_deg,                                                        # basics required to specify a CHORD-like array
+                                                               num_antpos_to_perturb=num_antpos_to_perturb,antpos_perturbation_sigma=antpos_perturbation_sigma, # controls for examining the effect of misplaced antennas
+                                                               num_pbs_to_perturb=num_pbs_to_perturb,pb_perturbation_sigma=pb_perturbation_sigma,               # controls for examining the effect of primary beam width mischaracterizations on a per-antenna basis
+                                                               observatory_latitude=observatory_latitude)                                                       # final non-stored arg is [indices_ants,indices_pbs]
+    uvw=calc_inst_uvw(antennas_xyz,ant_pb_frac_widths,N_NS=N_NS,N_EW=N_EW)
+    uv_synth=calc_rot_synth_uv(uvw,lambda_obs=nu_HI_z0,num_hrs=num_hrs,num_timesteps=num_timesteps,dec=dec)
+
+    dirty_image_0,_,uv_bin_edges,_=calc_dirty_image(uv_synth,ant_pb_frac_widths,perp_fwhm,nbins_coarse=nbins_coarse,nbins=nbins) # skipped args are, respectively, uvplane and theta_lims
+    uv_bin_edges_0=np.copy(uv_bin_edges) # modes to interpolate to= modes from the base of the light cone
+    uu_bin_edges_0,vv_bin_edges_0=np.meshgrid(uv_bin_edges_0,uv_bin_edges_0,indexing="ij")
+    N_chans=len(survey_freqs)
+
+    # oversimplified case where I ignore beam chromaticity over the survey bandwidth
+    light_cone=np.zeros((nbins,nbins,N_chans))
+    lambda_0=c/(survey_freqs[0]*1e6)
+    survey_Dc=0.*survey_freqs
+    for i,ctr_freq in enumerate(survey_freqs):
+        survey_Dc[i]=comoving_distance(freq2z(ctr_freq))
+        lambda_curr=c/(survey_freqs[i]*1e6)
+        uv_bin_edges=uv_bin_edges_0*lambda_0/lambda_curr # rescale the uv-plane as appropriate
+        LoS_modulation=np.exp(-survey_Dc[i]**2/(2*sigma_LoS**2))
+        dirty_image=dirty_image_0*LoS_modulation
+        interpolated_slice=interpn((uv_bin_edges,uv_bin_edges),dirty_image,(uu_bin_edges_0,vv_bin_edges_0)) # this takes care of the chunk excision and interpolation in one step... but only for the current slice
+        light_cone[:,:,i]=interpolated_slice
+
+    return light_cone,survey_Dc
 
 # test: create something (Nxy,Nxy,Nz) but that, if you were to plot it on a uniform grid, would be a truncated pyramid/ have light cone shape
 Nxy=7
