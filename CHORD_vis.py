@@ -6,6 +6,7 @@ import time
 from numba import prange
 from scipy.interpolate import interpn
 from scipy.signal import convolve
+import scipy.sparse as spsp
 
 # CHORD layout params
 b_NS=8.5 # m
@@ -99,6 +100,26 @@ def gaussian_primary_beam_uv(u,v,ctr,fwhm):
     # evaled=((pi*log2)/(fwhmx*fwhmy))*np.exp(-pi**2*((u-u0)**2*fwhmx**2+(v-v0)**2*fwhmy**2)/np.log(2))
     return evaled
 
+def sparse_gaussian_primary_beam_uv(u,v,ctr,fwhm,nsigma_npix):
+    """
+    same as the non-sparse version but uses scipy sparse arrays to make things less inefficient
+
+    u,v  - square coordinate arrays defining the grid
+    ctr  - uv coordinates of beam peak
+    fwhm -  
+    """
+
+    # figure out where to put the Gaussian and its values
+    u0,v0=ctr
+    # will need indices of the peak of the beam in the uv plane for sparse array anchoring purposes
+    evaled=((pi*log2)/(fwhm**2))*np.exp(-pi**2*(((u-u0)**2+(v-v0)**2)*fwhm**2)/np.log(2))
+    evaled_sparse=spsp.csr_array(evaled[u0-nsigma_npix:u0+nsigma_npix,v0-nsigma_npix:v0+nsigma_npix])
+    # fwhmx,fwhmy=fwhm
+    # evaled=((pi*log2)/(fwhmx*fwhmy))*np.exp(-pi**2*((u-u0)**2*fwhmx**2+(v-v0)**2*fwhmy**2)/np.log(2))
+
+    # mask the 10-sigma region and store as a sparse array
+    return evaled_sparse
+
 def calc_inst_uvw(antennas_xyz,antenna_pbs,N_NS=N_NS,N_EW=N_EW):
     N_ant=N_NS*N_EW
     N_bl=N_ant*(N_ant-1)//2
@@ -140,7 +161,7 @@ def calc_rot_synth_uv(uvw,lambda_obs=c/(nu_HI_z0*1e6),num_hrs=1./2.,num_timestep
         uv_synth[:,:,i]=uvw_rotated@project_to_dec.T/lambda_obs
     return uv_synth
 
-def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,nbins_coarse=32,nbins=1024): # I remember from my difmap days that you tend to want to anecdotally optimize nbins to be high enough that you get decent resolution but low enough that the Fourier transforms don't take forever, but it would be nice to formalize my logic to get past the point of most of my simulation choices feeling super arbitrary
+def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,Npix=512,nsigma=10): # I remember from my difmap days that you tend to want to anecdotally optimize nbins to be high enough that you get decent resolution but low enough that the Fourier transforms don't take forever, but it would be nice to formalize my logic to get past the point of most of my simulation choices feeling super arbitrary
     """
     nbins is only used in the first (loopy) step of the not-a-convolution branch
     * the "all primary beam widths are the same" branch always uses nbins_out bins (convolution)
@@ -149,8 +170,9 @@ def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,nbins_coarse=32,nbins
     N_bl,_,N_hr_angles=uv_synth.shape
     uvmin=np.min([np.min(uv_synth[:,0,:]),np.min(uv_synth[:,1,:])]) # better to deal with a square image
     uvmax=np.max([np.max(uv_synth[:,0,:]),np.max(uv_synth[:,1,:])])
-    thetamax=1/uvmax # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
-    uvbins=np.linspace(uvmin,uvmax,nbins) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
+    print("Npix=",Npix)
+    thetamax=1/uvmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
+    uvbins=np.linspace(uvmin,uvmax,Npix) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
     d2u=uvbins[1]-uvbins[0]
     uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij") #,sparse=True)
     baselines_w_perturbed_pbs=np.nonzero(pbws!=1)
@@ -161,21 +183,37 @@ def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,nbins_coarse=32,nbins
     pbws_pe=pbws[baselines_w_perturbed_pbs]
 
     if (N_pe_bl>0):     # handle baselines with    perturbed primary beams using the "accumulate Gaussians" strategy
-        # compromise approach to the slow alternative to convolution: start coarse...
-        uvbins_coarse=np.linspace(uvmin,uvmax,nbins_coarse)
-        uubins_coarse,vvbins_coarse=np.meshgrid(uvbins_coarse,uvbins_coarse,indexing="ij") #,sparse=True)
-        uvplane_coarse=np.zeros((nbins_coarse,nbins_coarse))
-        tprev=time.time()
-        for i in prange(N_pe_bl):
-            if (i%(N_pe_bl//5)==0):
-                t0=time.time()
-                tprev=t0
-            for j in prange(N_hr_angles):
-                u0,v0=uv_synth_pert_beam[i,:,j] # ith baseline; u, v, and w; jth hour angle ... where to centre the Gaussian beam
-                smeared_contribution=gaussian_primary_beam_uv(uubins_coarse,vvbins_coarse,[u0,v0],pbws_pe[i]*primary_beam_width_fidu)
-                uvplane_coarse+=smeared_contribution
-        # ...and interpolate later
-        uvplane_pert= interpn((uvbins_coarse,uvbins_coarse),uvplane_coarse,(uubins,vvbins),method="cubic",bounds_error=False,fill_value=None)
+        # STILL KIND OF LITERAL, BUT NOW TRYING TO SEE IF I CAN BYPASS THE NEED TO INTERPOLATE WITH SPARSE ARRAYS
+        uvplane_pert=0.*uubins
+        for i in range(N_pe_bl):
+            pbw_here=pbws_pe[i]*primary_beam_width_fidu
+            # figure out how many pixels it takes to get to the n-sigma level (def overkill but idk trying to err on the side of caution here)
+            nsigma_distance=nsigma*pbw_here
+            pix_width=uubins[0,0]-uubins[1,0]
+            nsigma_npix=nsigma_distance/pix_width
+            for j in range(N_hr_angles):
+                u0,v0=uv_synth_pert_beam[i,:,j]
+                smeared_contribution=sparse_gaussian_primary_beam_uv(uubins,vvbins,[u0,v0],pbw_here,nsigma_npix)
+                uvplane_pert+=smeared_contribution
+            if ((i%(N_pe_bl//100))==0):
+                print(round(i/N_pe_bl*100)," o/o complete")
+        uvplane_pert=uvplane_pert.toarray() # cast from sparse back to dense
+        print("type(uvplane_pert)=",type(uvplane_pert)) # this might be a scipy array, but I think I really do want it to be a numpy array???????????
+
+        # # LITERAL-ISH, NO SPARSE ARRAYS, BUT YES COARSE GRIDDING FIRST AND INTERPOLATION LATER
+        # # compromise approach to the slow alternative to convolution: start coarse...
+        # uvbins_coarse=np.linspace(uvmin,uvmax,nbins_coarse)
+        # uubins_coarse,vvbins_coarse=np.meshgrid(uvbins_coarse,uvbins_coarse,indexing="ij") #,sparse=True)
+        # uvplane_coarse=np.zeros((nbins_coarse,nbins_coarse))
+        # for i in range(N_pe_bl):
+        #     for j in range(N_hr_angles):
+        #         u0,v0=uv_synth_pert_beam[i,:,j] # ith baseline; u, v, and w; jth hour angle ... where to centre the Gaussian beam
+        #         smeared_contribution=gaussian_primary_beam_uv(uubins_coarse,vvbins_coarse,[u0,v0],pbws_pe[i]*primary_beam_width_fidu)
+        #         uvplane_coarse+=smeared_contribution
+        #     if ((i%(N_pe_bl//100))==0):
+        #         print(i/N_pe_bl*100," o/o complete")
+        # # ...and interpolate later
+        # uvplane_pert= interpn((uvbins_coarse,uvbins_coarse),uvplane_coarse,(uubins,vvbins),method="cubic",bounds_error=False,fill_value=None)
     else:
         uvplane_pert=0.*uubins
 
@@ -186,7 +224,7 @@ def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,nbins_coarse=32,nbins
         reshaped_v=np.reshape(uv_synth_unpe_beam[:,1,:],N_pts_to_bin)
         uvplane,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use) # version that uses the same bins as in the other case, to make sure the residual and ratio calcs down the line are at least minimally well-conditioned
         kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.,],primary_beam_width_fidu) # doesn't matter which beam width you take bc they're all the same in this branch... could probably make things more efficient down the line by only carting around the single value in the case where the beam widths are all the same
-        pad_lo,pad_hi=get_padding(nbins)
+        pad_lo,pad_hi=get_padding(Npix)
         kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge")
         uvplane_unpe=convolve(kernel_padded,uvplane,mode="valid") # beam-smeared version of the uv-plane
     else:
@@ -265,18 +303,17 @@ for nu_obs in obs_freqs:
     uvw_inst_both_here=uv_synth_both_here[:,:,0]
 
     # ift to get dirty images
-    npix=256
     ta=time.time()
-    dirty_image_fidu,binned_uv_synth_fidu,[u_edges_fidu,v_edges_fidu],[thetaxmin_fidu,thetaxmax_fidu,thetaymin_fidu,thetaymax_fidu]=calc_dirty_image(uv_synth_fidu_here,baseline_pbs_fidu,p_b_width_fidu,nbins=npix)
+    dirty_image_fidu,binned_uv_synth_fidu,[u_edges_fidu,v_edges_fidu],[thetaxmin_fidu,thetaxmax_fidu,thetaymin_fidu,thetaymax_fidu]=calc_dirty_image(uv_synth_fidu_here,baseline_pbs_fidu,p_b_width_fidu)
     tb=time.time()
     print("dirty_image_fidu evaluated in",tb-ta,"s")
-    dirty_image_antp,binned_uv_synth_antp,[u_edges_antp,v_edges_antp],[thetaxmin_antp,thetaxmax_antp,thetaymin_antp,thetaymax_antp]=calc_dirty_image(uv_synth_antp_here,baseline_pbs_antp,p_b_width_fidu,nbins=npix)
+    dirty_image_antp,binned_uv_synth_antp,[u_edges_antp,v_edges_antp],[thetaxmin_antp,thetaxmax_antp,thetaymin_antp,thetaymax_antp]=calc_dirty_image(uv_synth_antp_here,baseline_pbs_antp,p_b_width_fidu)
     tc=time.time()
     print("dirty_image_antp evaluated in",tc-tb,"s")
-    dirty_image_prbp,binned_uv_synth_prbp,[u_edges_prbp,v_edges_prbp],[thetaxmin_prbp,thetaxmax_prbp,thetaymin_prbp,thetaymax_prbp]=calc_dirty_image(uv_synth_prbp_here,baseline_pbs_prbp,p_b_width_fidu,nbins=npix)
+    dirty_image_prbp,binned_uv_synth_prbp,[u_edges_prbp,v_edges_prbp],[thetaxmin_prbp,thetaxmax_prbp,thetaymin_prbp,thetaymax_prbp]=calc_dirty_image(uv_synth_prbp_here,baseline_pbs_prbp,p_b_width_fidu)
     td=time.time()
     print("dirty_image_prbp evaluated in",td-tc,"s")
-    dirty_image_both,binned_uv_synth_both,[u_edges_both,v_edges_both],[thetaxmin_both,thetaxmax_both,thetaymin_both,thetaymax_both]=calc_dirty_image(uv_synth_both_here,baseline_pbs_both,p_b_width_fidu,nbins=npix)
+    dirty_image_both,binned_uv_synth_both,[u_edges_both,v_edges_both],[thetaxmin_both,thetaxmax_both,thetaymin_both,thetaymax_both]=calc_dirty_image(uv_synth_both_here,baseline_pbs_both,p_b_width_fidu)
     te=time.time()
     print("dirty_image_both evaluated in",te-td,"s")
 
