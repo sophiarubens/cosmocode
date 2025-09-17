@@ -1,12 +1,11 @@
 import numpy as np
 import matplotlib
 from matplotlib import pyplot as plt
-from numpy.fft import ifft2,fftshift,ifftshift
+from numpy.fft import ifft2,fftshift
 import time
-from numba import prange
-from scipy.interpolate import interpn
 from scipy.signal import convolve
 import scipy.sparse as spsp
+from mpi4py import MPI
 
 # CHORD layout params
 b_NS=8.5 # m
@@ -100,7 +99,7 @@ def gaussian_primary_beam_uv(u,v,ctr,fwhm):
     # evaled=((pi*log2)/(fwhmx*fwhmy))*np.exp(-pi**2*((u-u0)**2*fwhmx**2+(v-v0)**2*fwhmy**2)/np.log(2))
     return evaled
 
-def sparse_gaussian_primary_beam_uv(u,v,ctr,fwhm,nsigma_npix):
+def sparse_gaussian_primary_beam_uv(u,v,ctr,fwhm,nsigma_npix,ctri):
     """
     same as the non-sparse version but uses scipy sparse arrays to make things less inefficient
 
@@ -108,16 +107,14 @@ def sparse_gaussian_primary_beam_uv(u,v,ctr,fwhm,nsigma_npix):
     ctr  - uv coordinates of beam peak
     fwhm -  
     """
-    # figure out where to put the Gaussian and its values
-    u0,v0=ctr
-    # will need indices of the peak of the beam in the uv plane for sparse array anchoring purposes
-    base=0.*u
-    evaled=((pi*log2)/(fwhm**2))*np.exp(-pi**2*(((u-u0)**2+(v-v0)**2)*fwhm**2)/np.log(2))
-    u0i,v0i=np.unravel_index(evaled.argmax(), evaled.shape)
-    base[u0i-nsigma_npix:u0i+nsigma_npix,v0i-nsigma_npix:v0i+nsigma_npix]=evaled[u0i-nsigma_npix:u0i+nsigma_npix,v0i-nsigma_npix:v0i+nsigma_npix]
-    evaled_sparse=spsp.csr_array(base)
-
-    # mask the 10-sigma region and store as a sparse array
+    u0,v0=ctr    # where to put the Gaussian and its appreciably-nonzero values
+    u0i,v0i=ctri # will need indices of the peak of the beam in the uv plane for sparse array anchoring purposes
+    evaled=0.*u
+    u_small=u[u0i-nsigma_npix:u0i+nsigma_npix,v0i-nsigma_npix:v0i+nsigma_npix]
+    v_small=v[u0i-nsigma_npix:u0i+nsigma_npix,v0i-nsigma_npix:v0i+nsigma_npix]
+    evaled_small=((pi*log2)/(fwhm**2))*np.exp(-pi**2*(((u_small-u0)**2+(v_small-v0)**2)*fwhm**2)/np.log(2))
+    evaled[u0i-nsigma_npix:u0i+nsigma_npix,v0i-nsigma_npix:v0i+nsigma_npix]=evaled_small # store the mask-surviving region of the array
+    evaled_sparse=spsp.coo_array(evaled) # convert to sparse
     return evaled_sparse
 
 def calc_inst_uvw(antennas_xyz,antenna_pbs,N_NS=N_NS,N_EW=N_EW):
@@ -184,35 +181,53 @@ def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,Npix=1024,nsigma=5): 
 
     fac=1000
     t0=time.time()
+    uvplane_pert=0.*uubins # gets updated if there are perturbed baselines
     if (N_pe_bl>0):     # handle baselines with    perturbed primary beams using the "accumulate Gaussians" strategy
-        # STILL KIND OF LITERAL, BUT NOW TRYING TO SEE IF I CAN BYPASS THE NEED TO INTERPOLATE WITH SPARSE ARRAYS
-        uvplane_pert=0.*uubins
+        comm=MPI.COMM_WORLD          # communicator so workers can communicate
+        rank=comm.Get_rank()         # each worker has an ID in the range [0,rank)
+        size=comm.Get_size()         # number of workers 
+        iters_per_proc=N_pe_bl//size # split iterations across processes
+        start= rank*  iters_per_proc
+        end=   start+ iters_per_proc
+        if (rank==(Npix-1)): # edge case where N_pe_bl%size!=0
+            end=N_pe_bl
+        print("rank= worker IDs=       ",rank)
+        print("size= number of workers=",size)
+        print("iters_per_proc=         ",iters_per_proc)
+        print("start,end=              ",start,end)
+        
+        # the MPI stuff needs the contents of the loop to be abstracted to a function. 
+        # verify without MPI first...
+        
         uindices=np.digitize(uv_synth_pert_beam[:,0,:],uvbins)
         vindices=np.digitize(uv_synth_pert_beam[:,1,:],uvbins)
         pix_width=uvbins[1]-uvbins[0]
         for i in range(N_pe_bl):
             pbw_here=pbws_pe[i]*primary_beam_width_fidu
 
-            # figure out how many pixels it takes to get to the n-sigma level (def overkill but idk trying to err on the side of caution here)
             nsigma_distance=nsigma*pbw_here
-            nsigma_npix=int(nsigma_distance/pix_width)
+            nsigma_npix=int(nsigma_distance/pix_width) # figure out how many pixels it takes to get to the n-sigma level (def overkill but idk trying to err on the side of caution here)
             for j in range(N_hr_angles):
                 u0,v0=uv_synth_pert_beam[i,:,j]
-                smeared_contribution=gaussian_primary_beam_uv(uubins,vvbins,[u0,v0],pbw_here)
                 u0i=uindices[i,j] # middle of three original axes collapsed by the indexing fed to digitize
                 v0i=vindices[i,j]
-                ulo=u0i-nsigma_npix
-                uhi=u0i+nsigma_npix
-                vlo=v0i-nsigma_npix
-                vhi=v0i+nsigma_npix
-                uvplane_pert[ulo:uhi,vlo:vhi]+=smeared_contribution[ulo:uhi,vlo:vhi]
+                smeared_contribution=sparse_gaussian_primary_beam_uv(uubins,vvbins,[u0,v0],pbw_here,nsigma_npix,[u0i,v0i])
+                uvplane_pert+=smeared_contribution
             if ((i%(N_pe_bl//fac))==0):
                 t1=time.time()
-                print(round(i/N_pe_bl*100,5)," pct complete in",t1-t0,"s")
+                # print(round(i/N_pe_bl*100,5)," pct complete in",t1-t0,"s ... perturbed baseline i=",i,"of",N_pe_bl) # progress check for non-MPI version
+                print(round(i/iters_per_proc*100,5)," pct complete in",t1-t0,"s ... perturbed baseline i=",i,"of",iters_per_proc) # progress check for MPI-aware version
                 t0=time.time()
-
-    else:
-        uvplane_pert=0.*uubins
+        uvplane_pert=comm.reduce(uvplane_pert) # combine the contributions from the different processes
+        
+        # # ChatGPT says
+        # global_sum=np.zeros_like(local_sum)
+        # comm.Reduce(local_sum,global_sum,op=MPI.SUM,root=0)
+        # (but it would be nice if Jon's syntax worked)
+        
+        comm.Barrier() # documentation says "barrier synchronization" ...I think this prevents race conditions by making sure all the processes eventually finish the things they were supposed to do?
+        MPI.Finalize() # cleanly shuts down the MPI environment
+        uvplane_pert=uvplane_pert.toarray() # make sure this ingredient is fully dense
 
     if (N_pe_bl!=N_bl): # handle baselines without perturbed primary beams using the convolution            strategy
         N_pts_to_bin=N_unpe_bl*N_hr_angles
@@ -233,12 +248,15 @@ def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,Npix=1024,nsigma=5): 
     theta_lims=[-thetamax,thetamax,-thetamax,thetamax]
     return dirty_image,uvplane,uv_bin_edges,theta_lims
 
+
+
 def primary_beam_crossing_time(nu,dec=30.,D=6.):
     beam_width_deg=1.22*(2.998e8/nu)/D*180/np.pi
     crossing_time_hrs_no_dec=beam_width_deg/15
     crossing_time_hrs= crossing_time_hrs_no_dec*np.cos(dec)
     return crossing_time_hrs
 
+#############################################################################################################################################################################
 """
 SHORTHAND:
 fidu = neither antenna nor primary beam perturbations (fiducial array)
@@ -322,8 +340,8 @@ for nu_obs in obs_freqs:
         axs[i,0].set_ylabel("N (m)")
 
         for j in range(1,4):
-            axs[i,j].set_xlabel("u ($\lambda$)")
-            axs[i,j].set_ylabel("v ($\lambda$)")
+            axs[i,j].set_xlabel("u ($λ$)")
+            axs[i,j].set_ylabel("v ($λ$)")
 
         for j in range(4,7):
             axs[i,j].set_xlabel("$θ_x$ (rad)")
