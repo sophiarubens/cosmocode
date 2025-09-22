@@ -82,16 +82,12 @@ def CHORD_antenna_positions(b_NS=b_NS,b_EW=b_EW,N_NS=N_NS,N_EW=N_EW,offset_deg=1
     lat_mat=np.vstack([north,east,zenith])
     antennas_xyz=antennas_ENU@lat_mat.T
     
-    # ant_pb_frac_widths=np.ones(N_ant)
     pb_pert_indices=np.zeros((N_ant,))
-    epsilons=np.ones(5)
+    epsilons=np.zeros(5)
     if (num_pbs_to_perturb>0):
-        # epsilons=np.concatenate(([1.],pb_perturbation_sigma*np.random.uniform(size=np.insert(4,0,1))))
         epsilons[1:]=pb_perturbation_sigma*np.random.uniform(size=np.insert(4,0,1))
         indices_pbs=np.random.randint(0,N_ant,size=num_pbs_to_perturb) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
-        # pb_perturbations[indices_pbs]=pb_perturbation_sigma*np.random.uniform(size=np.insert(num_pbs_to_perturb,0,1)) # OLD VERSION: POTENTIALLY-UNIQUE PERTURBATIONS FOR EACH AFFECTED ANTENNA'S PB
         pb_pert_indices[indices_pbs]=np.random.randint(1,high=5,size=np.insert(num_pbs_to_perturb,0,1)) # leaves as zero the indices associated with unperturbed antennas
-        # ant_pb_frac_widths+=pb_perturbations
     else:
         indices_pbs=None
     return antennas_xyz,pb_pert_indices,[indices_ants,indices_pbs],epsilons
@@ -137,9 +133,7 @@ def calc_inst_uvw(antennas_xyz,pb_pert_indices,N_NS=N_NS,N_EW=N_EW):
             pb_idx[k]=[pb_pert_indices[i],pb_pert_indices[j]] # 1/np.sqrt( ( (1/antenna_pbs[i]**2)+(1/antenna_pbs[j]**2) )/2. ) # this is for a simple Gaussian beam where the x- and y- FWHMs are the same. Once I get this version working, it should be straightforward to bump up the dimensions and add separate widths
             k+=1
     uvw=np.vstack((uvw,-uvw))
-    print("in calc_inst_uvw: pre-mirroring:  pb_idx.shape=",pb_idx.shape)
     pb_idx=np.vstack((pb_idx,pb_idx))
-    print("in calc_inst_uvw: post-mirroring: pb_idx.shape=",pb_idx.shape)
     return uvw,pb_idx
 
 def calc_rot_synth_uv(uvw,lambda_obs=c/(nu_HI_z0*1e6),num_hrs=1./2.,num_timesteps=15,dec=30.): # take [:,:,0] for the instantaneous uv-coverage
@@ -174,7 +168,6 @@ def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,epsilons,Npix=1024): 
     """
     uvmin=np.min([np.min(uv_synth[:,0,:]),np.min(uv_synth[:,1,:])]) # better to deal with a square image
     uvmax=np.max([np.max(uv_synth[:,0,:]),np.max(uv_synth[:,1,:])])
-    print("Npix=",Npix)
     thetamax=1/uvmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
     uvbins=np.linspace(uvmin,uvmax,Npix) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
     d2u=uvbins[1]-uvbins[0]
@@ -187,7 +180,6 @@ def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,epsilons,Npix=1024): 
         for j in range(5):
             eps_j=epsilons[j]
             here=(pbws[:,0]==i)&(pbws[:,1]==j) # which baselines to treat during this loop trip... pbws has shape (N_bl,2) ... one column for antenna a and the other for antenna b
-            print("in calc_dirty_image: here.shape,uv_synth.shape=",here.shape,uv_synth.shape)
             u_here=uv_synth[here,0,:] # [N_bl,3,N_hr_angles]
             v_here=uv_synth[here,1,:]
             N_bl_here,N_hr_angles_here=u_here.shape # should now be (N_bl,N_hr_angles)
@@ -199,7 +191,6 @@ def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,epsilons,Npix=1024): 
             kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.],width_here)
             pad_lo,pad_hi=get_padding(Npix)
             kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge")
-            print("in calc_dirty_image: gridded.shape,kernel_padded.shape=",gridded.shape,kernel_padded.shape)
             convolution_here=convolve(kernel_padded,gridded,mode="valid") # beam-smeared version of the uv-plane for this perturbation permutation
             uvplane+=convolution_here
 
@@ -256,7 +247,6 @@ uv_synth_prbp=calc_rot_synth_uv(baselines_xyz_prbp,num_hrs=N_obs_hrs,num_timeste
 uv_synth_both=calc_rot_synth_uv(baselines_xyz_both,num_hrs=N_obs_hrs,num_timesteps=N_hr_angles)
 t3=time.time()
 print("performed rotation synthesis in",t3-t2,"s")
-print("in main: uv_synth_fidu.shape=",uv_synth_fidu.shape)
 
 colours_b=plt.cm.Blues( np.linspace(1,0.2,N_hr_angles))
 lambda_z0=c/(nu_HI_z0*1e6)
