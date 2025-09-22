@@ -3,26 +3,183 @@ import matplotlib
 from matplotlib import pyplot as plt
 from numpy.fft import ifft2,fftshift #,ifftshift
 import time
-# from scipy.interpolate import interpn
 from scipy.signal import convolve
 import scipy.sparse as spsp
 
-# CHORD layout params
-b_NS=8.5 # m
-N_NS=24
-b_EW=6.3 # m
-N_EW=22
-N_ant=N_NS*N_EW
-N_bl=N_ant*(N_ant-1)//2
+# CHORD immutables
+N_NS_full=24
+N_EW_full=22
 DRAO_lat=49.320791*np.pi/180. # Google Maps satellite view, eyeballing what looks like the middle of the CHORD site: 49.320791, -119.621842 (bc considering drift-scan CHIME-like "pointing at zenith" mode, same as dec)
-observing_dec=30.*np.pi/180.
+D=6. # m
 
 # constants
+pi=np.pi
 nu_HI_z0=1420.405751768 # MHz
 c=2.998e8
-pi=np.pi
 twopi=2.*pi
 log2=np.log(2)
+
+class CHORD_image(object):
+    def __init__(self,
+                 mode="full",b_NS=8.5,b_EW=6.3,observing_dec=pi/60.,offset_deg=1.75*pi/180.,
+                 num_ant_pos_to_pert=0,ant_pos_pert_sigma=1e-2,
+                 num_pbws_to_pert=0,pbw_pert_sigma=1e-2,
+                 num_timesteps=15,num_hrs=None,
+                 nu_obs=nu_HI_z0,
+                 pbw_fidu=None
+                 ):
+        # array and observation geometry
+        self.N_NS=N_NS_full
+        self.N_EW=N_EW_full
+        self.DRAO_lat=DRAO_lat
+        if (mode=="pathfinder"):
+            self.N_NS=self.N_NS//2
+            self.N_EW=self.N_EW//2
+        self.N_ant=self.N_NS*self.N_EW
+        self.N_bl=self.N_ant*(self.N_ant-1)//2
+        self.observing_dec=observing_dec
+        self.num_timesteps=num_timesteps
+        self.nu_obs=nu_obs
+        if (num_hrs is None):
+            num_hrs=primary_beam_crossing_time(self.nu_obs*1e6,dec=self.observing_dec,D=D) # frew needs to be in Hz
+        self.num_hrs=num_hrs
+        self.lambda_obs=c/self.nu_obs
+        if (pbw_fidu is None):
+            pbw_fidu=self.lambda_obs/D
+        self.pbw_fidu=pbw_fidu
+        self.ant_pos_pert_sigma=ant_pos_pert_sigma
+        self.pbw_pert_sigma=pbw_pert_sigma
+        
+        # antenna positions xyz
+        antennas_EN=np.zeros((self.N_ant,2))
+        for i in range(self.N_NS):
+            for j in range(self.N_EW):
+                antennas_EN[i*self.N_EW+j,:]=[j*b_EW,i*b_NS]
+        antennas_EN-=np.mean(antennas_EN,axis=0) # centre the Easting-Northing axes in the middle of the array
+        offset=offset_deg*pi/180. # actual CHORD is not perfectly aligned to the NS/EW grid. Eyeballed angular offset.
+        offset_from_latlon_rotmat=np.array([[np.cos(offset),-np.sin(offset)],[np.sin(offset),np.cos(offset)]]) # use this rotation matrix to adjust the NS/EW-only coords
+        for i in range(self.N_ant):
+            antennas_EN[i,:]=np.dot(antennas_EN[i,:].T,offset_from_latlon_rotmat)
+        dif=antennas_EN[0,0]-antennas_EN[0,-1]+antennas_EN[0,-1]-antennas_EN[-1,-1]
+        up=np.reshape(2+(-antennas_EN[:,0]+antennas_EN[:,1])/dif, (self.N_ant,1)) # eyeballed ~2 m vertical range that ramps ~linearly from a high near the NW corner to a low near the SE corner
+        antennas_ENU=np.hstack((antennas_EN,up))
+        if (num_ant_pos_to_pert>0):
+            indices_ant_pos_pert=np.random.randint(0,self.N_ant,size=num_ant_pos_to_pert) # indices of antennas to perturb
+            x_perturbations=np.zeros((self.N_ant,))
+            x_perturbations[indices_ant_pos_pert]=np.random.normal(loc=0.,scale=ant_pos_pert_sigma/np.sqrt(3),size=np.insert(num_ant_pos_to_pert,0,1))
+            y_perturbations=np.zeros((self.N_ant,))
+            y_perturbations[indices_ant_pos_pert]=np.random.normal(loc=0.,scale=ant_pos_pert_sigma/np.sqrt(3),size=np.insert(num_ant_pos_to_pert,0,1))
+            z_perturbations=np.zeros((self.N_ant,))
+            z_perturbations[indices_ant_pos_pert]=np.random.normal(loc=0.,scale=ant_pos_pert_sigma/np.sqrt(3),size=np.insert(num_ant_pos_to_pert,0,1))
+            antennas_ENU[:,0]+=x_perturbations
+            antennas_ENU[:,1]+=y_perturbations
+            antennas_ENU[:,2]+=z_perturbations
+        else:
+            indices_ant_pos_pert=None
+        self.indices_ant_pos_pert=indices_ant_pos_pert
+        
+        zenith=np.array([np.cos(DRAO_lat),0,np.sin(DRAO_lat)]) # Jon math
+        east=np.array([0,1,0])
+        north=np.cross(zenith,east)
+        lat_mat=np.vstack([north,east,zenith])
+        antennas_xyz=antennas_ENU@lat_mat.T
+        self.antennas_xyz=antennas_xyz
+
+        # it's confusing to have pb_pert_indices and indices_pbs 
+        # (one is binary and one gives the kind of primary beam at hand) 
+        # instead, recast as pbw_types and pbw_bool 
+        # actually, just keep pbw_types and then...
+        # when I want to plot the antennas w/ pert pbws, just scatter for pbw_types[pbw_types>0]
+        # internally, and respectively, they've been superseded by
+        # pbw_types and indices_of_ants_w_pert_pbws
+        
+        pbw_types=np.zeros((self.N_ant,))
+        epsilons=np.zeros(5)
+        if (num_pbws_to_pert>0):
+            epsilons[1:]=pbw_pert_sigma*np.random.uniform(size=np.insert(4,0,1))
+            indices_of_ants_w_pert_pbws=np.random.randint(0,self.N_ant,size=num_pbws_to_pert) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
+            pbw_types[indices_of_ants_w_pert_pbws]=np.random.randint(1,high=5,size=np.insert(num_pbws_to_pert,0,1)) # leaves as zero the indices associated with unperturbed antennas
+        else:
+            indices_of_ants_w_pert_pbws=None
+        self.pbw_types=pbw_types
+        self.indices_of_ants_w_pert_pbws=indices_of_ants_w_pert_pbws
+        self.epsilons=epsilons
+        
+        # ungridded instantaneous uv-coverage (baselines in xyz)        
+        uvw_inst=np.zeros((self.N_bl,3)) # formerly: uvw
+        indices_of_constituent_ant_pb_types=np.zeros((self.N_bl,2)) # formerly: pb_idx
+        k=0
+        for i in range(self.N_ant):
+            for j in range(i+1,self.N_ant):
+                uvw_inst[k,:]=antennas_xyz[i,:]-antennas_xyz[j,:]
+                indices_of_constituent_ant_pb_types[k]=[pbw_types[i],pbw_types[j]] # 1/np.sqrt( ( (1/antenna_pbs[i]**2)+(1/antenna_pbs[j]**2) )/2. ) # this is for a simple Gaussian beam where the x- and y- FWHMs are the same. Once I get this version working, it should be straightforward to bump up the dimensions and add separate widths
+                k+=1
+        uvw_inst=np.vstack((uvw_inst,-uvw_inst))
+        indices_of_constituent_ant_pb_types=np.vstack((indices_of_constituent_ant_pb_types,indices_of_constituent_ant_pb_types))
+        self.uvw_inst=uvw_inst
+        self.indices_of_constituent_ant_pb_types=indices_of_constituent_ant_pb_types
+        print("computed ungridded instantaneous uv-coverage")
+
+        # rotation-synthesized uv-coverage *******(N_bl,3,N_timesteps), accumulating xyz->uvw transformations at each timestep
+        hour_angle_ceiling=np.pi*num_hrs/12 # 2pi*num_hrs/24
+        hour_angles=np.linspace(0,hour_angle_ceiling,num_timesteps)
+        thetas=hour_angles*15*np.pi/180
+        
+        zenith=np.array([np.cos(self.observing_dec),0,np.sin(self.observing_dec)]) # Jon math redux
+        east=np.array([0,1,0])
+        north=np.cross(zenith,east)
+        project_to_dec=np.vstack([east,north])
+
+        uv_synth=np.zeros((2*self.N_bl,2,num_timesteps))
+        for i,theta in enumerate(thetas): # thetas are the rotation synthesis angles (converted from hr. angles using 15 deg/hr rotation rate)
+            accumulate_rotation=np.array([[ np.cos(theta),np.sin(theta),0],
+                                        [-np.sin(theta),np.cos(theta),0],
+                                        [ 0,            0,            1]])
+            uvw_rotated=uvw_inst@accumulate_rotation
+            uv_synth[:,:,i]=uvw_rotated@project_to_dec.T/self.lambda_obs
+        self.uv_synth=uv_synth
+        print("synthesized rotation")
+
+    def calc_dirty_image(self, Npix=1024):
+        uvmin=np.min([np.min(self.uv_synth[:,0,:]),np.min(self.uv_synth[:,1,:])]) # better to deal with a square image
+        self.uvmin=uvmin
+        uvmax=np.max([np.max(self.uv_synth[:,0,:]),np.max(self.uv_synth[:,1,:])])
+        self.uvmax=uvmax
+        thetamax=1/uvmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
+        self.thetamax=thetamax
+        uvbins=np.linspace(uvmin,uvmax,Npix) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
+        d2u=uvbins[1]-uvbins[0]
+        uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij")
+
+        uvplane=0.*uubins
+        uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
+        for i in range(5):
+            eps_i=self.epsilons[i]
+            for j in range(5):
+                eps_j=self.epsilons[j]
+                here=(self.indices_of_constituent_ant_pb_types[:,0]==i)&(self.indices_of_constituent_ant_pb_types[:,1]==j) # which baselines to treat during this loop trip... pbws has shape (N_bl,2) ... one column for antenna a and the other for antenna b
+                u_here=self.uv_synth[here,0,:] # [N_bl,3,N_hr_angles]
+                v_here=self.uv_synth[here,1,:]
+                N_bl_here,N_hr_angles_here=u_here.shape # should now be (N_bl,N_hr_angles)
+                N_here=N_bl_here*N_hr_angles_here
+                reshaped_u=np.reshape(u_here,N_here)
+                reshaped_v=np.reshape(v_here,N_here)
+                gridded,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use)
+                width_here=self.pbw_fidu*np.sqrt((1-eps_i)*(1-eps_j))
+                kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.],width_here)
+                pad_lo,pad_hi=get_padding(Npix)
+                kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge")
+                convolution_here=convolve(kernel_padded,gridded,mode="valid") # beam-smeared version of the uv-plane for this perturbation permutation
+                uvplane+=convolution_here
+
+        self.uvplane=uvplane
+        dirty_image=np.abs(fftshift(ifft2(uvplane*d2u,norm="forward")))
+        self.dirty_image=dirty_image
+        uv_bin_edges=[uvbins,uvbins]
+        self.uv_bin_edges=uv_bin_edges
+        theta_lims=[-thetamax,thetamax,-thetamax,thetamax]
+        self.theta_lims=theta_lims
+        print("computed dirty image")
 
 # survey freqs to examine
 lo=350.        # expected min obs freq
@@ -44,53 +201,6 @@ def get_padding(n):
     padding_lo=int(np.ceil(padding / 2))
     padding_hi=padding-padding_lo
     return padding_lo,padding_hi
-
-def CHORD_antenna_positions(b_NS=b_NS,b_EW=b_EW,N_NS=N_NS,N_EW=N_EW,offset_deg=1.75, # basics required to specify a CHORD-like array
-                            num_antpos_to_perturb=0,antpos_perturbation_sigma=1e-3,  # controls for examining the effect of misplaced antennas
-                            num_pbs_to_perturb=0,pb_perturbation_sigma=1e-3,         # controls for examining the effect of primary beam width mischaracterizations on a per-antenna basis
-                            observatory_latitude=DRAO_lat):       
-    N_ant=N_NS*N_EW
-    antennas_EN=np.zeros((N_ant,2))
-    for i in range(N_NS):
-        for j in range(N_EW):
-            antennas_EN[i*N_EW+j,:]=[j*b_EW,i*b_NS]
-    antennas_EN-=np.mean(antennas_EN,axis=0) # centre the Easting-Northing axes in the middle of the array
-    offset=offset_deg*np.pi/180. # actual CHORD is not perfectly aligned to the NS/EW grid. Eyeballed angular offset.
-    offset_from_latlon_rotmat=np.array([[np.cos(offset),-np.sin(offset)],[np.sin(offset),np.cos(offset)]]) # use this rotation matrix to adjust the NS/EW-only coords
-    for i in range(N_ant):
-        antennas_EN[i,:]=np.dot(antennas_EN[i,:].T,offset_from_latlon_rotmat)
-    dif=antennas_EN[0,0]-antennas_EN[0,-1]+antennas_EN[0,-1]-antennas_EN[-1,-1]
-    up=np.reshape(2+(-antennas_EN[:,0]+antennas_EN[:,1])/dif, (N_ant,1)) # eyeballed ~2 m vertical range that ramps ~linearly from a high near the NW corner to a low near the SE corner
-    antennas_ENU=np.hstack((antennas_EN,up))
-    if (num_antpos_to_perturb>0):
-        indices_ants=np.random.randint(0,N_ant,size=num_antpos_to_perturb) # indices of antennas to perturb
-        x_perturbations=np.zeros((N_ant,))
-        x_perturbations[indices_ants]=np.random.normal(loc=0.,scale=antpos_perturbation_sigma/np.sqrt(3),size=np.insert(num_antpos_to_perturb,0,1))
-        y_perturbations=np.zeros((N_ant,))
-        y_perturbations[indices_ants]=np.random.normal(loc=0.,scale=antpos_perturbation_sigma/np.sqrt(3),size=np.insert(num_antpos_to_perturb,0,1))
-        z_perturbations=np.zeros((N_ant,))
-        z_perturbations[indices_ants]=np.random.normal(loc=0.,scale=antpos_perturbation_sigma/np.sqrt(3),size=np.insert(num_antpos_to_perturb,0,1))
-        antennas_ENU[:,0]+=x_perturbations
-        antennas_ENU[:,1]+=y_perturbations
-        antennas_ENU[:,2]+=z_perturbations
-    else:
-        indices_ants=None
-    
-    zenith=np.array([np.cos(observatory_latitude),0,np.sin(observatory_latitude)]) # Jon math
-    east=np.array([0,1,0])
-    north=np.cross(zenith,east)
-    lat_mat=np.vstack([north,east,zenith])
-    antennas_xyz=antennas_ENU@lat_mat.T
-    
-    pb_pert_indices=np.zeros((N_ant,))
-    epsilons=np.zeros(5)
-    if (num_pbs_to_perturb>0):
-        epsilons[1:]=pb_perturbation_sigma*np.random.uniform(size=np.insert(4,0,1))
-        indices_pbs=np.random.randint(0,N_ant,size=num_pbs_to_perturb) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
-        pb_pert_indices[indices_pbs]=np.random.randint(1,high=5,size=np.insert(num_pbs_to_perturb,0,1)) # leaves as zero the indices associated with unperturbed antennas
-    else:
-        indices_pbs=None
-    return antennas_xyz,pb_pert_indices,[indices_ants,indices_pbs],epsilons
 
 def gaussian_primary_beam_uv(u,v,ctr,fwhm):
     u0,v0=ctr
@@ -119,86 +229,6 @@ def sparse_gaussian_primary_beam_uv(u,v,ctr,fwhm,nsigma_npix):
     # mask the 10-sigma region and store as a sparse array
     return evaled_sparse
 
-def calc_inst_uvw(antennas_xyz,pb_pert_indices,N_NS=N_NS,N_EW=N_EW):
-    N_ant=N_NS*N_EW
-    N_bl=N_ant*(N_ant-1)//2
-    
-    # calculate baselines in xyz (synonymous with instantaneous uv-coverage)
-    uvw=np.zeros((N_bl,3))
-    pb_idx=np.zeros((N_bl,2))
-    k=0
-    for i in range(N_ant):
-        for j in range(i+1,N_ant):
-            uvw[k,:]=antennas_xyz[i,:]-antennas_xyz[j,:]
-            pb_idx[k]=[pb_pert_indices[i],pb_pert_indices[j]] # 1/np.sqrt( ( (1/antenna_pbs[i]**2)+(1/antenna_pbs[j]**2) )/2. ) # this is for a simple Gaussian beam where the x- and y- FWHMs are the same. Once I get this version working, it should be straightforward to bump up the dimensions and add separate widths
-            k+=1
-    uvw=np.vstack((uvw,-uvw))
-    pb_idx=np.vstack((pb_idx,pb_idx))
-    return uvw,pb_idx
-
-def calc_rot_synth_uv(uvw,lambda_obs=c/(nu_HI_z0*1e6),num_hrs=1./2.,num_timesteps=15,dec=30.): # take [:,:,0] for the instantaneous uv-coverage
-    """
-    * output shape is (N_bl,3,num_timesteps)
-    * accumulate xyz->uvw transformations at each time step
-    """
-    hour_angle_ceiling=np.pi*num_hrs/12 # 2pi*num_hrs/24
-    hour_angles=np.linspace(0,hour_angle_ceiling,num_timesteps)
-    thetas=hour_angles*15*np.pi/180
-    
-    zenith=np.array([np.cos(dec),0,np.sin(dec)]) # Jon math redux
-    east=np.array([0,1,0])
-    north=np.cross(zenith,east)
-    project_to_dec=np.vstack([east,north])
-
-    N_bl=uvw.shape[0]
-    uv_synth=np.zeros((N_bl,2,num_timesteps))
-    for i,theta in enumerate(thetas): # thetas are the rotation synthesis angles (converted from hr. angles using 15 deg/hr rotation rate)
-        accumulate_rotation=np.array([[ np.cos(theta),np.sin(theta),0],
-                                      [-np.sin(theta),np.cos(theta),0],
-                                      [ 0,            0,            1]])
-        uvw_rotated=uvw@accumulate_rotation
-        uv_synth[:,:,i]=uvw_rotated@project_to_dec.T/lambda_obs
-    return uv_synth
-
-def calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,epsilons,Npix=1024): # I remember from my difmap days that you tend to want to anecdotally optimize nbins to be high enough that you get decent resolution but low enough that the Fourier transforms don't take forever, but it would be nice to formalize my logic to get past the point of most of my simulation choices feeling super arbitrary
-    """
-    nbins is only used in the first (loopy) step of the not-a-convolution branch
-    * the "all primary beam widths are the same" branch always uses nbins_out bins (convolution)
-    * the "some perturbed primary beam widths" branch runs the slow, loopy step with nbins bins and then interpolates to nbins_out to facilitate ratios etc. down the line
-    """
-    uvmin=np.min([np.min(uv_synth[:,0,:]),np.min(uv_synth[:,1,:])]) # better to deal with a square image
-    uvmax=np.max([np.max(uv_synth[:,0,:]),np.max(uv_synth[:,1,:])])
-    thetamax=1/uvmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
-    uvbins=np.linspace(uvmin,uvmax,Npix) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
-    d2u=uvbins[1]-uvbins[0]
-    uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij")
-
-    uvplane=0.*uubins
-    uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
-    for i in range(5):
-        eps_i=epsilons[i]
-        for j in range(5):
-            eps_j=epsilons[j]
-            here=(pbws[:,0]==i)&(pbws[:,1]==j) # which baselines to treat during this loop trip... pbws has shape (N_bl,2) ... one column for antenna a and the other for antenna b
-            u_here=uv_synth[here,0,:] # [N_bl,3,N_hr_angles]
-            v_here=uv_synth[here,1,:]
-            N_bl_here,N_hr_angles_here=u_here.shape # should now be (N_bl,N_hr_angles)
-            N_here=N_bl_here*N_hr_angles_here
-            reshaped_u=np.reshape(u_here,N_here)
-            reshaped_v=np.reshape(v_here,N_here)
-            gridded,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use)
-            width_here=primary_beam_width_fidu*np.sqrt((1-eps_i)*(1-eps_j))
-            kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.],width_here)
-            pad_lo,pad_hi=get_padding(Npix)
-            kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge")
-            convolution_here=convolve(kernel_padded,gridded,mode="valid") # beam-smeared version of the uv-plane for this perturbation permutation
-            uvplane+=convolution_here
-
-    dirty_image=np.abs(fftshift(ifft2(uvplane*d2u,norm="forward")))
-    uv_bin_edges=[uvbins,uvbins]
-    theta_lims=[-thetamax,thetamax,-thetamax,thetamax]
-    return dirty_image,uvplane,uv_bin_edges,theta_lims
-
 def primary_beam_crossing_time(nu,dec=30.,D=6.):
     beam_width_deg=1.22*(2.998e8/nu)/D*180/np.pi
     crossing_time_hrs_no_dec=beam_width_deg/15
@@ -214,186 +244,94 @@ prbp = no antenna perturbations, but yes primary beam perturbations
 both = both antenna and primary beam perturbations
 """
 
-t0=time.time()
+# __init__(self,
+        # mode="full",b_NS=8.5,b_EW=6.3,observing_dec=pi/60.,offset_deg=1.75*pi/180.,
+        # num_ant_pos_to_pert=0,ant_pos_pert_sigma=1e-2,
+        # num_pbws_to_pert=0,pbw_pert_sigma=1e-2,
+        # num_timesteps=15,num_hrs=None,
+        # nu_obs=nu_HI_z0,
+        # pbw_fidu=None
+        # )
+
 N_ant_to_pert=100
-ant_pert=1e-2 
 N_pbs_to_pert=100
-prb_pert=1e-2
-# antennas_xyz,pb_pert_indices,[indices_ants,indices_pbs],epsilons
-antennas_xyz_fidu,pb_pert_indices_fidu,_,epsilons_fidu=                    CHORD_antenna_positions()
-np.savetxt("CHORD_ant_pos_unperturbed.txt",antennas_xyz_fidu)
+fidu=CHORD_image()
+antp=CHORD_image(num_ant_pos_to_pert=N_ant_to_pert)
+prbp=CHORD_image(num_pbws_to_pert=N_pbs_to_pert)
+both=CHORD_image(num_ant_pos_to_pert=N_ant_to_pert,num_pbws_to_pert=N_pbs_to_pert)
+N_hr_angles=fidu.num_timesteps
+N_obs_hrs=fidu.num_hrs
+ant_pert=fidu.ant_pos_pert_sigma
+prb_pert=fidu.pbw_pert_sigma
 
-antennas_xyz_antp,pb_pert_indices_antp,[indices_antp_a,_],epsilons_antp=   CHORD_antenna_positions(num_antpos_to_perturb=N_ant_to_pert, antpos_perturbation_sigma=ant_pert)
-antennas_xyz_prbp,pb_pert_indices_prbp,[_,indices_prbp_p],epsilons_prbp=   CHORD_antenna_positions(num_pbs_to_perturb=N_pbs_to_pert,pb_perturbation_sigma=prb_pert)
-antennas_xyz_both,pb_pert_indices_both,[indices_both_a,
-                                        indices_both_p],  epsilons_both=   CHORD_antenna_positions(num_antpos_to_perturb=N_ant_to_pert, antpos_perturbation_sigma=ant_pert,
-                                                                                                   num_pbs_to_perturb=N_pbs_to_pert,pb_perturbation_sigma=prb_pert)
-t1=time.time()
-print("initialized antennas in",t1-t0,"s")
-
-baselines_xyz_fidu,baseline_pbs_fidu=calc_inst_uvw(antennas_xyz_fidu,pb_pert_indices_fidu,N_NS=N_NS,N_EW=N_EW)
-baselines_xyz_antp,baseline_pbs_antp=calc_inst_uvw(antennas_xyz_antp,pb_pert_indices_antp,N_NS=N_NS,N_EW=N_EW)
-baselines_xyz_prbp,baseline_pbs_prbp=calc_inst_uvw(antennas_xyz_prbp,pb_pert_indices_prbp,N_NS=N_NS,N_EW=N_EW)
-baselines_xyz_both,baseline_pbs_both=calc_inst_uvw(antennas_xyz_both,pb_pert_indices_both,N_NS=N_NS,N_EW=N_EW)
-t2=time.time()
-print("calculated baselines in",t2-t1,"s")
-
-N_obs_hrs=primary_beam_crossing_time(350e6,dec=DRAO_lat+30.) # longest possible crossing time is for a source observed at the bottom of the CHORD band
-print("N_obs_hrs=",N_obs_hrs) # looking at the worst-case scenario to get something plausible while still avoiding doing rotation synthesis cals inside the loop
-N_hr_angles=15
-uv_synth_fidu=calc_rot_synth_uv(baselines_xyz_fidu,num_hrs=N_obs_hrs,num_timesteps=N_hr_angles) # precalculate outside the loop and rescale for other frequencies later
-uv_synth_antp=calc_rot_synth_uv(baselines_xyz_antp,num_hrs=N_obs_hrs,num_timesteps=N_hr_angles)
-uv_synth_prbp=calc_rot_synth_uv(baselines_xyz_prbp,num_hrs=N_obs_hrs,num_timesteps=N_hr_angles)
-uv_synth_both=calc_rot_synth_uv(baselines_xyz_both,num_hrs=N_obs_hrs,num_timesteps=N_hr_angles)
-t3=time.time()
-print("performed rotation synthesis in",t3-t2,"s")
+fidu.calc_dirty_image()
+antp.calc_dirty_image()
+prbp.calc_dirty_image()
+both.calc_dirty_image()
 
 colours_b=plt.cm.Blues( np.linspace(1,0.2,N_hr_angles))
-lambda_z0=c/(nu_HI_z0*1e6)
-tol=1e-4 # near the double precision noise floor
-for nu_obs in obs_freqs:
-    lambda_obs=c/(nu_obs*1e6)
-    z_obs=nu_HI_z0/nu_obs-1.
-    p_b_width_fidu=1.22*lambda_obs/6.*2*np.sqrt(2*log2) # in radians (yeah ok CHORD dish diameter hard-coded here)
-    print("p_b_width_fidu=",p_b_width_fidu)
+test_freq=885
+lambda_obs=c/(test_freq*1e6)
+z_obs=nu_HI_z0/test_freq-1.
 
-    # rescale the rotation-synthesized uv coverages to the survey frequency
-    uv_synth_fidu_here=uv_synth_fidu*lambda_z0/lambda_obs
-    uv_synth_antp_here=uv_synth_antp*lambda_z0/lambda_obs
-    uv_synth_prbp_here=uv_synth_prbp*lambda_z0/lambda_obs
-    uv_synth_both_here=uv_synth_both*lambda_z0/lambda_obs
-    uvw_inst_fidu_here=uv_synth_fidu_here[:,:,0]
-    uvw_inst_antp_here=uv_synth_antp_here[:,:,0]
-    uvw_inst_prbp_here=uv_synth_prbp_here[:,:,0]
-    uvw_inst_both_here=uv_synth_both_here[:,:,0]
+cases=[fidu,antp,prbp,both]
 
-    # ift to get dirty images
-    # calc_dirty_image(uv_synth,pbws,primary_beam_width_fidu,epsilons,Npix=1024)
-    ta=time.time()
-    dirty_image_fidu,binned_uv_synth_fidu,[u_edges_fidu,v_edges_fidu],[thetaxmin_fidu,thetaxmax_fidu,thetaymin_fidu,thetaymax_fidu]=calc_dirty_image(uv_synth_fidu_here,baseline_pbs_fidu,p_b_width_fidu,epsilons_fidu)
-    tb=time.time()
-    print("dirty_image_fidu evaluated in",tb-ta,"s")
-    dirty_image_antp,binned_uv_synth_antp,[u_edges_antp,v_edges_antp],[thetaxmin_antp,thetaxmax_antp,thetaymin_antp,thetaymax_antp]=calc_dirty_image(uv_synth_antp_here,baseline_pbs_antp,p_b_width_fidu,epsilons_antp)
-    tc=time.time()
-    print("dirty_image_antp evaluated in",tc-tb,"s")
-    dirty_image_prbp,binned_uv_synth_prbp,[u_edges_prbp,v_edges_prbp],[thetaxmin_prbp,thetaxmax_prbp,thetaymin_prbp,thetaymax_prbp]=calc_dirty_image(uv_synth_prbp_here,baseline_pbs_prbp,p_b_width_fidu,epsilons_prbp)
-    td=time.time()
-    print("dirty_image_prbp evaluated in",td-tc,"s")
-    dirty_image_both,binned_uv_synth_both,[u_edges_both,v_edges_both],[thetaxmin_both,thetaxmax_both,thetaymin_both,thetaymax_both]=calc_dirty_image(uv_synth_both_here,baseline_pbs_both,p_b_width_fidu,epsilons_both)
-    te=time.time()
-    print("dirty_image_both evaluated in",te-td,"s")
+# plot
+dotsize=1
+fig,axs=plt.subplots(4,7,figsize=(31,15))
+for i in range(4):
+    axs[i,0].set_xlabel("E (m)")
+    axs[i,0].set_ylabel("N (m)")
 
-    # plot
-    dotsize=1
-    fig,axs=plt.subplots(4,7,figsize=(31,15))
-    for i in range(4):
-        axs[i,0].set_xlabel("E (m)")
-        axs[i,0].set_ylabel("N (m)")
+    for j in range(1,4):
+        axs[i,j].set_xlabel("u ($\lambda$)")
+        axs[i,j].set_ylabel("v ($\lambda$)")
 
-        for j in range(1,4):
-            axs[i,j].set_xlabel("u ($\lambda$)")
-            axs[i,j].set_ylabel("v ($\lambda$)")
+    for j in range(4,7):
+        axs[i,j].set_xlabel("$θ_x$ (rad)")
+        axs[i,j].set_ylabel("$θ_y$ (rad)")
+axs[0,0].set_title("oversimplified array layout\n (no receiver hut holes,\n eyeballed array rotation and elevation,\n colour ~ relative U-coord)\nFIDUCIAL ARRAY")
+axs[0,1].set_title("instantaneous uv-coverage/\ndirty beam")
+axs[0,2].set_title(str(round(N_obs_hrs,3))+"-hr rotation-synthesized uv-coverage\nsampled every "+str(int(60/(N_hr_angles/N_obs_hrs)))+" min (colour ~ baseline)")
+axs[0,3].set_title("binned rotation-synthesized\n and primary-beamed uv-coverage")
+axs[0,4].set_title("dirty image\n(rotation-synthesized uv-coverage \nbinned into "+str(1024)+" bins/axis)")
+axs[1,0].set_title("PERTURBED ANTENNA POSITIONS\nperturbation magnitude="+str(ant_pert*1e3)+"mm")
+axs[1,5].set_title("ratio: \nfiducial/perturbed")
+axs[1,6].set_title("residual: \nfiducial-perturbed")
+axs[2,0].set_title("PERTURBED PRIMARY BEAM WIDTHS\nfractional perturbation magnitude="+str(prb_pert))
+axs[3,0].set_title("PERTURBED ANTENNA POSITIONS\n AND PRIMARY BEAM WIDTHS\ncombined effects of the above cases")
 
-        for j in range(4,7):
-            axs[i,j].set_xlabel("$θ_x$ (rad)")
-            axs[i,j].set_ylabel("$θ_y$ (rad)")
-
-      # FIDUCIAL ARRAY
-    axs[0,0].scatter(antennas_xyz_fidu[:,0],antennas_xyz_fidu[:,1],s=dotsize,c=antennas_xyz_fidu[:,2],cmap=trunc_Blues)
-    axs[0,0].set_title("oversimplified array layout\n (no receiver hut holes,\n eyeballed array rotation and elevation,\n colour ~ relative U-coord)\nFIDUCIAL ARRAY")
-
-    axs[0,1].scatter(uvw_inst_fidu_here[:,0],uvw_inst_fidu_here[:,1],s=dotsize)
-    axs[0,1].set_title("instantaneous uv-coverage/\ndirty beam")
+for k,case in enumerate(cases):
+    axs[k,0].scatter(case.antennas_xyz[:,0],case.antennas_xyz[:,1],s=dotsize,c=case.antennas_xyz[:,2],cmap=trunc_Blues)
+    axs[k,1].scatter(case.uvw_inst[:,0],case.uvw_inst[:,1],s=dotsize)
 
     for i in range(N_hr_angles):
-        axs[0,2].scatter(uv_synth_fidu_here[:,0,i],uv_synth_fidu_here[:,1,i],color=colours_b[i],s=dotsize) # all baselines, x/y coord, ith time step //one colour = one instance of instantaneous uv-coverage
-    axs[0,2].set_title(str(round(N_obs_hrs,3))+"-hr rotation-synthesized uv-coverage\nsampled every "+str(int(60/(N_hr_angles/N_obs_hrs)))+" min (colour ~ baseline)")
-    im=axs[0,3].imshow(binned_uv_synth_fidu,cmap="Blues",vmin=np.percentile(binned_uv_synth_fidu,1),vmax=np.percentile(binned_uv_synth_fidu,99),origin="lower",
-                       extent=[u_edges_fidu[0],u_edges_fidu[-1],v_edges_fidu[0],v_edges_fidu[-1]])
-    clb=plt.colorbar(im,ax=axs[0,3])
+        axs[k,2].scatter(case.uv_synth[:,0,i],case.uv_synth[:,1,i],color=colours_b[i],s=dotsize) # all baselines, x/y coord, ith time step //one colour = one instance of instantaneous uv-coverage
+    uvplane=case.uvplane
+    im=axs[k,3].imshow(uvplane,cmap="Blues",vmin=np.percentile(uvplane,1),vmax=np.percentile(uvplane,99),origin="lower",
+                       extent=[case.uvmin,case.uvmax,case.uvmin,case.uvmax])
+    clb=plt.colorbar(im,ax=axs[k,3])
     clb.ax.set_title("#bl")
 
-    axs[0,3].set_title("binned rotation-synthesized\n and primary-beamed uv-coverage")
-    im=axs[0,4].imshow(dirty_image_fidu,cmap="Blues",vmin=np.percentile(dirty_image_fidu,2),vmax=np.percentile(dirty_image_fidu,98),origin="lower",
-                       extent=[thetaxmin_fidu,thetaxmax_fidu,thetaymin_fidu,thetaymax_fidu])
-    plt.colorbar(im,ax=axs[0,4])
-    axs[0,4].set_title("dirty image\n(rotation-synthesized uv-coverage \nbinned into "+str(1024)+" bins/axis)")
+    dirty_image=case.dirty_image
+    if (k==0):
+        dirty_image_fidu=dirty_image
+    thetalim=case.thetamax
+    theta_extent=[-thetalim,thetalim,-thetalim,thetalim]
+    im=axs[k,4].imshow(dirty_image,cmap="Blues",vmin=np.percentile(dirty_image,2),vmax=np.percentile(dirty_image,98),origin="lower",
+                       extent=theta_extent)
+    plt.colorbar(im,ax=axs[k,4])
 
-      # PERTURBED ANTENNA POSITIONS
-    axs[1,0].scatter(antennas_xyz_antp[:,0],           antennas_xyz_antp[:,1],           s=dotsize,c=antennas_xyz_antp[:,2],cmap=trunc_Blues)
-    axs[1,0].scatter(antennas_xyz_antp[indices_antp_a,0],antennas_xyz_antp[indices_antp_a,1],s=dotsize,c="r")
-    axs[1,0].set_title("PERTURBED ANTENNA POSITIONS\nperturbation magnitude="+str(ant_pert*1e3)+"mm")
-    axs[1,1].scatter(uvw_inst_antp_here[:,0],uvw_inst_antp_here[:,1],s=dotsize)
-    for i in range(N_hr_angles):
-        axs[1,2].scatter(uv_synth_antp_here[:,0,i],uv_synth_antp_here[:,1,i],color=colours_b[i],s=dotsize)
-    im=axs[1,3].imshow(binned_uv_synth_antp,cmap="Blues",vmin=np.percentile(binned_uv_synth_antp,1),vmax=np.percentile(binned_uv_synth_antp,99),origin="lower",
-                       extent=[u_edges_antp[0],u_edges_antp[-1],v_edges_antp[0],v_edges_antp[-1]])
-    clb=plt.colorbar(im,ax=axs[1,3])
-    clb.ax.set_title("#bl")
-    im=axs[1,4].imshow(dirty_image_antp,cmap="Blues",vmin=np.percentile(dirty_image_antp,2),vmax=np.percentile(dirty_image_antp,98),origin="lower",
-                       extent=[thetaxmin_antp,thetaxmax_antp,thetaymin_antp,thetaymax_antp])
-    plt.colorbar(im,ax=axs[1,4])
-    axs[1,5].set_title("ratio: \nfiducial/perturbed")
-    ratio=dirty_image_fidu/dirty_image_antp
-    im=axs[1,5].imshow(ratio,cmap="Blues",origin="lower",vmax=np.nanpercentile(ratio,99),
-                       extent=[thetaxmin_antp,thetaxmax_antp,thetaymin_antp,thetaymax_antp])
-    plt.colorbar(im,ax=axs[1,5])
-    axs[1,6].set_title("residual: \nfiducial-perturbed")
-    residual=dirty_image_fidu-dirty_image_antp
-    im=axs[1,6].imshow(residual,cmap="Blues",origin="lower",
-                       extent=[thetaxmin_antp,thetaxmax_antp,thetaymin_antp,thetaymax_antp])
-    plt.colorbar(im,ax=axs[1,6])
-      
-      # PERTURBED PRIMARY BEAMS
-    axs[2,0].scatter(antennas_xyz_prbp[:,0],             antennas_xyz_prbp[:,1],             s=dotsize,c=antennas_xyz_prbp[:,2],cmap=trunc_Blues)
-    axs[2,0].scatter(antennas_xyz_prbp[indices_prbp_p,0],antennas_xyz_prbp[indices_prbp_p,1],s=dotsize,c="tab:orange")
-    axs[2,0].set_title("PERTURBED PRIMARY BEAM WIDTHS\nfractional perturbation magnitude="+str(prb_pert))
-    axs[2,1].scatter(uvw_inst_antp_here[:,0],uvw_inst_antp_here[:,1],s=dotsize)
-    for i in range(N_hr_angles):
-        axs[2,2].scatter(uv_synth_prbp_here[:,0,i],uv_synth_prbp_here[:,1,i],color=colours_b[i],s=dotsize)
-    im=axs[2,3].imshow(binned_uv_synth_prbp,cmap="Blues",vmin=np.percentile(binned_uv_synth_prbp,1),vmax=np.percentile(binned_uv_synth_prbp,99),origin="lower",
-                       extent=[u_edges_prbp[0],u_edges_prbp[-1],v_edges_prbp[0],v_edges_prbp[-1]])
-    clb=plt.colorbar(im,ax=axs[2,3])
-    clb.ax.set_title("#bl")
-    im=axs[2,4].imshow(dirty_image_prbp,cmap="Blues",vmin=np.percentile(dirty_image_prbp,2),vmax=np.percentile(dirty_image_prbp,98),origin="lower",
-                       extent=[thetaxmin_prbp,thetaxmax_prbp,thetaymin_prbp,thetaymax_prbp])
-    plt.colorbar(im,ax=axs[2,4])
-    ratio=dirty_image_fidu/dirty_image_prbp
-    im=axs[2,5].imshow(ratio,cmap="Blues",origin="lower",vmin=np.nanpercentile(ratio,1),vmax=np.nanpercentile(ratio,99),
-                       extent=[thetaxmin_prbp,thetaxmax_prbp,thetaymin_prbp,thetaymax_prbp])
-    plt.colorbar(im,ax=axs[2,5])
-    residual=dirty_image_fidu-dirty_image_prbp
-    im=axs[2,6].imshow(residual,cmap="Blues",origin="lower",
-                       extent=[thetaxmin_prbp,thetaxmax_prbp,thetaymin_prbp,thetaymax_prbp])
-    plt.colorbar(im,ax=axs[2,6])
+    if (k>0):
+        ratio=dirty_image_fidu/dirty_image
+        im=axs[k,5].imshow(ratio,cmap="Blues",origin="lower",vmax=np.nanpercentile(ratio,99),extent=theta_extent)
+        plt.colorbar(im,ax=axs[k,5])
 
-      # PERTURBED ANTENNA POSITIONS *AND* PRIMARY BEAMS
-    axs[3,0].scatter(antennas_xyz_both[:,0],           antennas_xyz_both[:,1],           s=dotsize,c=antennas_xyz_both[:,2],cmap=trunc_Blues)
-    axs[3,0].scatter(antennas_xyz_both[indices_both_a,0],antennas_xyz_both[indices_both_a,1],s=dotsize,c="r")
-    axs[3,0].scatter(antennas_xyz_both[indices_both_p,0],antennas_xyz_both[indices_both_p,1],s=dotsize,c="tab:orange")
-    axs[3,0].set_title("PERTURBED ANTENNA POSITIONS\n AND PRIMARY BEAM WIDTHS\ncombined effects of the above cases")
-    axs[3,1].scatter(uvw_inst_both_here[:,0],uvw_inst_both_here[:,1],s=dotsize)
-    for i in range(N_hr_angles):
-        axs[3,2].scatter(uv_synth_both_here[:,0,i],uv_synth_both_here[:,1,i],color=colours_b[i],s=dotsize)
-    im=axs[3,3].imshow(binned_uv_synth_both,cmap="Blues",vmin=np.percentile(binned_uv_synth_both,1),vmax=np.percentile(binned_uv_synth_both,99),origin="lower",
-                       extent=[u_edges_both[0],u_edges_both[-1],v_edges_both[0],v_edges_both[-1]])
-    clb=plt.colorbar(im,ax=axs[3,3])
-    clb.ax.set_title("#bl")
-    im=axs[3,4].imshow(dirty_image_both,cmap="Blues",vmin=np.percentile(dirty_image_both,2),vmax=np.percentile(dirty_image_both,98),origin="lower",
-                       extent=[thetaxmin_both,thetaxmax_both,thetaymin_both,thetaymax_both])
-    plt.colorbar(im,ax=axs[3,4])
-    ratio=dirty_image_fidu/dirty_image_both
-    im=axs[3,5].imshow(ratio,cmap="Blues",origin="lower",vmax=np.nanpercentile(ratio,99),
-                       extent=[thetaxmin_both,thetaxmax_both,thetaymin_both,thetaymax_both])
-    plt.colorbar(im,ax=axs[3,5])
-    residual=dirty_image_fidu-dirty_image_both
-    im=axs[3,6].imshow(residual,cmap="Blues",origin="lower",
-                       extent=[thetaxmin_both,thetaxmax_both,thetaymin_both,thetaymax_both])
-    plt.colorbar(im,ax=axs[3,6])
+        residual=dirty_image_fidu-dirty_image
+        im=axs[k,6].imshow(residual,cmap="Blues",origin="lower",extent=theta_extent)
+        plt.colorbar(im,ax=axs[k,6])
 
-    plt.suptitle("simulated CHORD-512 observing at "+str(int(nu_obs))+" MHz (z="+str(round(z_obs,3))+")")
-    plt.tight_layout()
-    plt.savefig("simulated_CHORD_512_"+str(int(nu_obs))+"_MHz_"+str(int(ant_pert*1e3))+"_mm_"+str(int(N_ant_to_pert))+"_ant.png",dpi=200)
-    plt.show()
-
-    # assert(1==0), "refining workflow with one frequency por ahora"
+plt.suptitle("simulated CHORD-512 observing at "+str(int(test_freq))+" MHz (z="+str(round(z_obs,3))+")")
+plt.tight_layout()
+plt.savefig("simulated_CHORD_512_"+str(int(test_freq))+"_MHz_"+str(int(ant_pert*1e3))+"_mm_"+str(int(N_ant_to_pert))+"_ant.png",dpi=200)
+plt.show()
