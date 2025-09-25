@@ -19,9 +19,12 @@ c=2.998e8
 twopi=2.*pi
 log2=np.log(2)
 
+class SingleFrequencyError(Exception):
+    pass
+
 class CHORD_image(object):
     def __init__(self,
-                 mode="full",b_NS=8.5,b_EW=6.3,observing_dec=pi/60.,offset_deg=1.75*pi/180.,
+                 mode="full",b_NS=8.5,b_EW=6.3,observing_dec=pi/60.,offset_deg=1.75*pi/180.,N_pert_types=4,
                  num_ant_pos_to_pert=0,ant_pos_pert_sigma=1e-2,
                  num_pbws_to_pert=0,pbw_pert_sigma=1e-2,
                  num_timesteps=15,num_hrs=None,
@@ -85,20 +88,15 @@ class CHORD_image(object):
         antennas_xyz=antennas_ENU@lat_mat.T
         self.antennas_xyz=antennas_xyz
 
-        # it's confusing to have pb_pert_indices and indices_pbs 
-        # (one is binary and one gives the kind of primary beam at hand) 
-        # instead, recast as pbw_types and pbw_bool 
-        # actually, just keep pbw_types and then...
-        # when I want to plot the antennas w/ pert pbws, just scatter for pbw_types[pbw_types>0]
-        # internally, and respectively, they've been superseded by
-        # pbw_types and indices_of_ants_w_pert_pbws
-        
         pbw_types=np.zeros((self.N_ant,))
-        epsilons=np.zeros(5)
+        self.N_pert_types=N_pert_types
+        N_beam_types=N_pert_types+1
+        self.N_beam_types=N_beam_types
+        epsilons=np.zeros(N_beam_types)
         if (num_pbws_to_pert>0):
-            epsilons[1:]=pbw_pert_sigma*np.random.uniform(size=np.insert(4,0,1))
+            epsilons[1:]=pbw_pert_sigma*np.random.uniform(size=np.insert(N_pert_types,0,1))
             indices_of_ants_w_pert_pbws=np.random.randint(0,self.N_ant,size=num_pbws_to_pert) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
-            pbw_types[indices_of_ants_w_pert_pbws]=np.random.randint(1,high=5,size=np.insert(num_pbws_to_pert,0,1)) # leaves as zero the indices associated with unperturbed antennas
+            pbw_types[indices_of_ants_w_pert_pbws]=np.random.randint(1,high=N_beam_types,size=np.insert(num_pbws_to_pert,0,1)) # leaves as zero the indices associated with unperturbed antennas
         else:
             indices_of_ants_w_pert_pbws=None
         self.pbw_types=pbw_types
@@ -106,8 +104,8 @@ class CHORD_image(object):
         self.epsilons=epsilons
         
         # ungridded instantaneous uv-coverage (baselines in xyz)        
-        uvw_inst=np.zeros((self.N_bl,3)) # formerly: uvw
-        indices_of_constituent_ant_pb_types=np.zeros((self.N_bl,2)) # formerly: pb_idx
+        uvw_inst=np.zeros((self.N_bl,3))
+        indices_of_constituent_ant_pb_types=np.zeros((self.N_bl,2))
         k=0
         for i in range(self.N_ant):
             for j in range(i+1,self.N_ant):
@@ -141,11 +139,12 @@ class CHORD_image(object):
         print("synthesized rotation")
 
     def calc_dirty_image(self, Npix=1024):
+        t0=time.time()
         uvmin=np.min([np.min(self.uv_synth[:,0,:]),np.min(self.uv_synth[:,1,:])]) # better to deal with a square image
         self.uvmin=uvmin
         uvmax=np.max([np.max(self.uv_synth[:,0,:]),np.max(self.uv_synth[:,1,:])])
         self.uvmax=uvmax
-        thetamax=1/uvmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
+        thetamax=-1/uvmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
         self.thetamax=thetamax
         uvbins=np.linspace(uvmin,uvmax,Npix) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
         d2u=uvbins[1]-uvbins[0]
@@ -153,14 +152,14 @@ class CHORD_image(object):
 
         uvplane=0.*uubins
         uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
-        for i in range(5):
+        for i in range(self.N_beam_types):
             eps_i=self.epsilons[i]
-            for j in range(5):
+            for j in range(i+1):
                 eps_j=self.epsilons[j]
                 here=(self.indices_of_constituent_ant_pb_types[:,0]==i)&(self.indices_of_constituent_ant_pb_types[:,1]==j) # which baselines to treat during this loop trip... pbws has shape (N_bl,2) ... one column for antenna a and the other for antenna b
                 u_here=self.uv_synth[here,0,:] # [N_bl,3,N_hr_angles]
                 v_here=self.uv_synth[here,1,:]
-                N_bl_here,N_hr_angles_here=u_here.shape # should now be (N_bl,N_hr_angles)
+                N_bl_here,N_hr_angles_here=u_here.shape # (N_bl,N_hr_angles)
                 N_here=N_bl_here*N_hr_angles_here
                 reshaped_u=np.reshape(u_here,N_here)
                 reshaped_v=np.reshape(v_here,N_here)
@@ -179,7 +178,14 @@ class CHORD_image(object):
         self.uv_bin_edges=uv_bin_edges
         theta_lims=[-thetamax,thetamax,-thetamax,thetamax]
         self.theta_lims=theta_lims
-        print("computed dirty image")
+        t1=time.time()
+        print("computed dirty image in ",t1-t0,"s")
+
+    def stack_to_box(self):
+        if (np.array(self.nu_obs).shape[0]==1):
+            raise SingleFrequencyError
+        
+         
 
 # survey freqs to examine
 lo=350.        # expected min obs freq
@@ -234,104 +240,3 @@ def primary_beam_crossing_time(nu,dec=30.,D=6.):
     crossing_time_hrs_no_dec=beam_width_deg/15
     crossing_time_hrs= crossing_time_hrs_no_dec*np.cos(dec)
     return crossing_time_hrs
-
-############################################################################################################################################################################################################################
-"""
-SHORTHAND:
-fidu = neither antenna nor primary beam perturbations (fiducial array)
-antp = antenna perturbations, but no primary beam perturbations
-prbp = no antenna perturbations, but yes primary beam perturbations
-both = both antenna and primary beam perturbations
-"""
-
-# __init__(self,
-        # mode="full",b_NS=8.5,b_EW=6.3,observing_dec=pi/60.,offset_deg=1.75*pi/180.,
-        # num_ant_pos_to_pert=0,ant_pos_pert_sigma=1e-2,
-        # num_pbws_to_pert=0,pbw_pert_sigma=1e-2,
-        # num_timesteps=15,num_hrs=None,
-        # nu_obs=nu_HI_z0,
-        # pbw_fidu=None
-        # )
-
-N_ant_to_pert=100
-N_pbs_to_pert=100
-fidu=CHORD_image()
-antp=CHORD_image(num_ant_pos_to_pert=N_ant_to_pert)
-prbp=CHORD_image(num_pbws_to_pert=N_pbs_to_pert)
-both=CHORD_image(num_ant_pos_to_pert=N_ant_to_pert,num_pbws_to_pert=N_pbs_to_pert)
-N_hr_angles=fidu.num_timesteps
-N_obs_hrs=fidu.num_hrs
-ant_pert=fidu.ant_pos_pert_sigma
-prb_pert=fidu.pbw_pert_sigma
-
-fidu.calc_dirty_image()
-antp.calc_dirty_image()
-prbp.calc_dirty_image()
-both.calc_dirty_image()
-
-colours_b=plt.cm.Blues( np.linspace(1,0.2,N_hr_angles))
-test_freq=885
-lambda_obs=c/(test_freq*1e6)
-z_obs=nu_HI_z0/test_freq-1.
-
-cases=[fidu,antp,prbp,both]
-
-# plot
-dotsize=1
-fig,axs=plt.subplots(4,7,figsize=(31,15))
-for i in range(4):
-    axs[i,0].set_xlabel("E (m)")
-    axs[i,0].set_ylabel("N (m)")
-
-    for j in range(1,4):
-        axs[i,j].set_xlabel("u ($\lambda$)")
-        axs[i,j].set_ylabel("v ($\lambda$)")
-
-    for j in range(4,7):
-        axs[i,j].set_xlabel("$θ_x$ (rad)")
-        axs[i,j].set_ylabel("$θ_y$ (rad)")
-axs[0,0].set_title("oversimplified array layout\n (no receiver hut holes,\n eyeballed array rotation and elevation,\n colour ~ relative U-coord)\nFIDUCIAL ARRAY")
-axs[0,1].set_title("instantaneous uv-coverage/\ndirty beam")
-axs[0,2].set_title(str(round(N_obs_hrs,3))+"-hr rotation-synthesized uv-coverage\nsampled every "+str(int(60/(N_hr_angles/N_obs_hrs)))+" min (colour ~ baseline)")
-axs[0,3].set_title("binned rotation-synthesized\n and primary-beamed uv-coverage")
-axs[0,4].set_title("dirty image\n(rotation-synthesized uv-coverage \nbinned into "+str(1024)+" bins/axis)")
-axs[1,0].set_title("PERTURBED ANTENNA POSITIONS\nperturbation magnitude="+str(ant_pert*1e3)+"mm")
-axs[1,5].set_title("ratio: \nfiducial/perturbed")
-axs[1,6].set_title("residual: \nfiducial-perturbed")
-axs[2,0].set_title("PERTURBED PRIMARY BEAM WIDTHS\nfractional perturbation magnitude="+str(prb_pert))
-axs[3,0].set_title("PERTURBED ANTENNA POSITIONS\n AND PRIMARY BEAM WIDTHS\ncombined effects of the above cases")
-
-for k,case in enumerate(cases):
-    axs[k,0].scatter(case.antennas_xyz[:,0],case.antennas_xyz[:,1],s=dotsize,c=case.antennas_xyz[:,2],cmap=trunc_Blues)
-    axs[k,1].scatter(case.uvw_inst[:,0],case.uvw_inst[:,1],s=dotsize)
-
-    for i in range(N_hr_angles):
-        axs[k,2].scatter(case.uv_synth[:,0,i],case.uv_synth[:,1,i],color=colours_b[i],s=dotsize) # all baselines, x/y coord, ith time step //one colour = one instance of instantaneous uv-coverage
-    uvplane=case.uvplane
-    im=axs[k,3].imshow(uvplane,cmap="Blues",vmin=np.percentile(uvplane,1),vmax=np.percentile(uvplane,99),origin="lower",
-                       extent=[case.uvmin,case.uvmax,case.uvmin,case.uvmax])
-    clb=plt.colorbar(im,ax=axs[k,3])
-    clb.ax.set_title("#bl")
-
-    dirty_image=case.dirty_image
-    if (k==0):
-        dirty_image_fidu=dirty_image
-    thetalim=case.thetamax
-    theta_extent=[-thetalim,thetalim,-thetalim,thetalim]
-    im=axs[k,4].imshow(dirty_image,cmap="Blues",vmin=np.percentile(dirty_image,2),vmax=np.percentile(dirty_image,98),origin="lower",
-                       extent=theta_extent)
-    plt.colorbar(im,ax=axs[k,4])
-
-    if (k>0):
-        ratio=dirty_image_fidu/dirty_image
-        im=axs[k,5].imshow(ratio,cmap="Blues",origin="lower",vmax=np.nanpercentile(ratio,99),extent=theta_extent)
-        plt.colorbar(im,ax=axs[k,5])
-
-        residual=dirty_image_fidu-dirty_image
-        im=axs[k,6].imshow(residual,cmap="Blues",origin="lower",extent=theta_extent)
-        plt.colorbar(im,ax=axs[k,6])
-
-plt.suptitle("simulated CHORD-512 observing at "+str(int(test_freq))+" MHz (z="+str(round(z_obs,3))+")")
-plt.tight_layout()
-plt.savefig("simulated_CHORD_512_"+str(int(test_freq))+"_MHz_"+str(int(ant_pert*1e3))+"_mm_"+str(int(N_ant_to_pert))+"_ant.png",dpi=200)
-plt.show()
