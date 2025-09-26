@@ -5,6 +5,7 @@ from numpy.fft import ifft2,fftshift #,ifftshift
 import time
 from scipy.signal import convolve
 import scipy.sparse as spsp
+from scipy.interpolate import interpn
 
 # CHORD immutables
 N_NS_full=24
@@ -19,16 +20,13 @@ c=2.998e8
 twopi=2.*pi
 log2=np.log(2)
 
-class SingleFrequencyError(Exception):
-    pass
-
 class CHORD_image(object):
     def __init__(self,
                  mode="full",b_NS=8.5,b_EW=6.3,observing_dec=pi/60.,offset_deg=1.75*pi/180.,N_pert_types=4,
                  num_ant_pos_to_pert=0,ant_pos_pert_sigma=1e-2,
                  num_pbws_to_pert=0,pbw_pert_sigma=1e-2,
                  num_timesteps=15,num_hrs=None,
-                 nu_obs=nu_HI_z0,
+                 nu_ctr=nu_HI_z0,
                  pbw_fidu=None
                  ):
         # array and observation geometry
@@ -42,11 +40,11 @@ class CHORD_image(object):
         self.N_bl=self.N_ant*(self.N_ant-1)//2
         self.observing_dec=observing_dec
         self.num_timesteps=num_timesteps
-        self.nu_obs=nu_obs
+        self.nu_ctr=nu_ctr
         if (num_hrs is None):
-            num_hrs=primary_beam_crossing_time(self.nu_obs*1e6,dec=self.observing_dec,D=D) # frew needs to be in Hz
+            num_hrs=primary_beam_crossing_time(self.nu_ctr*1e6,dec=self.observing_dec,D=D) # frew needs to be in Hz
         self.num_hrs=num_hrs
-        self.lambda_obs=c/self.nu_obs
+        self.lambda_obs=c/self.nu_ctr
         if (pbw_fidu is None):
             pbw_fidu=self.lambda_obs/D
         self.pbw_fidu=pbw_fidu
@@ -138,7 +136,9 @@ class CHORD_image(object):
         self.uv_synth=uv_synth
         print("synthesized rotation")
 
-    def calc_dirty_image(self, Npix=1024):
+    def calc_dirty_image(self, Npix=1024, pbw_fidu_use=None):
+        if pbw_fidu_use is None: # otherwise, use the one that was passed
+            pbw_fidu_use=self.pbw_fidu
         t0=time.time()
         uvmin=np.min([np.min(self.uv_synth[:,0,:]),np.min(self.uv_synth[:,1,:])]) # better to deal with a square image
         self.uvmin=uvmin
@@ -164,7 +164,7 @@ class CHORD_image(object):
                 reshaped_u=np.reshape(u_here,N_here)
                 reshaped_v=np.reshape(v_here,N_here)
                 gridded,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use)
-                width_here=self.pbw_fidu*np.sqrt((1-eps_i)*(1-eps_j))
+                width_here=pbw_fidu_use*np.sqrt((1-eps_i)*(1-eps_j))
                 kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.],width_here)
                 pad_lo,pad_hi=get_padding(Npix)
                 kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge")
@@ -173,25 +173,35 @@ class CHORD_image(object):
 
         self.uvplane=uvplane
         dirty_image=np.abs(fftshift(ifft2(uvplane*d2u,norm="forward")))
-        self.dirty_image=dirty_image
+        # self.dirty_image=dirty_image
         uv_bin_edges=[uvbins,uvbins]
-        self.uv_bin_edges=uv_bin_edges
+        # self.uv_bin_edges=uv_bin_edges
         theta_lims=[-thetamax,thetamax,-thetamax,thetamax]
-        self.theta_lims=theta_lims
+        # self.theta_lims=theta_lims
         t1=time.time()
         print("computed dirty image in ",t1-t0,"s")
+        return dirty_image,uv_bin_edges,theta_lims
 
-    def stack_to_box(self):
-        if (np.array(self.nu_obs).shape[0]==1):
-            raise SingleFrequencyError
-        
-         
-
-# survey freqs to examine
-lo=350.        # expected min obs freq
-hi=nu_HI_z0    # can't do 21 cm forecasting in the extreme upper end of the CHORD band b/c that would correspond to "blueshifted cosmological HI"
-mid=(lo+hi)/2. # midpoint to help connect the dots
-obs_freqs=[lo,mid,hi] # MHz
+    def stack_to_box(self,delta_nu,evol_restriction_threshold=1./15., N_grid_pix=1024):
+        bw=self.nu_ctr*evol_restriction_threshold
+        N_chan=int(bw/delta_nu)
+        self.nu_lo=self.nu_ctr-bw/2.
+        self.nu_hi=self.nu_ctr+bw/2.
+        surv_channels=np.arange(self.nu_hi,self.nu_lo,-delta_nu) # descending
+        surv_wavelengths=c/surv_channels # ascending
+        surv_beam_widths=surv_wavelengths/D # ascending (need to traverse the beam widths in ascending order in order to use the 0th entry to set the excision cross-section)
+        self.surv_channels=surv_channels
+        box=np.zeros((N_chan,N_grid_pix,N_grid_pix))
+        for i,beam_width in enumerate(surv_beam_widths):
+            chan_dirty_image,chan_uv_bin_edges,chan_theta_lims=self.calc_dirty_image(self, Npix=N_grid_pix, pbw_fidu_use=beam_width)
+            if i==0:
+                uv_bin_edges_0=chan_uv_bin_edges
+                uu_bin_edges_0,vv_bin_edges_0=np.meshgrid(uv_bin_edges_0,uv_bin_edges_0,indexing="ij")
+            interpolated_slice=interpn((chan_uv_bin_edges,chan_uv_bin_edges),
+                                       chan_dirty_image,
+                                       (uu_bin_edges_0,vv_bin_edges_0)) # this takes care of the chunk excision and interpolation in one step
+            box[i]=interpolated_slice
+        return box # it would be lowkey diabolical to send this to cosmo_stats to window numerically and expect to generate box realizations at the same resolution
 
 # use the part of the Blues colour map with decent contrast and eyeball-ably perceivable differences between adjacent samplings
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=1000): # https://stackoverflow.com/questions/18926031/how-to-extract-a-subset-of-a-colormap-as-a-new-colormap-in-matplotlib

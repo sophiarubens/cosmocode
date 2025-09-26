@@ -15,7 +15,7 @@ N_pert_types_cases=np.arange(2,max_N_perts,2,dtype="int")
 N_cases_N_pert_types=N_pert_types_cases.shape[0]
 all_perts_horiz=np.arange(0,max_N_perts,2)
 
-N_iterations=25
+N_iterations=3
 fidu=CHORD_image(N_pert_types=0)
 pb02=CHORD_image(N_pert_types=2,  num_pbws_to_pert=N_pbs_to_pert)
 pb04=CHORD_image(N_pert_types=4,  num_pbws_to_pert=N_pbs_to_pert)
@@ -30,17 +30,19 @@ stats_per_case=np.zeros((N_iterations,N_cases_N_pert_types+1,3)) # rows for pert
 for i in range(N_iterations):
     for j,case in enumerate(cases):
         t0=time.time()
-        case.calc_dirty_image()
+        dimg=case.calc_dirty_image()
         t1=time.time()
 
         time_trials[i,j]=t1-t0
         if j==0:
             ratiorms=np.nan
             residualrms=np.nan
-            fiduimg=case.dirty_image
+            # fiduimg=case.dirty_image
+            fiduimg=dimg
             caserms=getrms(fiduimg)
         else:
-            caseimg=case.dirty_image
+            # caseimg=case.dirty_image
+            caseimg=dimg
             caserms=getrms(caseimg)
             ratio=caseimg/fiduimg
             ratiorms=getrms(ratio[~np.isnan(ratio)])
