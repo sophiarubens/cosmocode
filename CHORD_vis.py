@@ -176,11 +176,11 @@ class CHORD_image(object):
         # self.dirty_image=dirty_image
         uv_bin_edges=[uvbins,uvbins]
         # self.uv_bin_edges=uv_bin_edges
-        theta_lims=[-thetamax,thetamax,-thetamax,thetamax]
+        # theta_lims=[-thetamax,thetamax,-thetamax,thetamax]
         # self.theta_lims=theta_lims
         t1=time.time()
         print("computed dirty image in ",t1-t0,"s")
-        return dirty_image,uv_bin_edges,theta_lims
+        return dirty_image,uv_bin_edges,thetamax
 
     def stack_to_box(self,delta_nu,evol_restriction_threshold=1./15., N_grid_pix=1024):
         bw=self.nu_ctr*evol_restriction_threshold
@@ -191,9 +191,11 @@ class CHORD_image(object):
         surv_wavelengths=c/surv_channels # ascending
         surv_beam_widths=surv_wavelengths/D # ascending (need to traverse the beam widths in ascending order in order to use the 0th entry to set the excision cross-section)
         self.surv_channels=surv_channels
+        chan_theta_maxes=np.zeros((N_chan,))
         box=np.zeros((N_chan,N_grid_pix,N_grid_pix))
         for i,beam_width in enumerate(surv_beam_widths):
-            chan_dirty_image,chan_uv_bin_edges,chan_theta_lims=self.calc_dirty_image(self, Npix=N_grid_pix, pbw_fidu_use=beam_width)
+            chan_dirty_image,chan_uv_bin_edges,thetamax=self.calc_dirty_image(self, Npix=N_grid_pix, pbw_fidu_use=beam_width)
+            chan_theta_maxes[i]=thetamax
             if i==0:
                 uv_bin_edges_0=chan_uv_bin_edges
                 uu_bin_edges_0,vv_bin_edges_0=np.meshgrid(uv_bin_edges_0,uv_bin_edges_0,indexing="ij")
@@ -201,7 +203,8 @@ class CHORD_image(object):
                                        chan_dirty_image,
                                        (uu_bin_edges_0,vv_bin_edges_0)) # this takes care of the chunk excision and interpolation in one step
             box[i]=interpolated_slice
-        return box # it would be lowkey diabolical to send this to cosmo_stats to window numerically and expect to generate box realizations at the same resolution
+        self.box=box # it would be lowkey diabolical to send this to cosmo_stats to window numerically and expect to generate box realizations at the same resolution
+        self.chan_theta_maxes=chan_theta_maxes
 
 # use the part of the Blues colour map with decent contrast and eyeball-ably perceivable differences between adjacent samplings
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=1000): # https://stackoverflow.com/questions/18926031/how-to-extract-a-subset-of-a-colormap-as-a-new-colormap-in-matplotlib
