@@ -140,16 +140,16 @@ class CHORD_image(object):
         if pbw_fidu_use is None: # otherwise, use the one that was passed
             pbw_fidu_use=self.pbw_fidu
         t0=time.time()
-        uvmin=np.min([np.min(self.uv_synth[:,0,:]),np.min(self.uv_synth[:,1,:])]) # better to deal with a square image
+        abs_uv_synth=np.abs(self.uv_synth)
+        uvmin=np.min([np.min(abs_uv_synth[:,0,:]),np.min(abs_uv_synth[:,1,:])]) # better to deal with a square image
         self.uvmin=uvmin
-        uvmax=np.max([np.max(self.uv_synth[:,0,:]),np.max(self.uv_synth[:,1,:])])
+        uvmax=np.max([np.max(abs_uv_synth[:,0,:]),np.max(abs_uv_synth[:,1,:])])
         self.uvmax=uvmax
-        thetamax=-1/uvmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
+        thetamax=1/uvmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
         self.thetamax=thetamax
         uvbins=np.linspace(uvmin,uvmax,Npix) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
         d2u=uvbins[1]-uvbins[0]
         uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij")
-        print("calc_dirty_image: uubins.shape=",uubins.shape)
 
         uvplane=0.*uubins
         uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
@@ -173,7 +173,6 @@ class CHORD_image(object):
                 uvplane+=convolution_here
 
         self.uvplane=uvplane
-        print("calc_dirty_image: uvplane.shape=",uvplane.shape)
         dirty_image=np.abs(fftshift(ifft2(uvplane*d2u,norm="forward")))
         uv_bin_edges=[uvbins,uvbins]
         t1=time.time()
@@ -186,27 +185,39 @@ class CHORD_image(object):
         N_chan=int(bw/delta_nu)
         self.nu_lo=self.nu_ctr-bw/2.
         self.nu_hi=self.nu_ctr+bw/2.
-        surv_channels=np.arange(self.nu_hi,self.nu_lo,-delta_nu) # descending
-        print("surv_channels.shape=",surv_channels.shape)
+        # surv_channels=np.linspace(self.nu_hi,self.nu_lo,N_chan) # descending
+        surv_channels=np.linspace(self.nu_lo,self.nu_hi,N_chan)
         surv_wavelengths=c/surv_channels # ascending
         surv_beam_widths=surv_wavelengths/D # ascending (need to traverse the beam widths in ascending order in order to use the 0th entry to set the excision cross-section)
         self.surv_channels=surv_channels
         box=np.zeros((N_chan,N_grid_pix,N_grid_pix))
-        print("box.shape=",box.shape)
+        print("N_chan, surv_channels.shape=",N_chan,surv_channels.shape)
         for i,beam_width in enumerate(surv_beam_widths):
-            print("N_grid_pix=",N_grid_pix)
+            # rescale the uv-coverage to this channel's frequency
+            self.uv_synth=self.uv_synth*self.lambda_obs/surv_wavelengths[i] # rescale according to observing frequency: multiply up by the prev lambda to cancel, then divide by the current/new lambda
+            self.lambda_obs=surv_wavelengths[i] # update the observing frequency for next time
+
+            # compute the dirty image
             chan_dirty_image,chan_uv_bin_edges,thetamax=self.calc_dirty_image(Npix=N_grid_pix, pbw_fidu_use=beam_width)
-            print("chan_dirty_image.shape=",chan_dirty_image.shape)
+            # print("thetamax=",thetamax)
+            
+            # interpolate to store in stack
             if i==0:
                 uv_bin_edges_0=chan_uv_bin_edges[0]
-                print("uv_bin_edges_0.shape=",uv_bin_edges_0.shape)
                 uu_bin_edges_0,vv_bin_edges_0=np.meshgrid(uv_bin_edges_0,uv_bin_edges_0,indexing="ij")
-                print("uu_bin_edges_0.shape=",uu_bin_edges_0.shape)
                 theta_max=thetamax
-            interpolated_slice=interpn(chan_uv_bin_edges,
-                                       chan_dirty_image,
-                                       (uu_bin_edges_0,vv_bin_edges_0)) # this takes care of the chunk excision and interpolation in one step
+                interpolated_slice=chan_dirty_image
+            else:
+                # print("chan_uv_bin_edges=",chan_uv_bin_edges)
+                # print("uu_bin_edges_0=",uu_bin_edges_0)
+                # chunk excision and interpolation in one step:
+                interpolated_slice=interpn(chan_uv_bin_edges,
+                                           chan_dirty_image,
+                                           (uu_bin_edges_0,vv_bin_edges_0),
+                                           bounds_error=False, fill_value=None) # extrap necessary because the smallest u and v you have at a given slice-needing-extrapolation will be larger than the min u and v mags to extrapolate to
             box[i]=interpolated_slice
+            if ((i%(N_chan//10))==0):
+                print("{:5}%% complete".format(i/N_chan*100))
         self.box=box # it would be lowkey diabolical to send this to cosmo_stats to window numerically and expect to generate box realizations at the same resolution
         self.theta_max=theta_max
 

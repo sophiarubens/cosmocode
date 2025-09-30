@@ -11,8 +11,8 @@ nu_HI_z0=1420.405751768 # MHz
 z_obs=nu_HI_z0/test_freq-1.
 deltanu=0.183
 
-fidu=CHORD_image(N_pert_types=0)
-pert=CHORD_image(N_pert_types=2,  num_pbws_to_pert=100)
+fidu=CHORD_image(nu_ctr=test_freq, N_pert_types=0)
+pert=CHORD_image(nu_ctr=test_freq, N_pert_types=2,  num_pbws_to_pert=100)
 
 t0=time.time()
 fidu.stack_to_box(delta_nu=deltanu)
