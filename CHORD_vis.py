@@ -20,6 +20,9 @@ c=2.998e8
 twopi=2.*pi
 log2=np.log(2)
 
+class SurveyOutOfBoundsError(Exception):
+    pass
+
 class CHORD_image(object):
     def __init__(self,
                  mode="full",b_NS=8.5,b_EW=6.3,observing_dec=pi/60.,offset_deg=1.75*pi/180.,N_pert_types=4,
@@ -153,6 +156,7 @@ class CHORD_image(object):
 
         uvplane=0.*uubins
         uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
+        pad_lo,pad_hi=get_padding(Npix)
         for i in range(self.N_beam_types):
             eps_i=self.epsilons[i]
             for j in range(i+1):
@@ -167,19 +171,24 @@ class CHORD_image(object):
                 gridded,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use)
                 width_here=pbw_fidu_use*np.sqrt((1-eps_i)*(1-eps_j))
                 kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.],width_here)
-                pad_lo,pad_hi=get_padding(Npix)
                 kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge")
                 convolution_here=convolve(kernel_padded,gridded,mode="valid") # beam-smeared version of the uv-plane for this perturbation permutation
                 uvplane+=convolution_here
 
+        uvplane/=self.N_beam_types**2 # divide out the artifact of there having been multiple convolutions
         self.uvplane=uvplane
         dirty_image=np.abs(fftshift(ifft2(uvplane*d2u,norm="forward")))
         uv_bin_edges=[uvbins,uvbins]
         t1=time.time()
         print("computed dirty image in ",t1-t0,"s")
+        self.dirty_image=dirty_image
+        self.uv_bin_edges=uv_bin_edges
+        self.thetamax=thetamax # eventually get rid of this redundant block once I fully remove the attribute-baked checks of per_antenna_permuts.py
         return dirty_image,uv_bin_edges,thetamax
 
     def stack_to_box(self,delta_nu,evol_restriction_threshold=1./15., N_grid_pix=1024):
+        if (self.nu_ctr<(350/(1-evol_restriction_threshold/2)) or self.nu_ctr>(nu_HI_z0/(1+evol_restriction_threshold/2))):
+            raise SurveyOutOfBoundsError
         self.N_grid_pix=N_grid_pix
         bw=self.nu_ctr*evol_restriction_threshold
         N_chan=int(bw/delta_nu)
