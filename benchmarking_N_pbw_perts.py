@@ -15,7 +15,7 @@ N_pert_types_cases=np.arange(2,max_N_perts,2,dtype="int")
 N_cases_N_pert_types=N_pert_types_cases.shape[0]
 all_perts_horiz=np.arange(0,max_N_perts,2)
 
-N_iterations=1
+N_iterations=25
 fidu=CHORD_image(N_pert_types=0)
 pb02=CHORD_image(N_pert_types=2,  num_pbws_to_pert=N_pbs_to_pert)
 pb04=CHORD_image(N_pert_types=4,  num_pbws_to_pert=N_pbs_to_pert)

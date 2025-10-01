@@ -21,6 +21,7 @@ prb_pert=fidu.pbw_pert_sigma
 
 print("N_pert_types=",N_pert_types)
 fidu.calc_dirty_image()
+# assert(1==0), "checking convolution ingredients"
 prbp.calc_dirty_image()
 Npixf=fidu.Npix
 Npixp=prbp.Npix
@@ -33,7 +34,7 @@ z_obs=nu_HI_z0/test_freq-1.
 cases=[fidu,prbp]
 
 # plot
-dotsize=1
+lo=2
 fig,axs=plt.subplots(2,4,figsize=(18,8))
 for i in range(2):
     axs[i,0].set_xlabel("u ($\lambda$)")
@@ -62,18 +63,18 @@ for k,case in enumerate(cases):
         dirty_image_fidu=dirty_image
     thetalim=case.thetamax
     theta_extent=[-thetalim,thetalim,-thetalim,thetalim]
-    im=axs[k,1].imshow(dirty_image,cmap="Blues",vmin=np.percentile(dirty_image,2),vmax=np.percentile(dirty_image,98),origin="lower",
+    im=axs[k,1].imshow(dirty_image,cmap="Blues",vmin=np.percentile(dirty_image,lo),vmax=np.percentile(dirty_image,100-lo),origin="lower",
                        extent=theta_extent)
     plt.colorbar(im,ax=axs[k,1])
 
     if (k>0):
         ratio=dirty_image_fidu/dirty_image
-        im=axs[k,2].imshow(ratio,cmap="Blues",origin="lower",vmin=np.nanpercentile(ratio,2),vmax=np.nanpercentile(ratio,98),extent=theta_extent)
+        im=axs[k,2].imshow(ratio,cmap="Blues",origin="lower",vmin=np.nanpercentile(ratio,lo),vmax=np.nanpercentile(ratio,100-lo),extent=theta_extent)
         plt.colorbar(im,ax=axs[k,2])
         axs[k,2].text(-off*thetalim,-off*thetalim,"rms={:8.4}".format(np.sqrt(np.nanmean(ratio**2))),c="r")
 
         residual=dirty_image_fidu-dirty_image
-        im=axs[k,3].imshow(residual,cmap="Blues",origin="lower",vmin=np.percentile(residual,2),vmax=np.percentile(residual,98),extent=theta_extent)
+        im=axs[k,3].imshow(residual,cmap="Blues",origin="lower",vmin=np.percentile(residual,lo),vmax=np.percentile(residual,100-lo),extent=theta_extent)
         plt.colorbar(im,ax=axs[k,3])
         axs[k,3].text(-off*thetalim,-off*thetalim,"rms={:8.4}".format(np.sqrt(np.nanmean(residual**2))),c="r")
 

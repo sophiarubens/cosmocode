@@ -139,29 +139,26 @@ class CHORD_image(object):
         self.uv_synth=uv_synth
         print("synthesized rotation")
 
-    def calc_dirty_image(self, pbw_fidu_use=None):
+    def calc_dirty_image(self, Npix=1024, pbw_fidu_use=None,tol=1.75):
         if pbw_fidu_use is None: # otherwise, use the one that was passed
             pbw_fidu_use=self.pbw_fidu
         t0=time.time()
-        # uvmin=np.min([np.min(self.uv_synth[:,0,:]),np.min(self.uv_synth[:,1,:])]) # better to deal with a square image
-        # self.uvmin=uvmin
-        # uvmax=np.max([np.max(self.uv_synth[:,0,:]),np.max(self.uv_synth[:,1,:])])
-        # self.uvmax=uvmax
-        # uvbins=np.linspace(uvmin,uvmax,Npix) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
-        uvbins=np.histogram_bin_edges(np.reshape(self.uv_synth[:,0,:],(self.num_timesteps*self.N_bl*2,)),bins="auto")
+        # uvbins=np.histogram_bin_edges(np.reshape(self.uv_synth[:,0,:],(self.num_timesteps*self.N_bl*2,)),bins="auto")
+        #####
+        uvmin=np.min([np.min(self.uv_synth[:,0,:]),np.min(self.uv_synth[:,1,:])])
+        uvmax=np.max([np.max(self.uv_synth[:,0,:]),np.max(self.uv_synth[:,1,:])])
+        # print("uvmin,uvmax=",uvmin,uvmax)
+        uvbins=np.linspace(tol*uvmin,tol*uvmax,Npix)
+        self.uvmin=uvmin
+        self.uvmax=uvmax
+        #####
         Npix=uvbins.shape[0]
         self.Npix=Npix
-        print("uvbins.shape=",uvbins.shape)
-        # np.savetxt("uvbins_auto_numpy.txt",uvbins)
-        self.uvmin=np.min(uvbins)
-        self.uvmax=np.max(uvbins)
         uvmagmin=np.sort(np.abs(uvbins))[1]
         thetamax=1/uvmagmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
         self.thetamax=thetamax
-        print("uvmagmin,thetamax=",uvmagmin,thetamax)
         d2u=uvbins[1]-uvbins[0]
         uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij")
-        print("calc_dirty_image: uubins.shape=",uubins.shape)
         uvplane=0.*uubins
         uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
         pad_lo,pad_hi=get_padding(Npix)
@@ -179,7 +176,7 @@ class CHORD_image(object):
                 gridded,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use)
                 width_here=pbw_fidu_use*np.sqrt((1-eps_i)*(1-eps_j))
                 kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.],width_here)
-                kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge")
+                kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge") # version that worked in pipeline branch 2
                 convolution_here=convolve(kernel_padded,gridded,mode="valid") # beam-smeared version of the uv-plane for this perturbation permutation
                 uvplane+=convolution_here
         
