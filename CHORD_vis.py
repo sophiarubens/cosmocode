@@ -139,7 +139,7 @@ class CHORD_image(object):
         self.uv_synth=uv_synth
         print("synthesized rotation")
 
-    def calc_dirty_image(self, Npix=1024, pbw_fidu_use=None):
+    def calc_dirty_image(self, pbw_fidu_use=None):
         if pbw_fidu_use is None: # otherwise, use the one that was passed
             pbw_fidu_use=self.pbw_fidu
         t0=time.time()
@@ -147,19 +147,23 @@ class CHORD_image(object):
         # self.uvmin=uvmin
         # uvmax=np.max([np.max(self.uv_synth[:,0,:]),np.max(self.uv_synth[:,1,:])])
         # self.uvmax=uvmax
-
         # uvbins=np.linspace(uvmin,uvmax,Npix) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
-        # uvbins=np.histogram_bin_edges()
-        # uvmagmin=np.min(np.abs(uvbins))
-        # thetamax=1/uvmagmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
-        # self.thetamax=thetamax
-        # print("uvmax,uvmin,uvmagmin,thetamax=",uvmax,uvmin,uvmagmin,thetamax)
-        # d2u=uvbins[1]-uvbins[0]
-        # uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij")
-        # print("calc_dirty_image: uubins.shape=",uubins.shape)
-
-        # uvplane=0.*uubins
-        # uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
+        uvbins=np.histogram_bin_edges(np.reshape(self.uv_synth[:,0,:],(self.num_timesteps*self.N_bl*2,)),bins="auto")
+        Npix=uvbins.shape[0]
+        self.Npix=Npix
+        print("uvbins.shape=",uvbins.shape)
+        # np.savetxt("uvbins_auto_numpy.txt",uvbins)
+        self.uvmin=np.min(uvbins)
+        self.uvmax=np.max(uvbins)
+        uvmagmin=np.sort(np.abs(uvbins))[1]
+        thetamax=1/uvmagmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
+        self.thetamax=thetamax
+        print("uvmagmin,thetamax=",uvmagmin,thetamax)
+        d2u=uvbins[1]-uvbins[0]
+        uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij")
+        print("calc_dirty_image: uubins.shape=",uubins.shape)
+        uvplane=0.*uubins
+        uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
         pad_lo,pad_hi=get_padding(Npix)
         for i in range(self.N_beam_types):
             eps_i=self.epsilons[i]
@@ -172,13 +176,7 @@ class CHORD_image(object):
                 N_here=N_bl_here*N_hr_angles_here
                 reshaped_u=np.reshape(u_here,N_here)
                 reshaped_v=np.reshape(v_here,N_here)
-                if (i==0 and j==0):
-                    gridded,ubins_use,vbins_use=np.histogram2d(reshaped_u,reshaped_v,bins="auto")
-                    uubins,vvbins=np.meshgrid(ubins_use[:-1],vbins_use[:-1],indexing="ij")
-                    uvmagmin=np.min([np.abs(ubins_use),np.abs(vbins_use)])
-                    thetamax=1/uvmagmin
-                    self.thetamax=thetamax
-                    d2u=(ubins_use[1]-ubins_use[0])*(vbins_use[1]-vbins_use[0])
+                gridded,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use)
                 width_here=pbw_fidu_use*np.sqrt((1-eps_i)*(1-eps_j))
                 kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.],width_here)
                 kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge")
@@ -190,7 +188,7 @@ class CHORD_image(object):
         print("calc_dirty_image: uvplane.shape=",uvplane.shape)
         dirty_image=np.abs(fftshift(ifft2(ifftshift(uvplane)*d2u,norm="forward")))
         dirty_image/=np.sum(dirty_image) # also account for renormalization in image space
-        uv_bin_edges=[ubins_use,vbins_use]
+        uv_bin_edges=[uvbins,uvbins]
         t1=time.time()
         print("computed dirty image in ",t1-t0,"s")
         self.dirty_image=dirty_image

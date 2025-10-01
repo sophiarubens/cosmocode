@@ -20,9 +20,10 @@ ant_pert=fidu.ant_pos_pert_sigma
 prb_pert=fidu.pbw_pert_sigma
 
 print("N_pert_types=",N_pert_types)
-Npix=2048
-fidu.calc_dirty_image(Npix=Npix)
-prbp.calc_dirty_image(Npix=Npix)
+fidu.calc_dirty_image()
+prbp.calc_dirty_image()
+Npixf=fidu.Npix
+Npixp=prbp.Npix
 
 colours_b=plt.cm.Blues( np.linspace(1,0.2,N_hr_angles))
 test_freq=885
@@ -42,7 +43,8 @@ for i in range(2):
         axs[i,j].set_xlabel("$θ_x$ (rad)")
         axs[i,j].set_ylabel("$θ_y$ (rad)")
 axs[0,0].set_title("binned rot-synth and\n primary-beamed uv")
-axs[0,1].set_title("dirty image\n(IFT(gridded uv) \n"+str(Npix)+" bins/axis)")
+axs[0,1].set_title("dirty image\n(IFT(gridded uv) \n"+str(Npixf)+" bins/axis)")
+axs[1,1].set_title(str(Npixp)+" bins/axis")
 axs[1,2].set_title("ratio: \nfiducial/perturbed")
 axs[1,3].set_title("residual: \nfiducial-perturbed")
 axs[1,0].set_title("PERTURBED PBWs\nfractional magnitude="+str(prb_pert))
@@ -77,5 +79,5 @@ for k,case in enumerate(cases):
 
 plt.suptitle("simulated CHORD-512 observing at "+str(int(test_freq))+" MHz (z="+str(round(z_obs,3))+") with "+str(N_pert_types)+" kinds of primary beam perturbations")
 plt.tight_layout()
-plt.savefig("simulated_CHORD_512_"+str(int(test_freq))+"_MHz_"+str(int(ant_pert*1e3))+"_mm_"+str(int(N_ant_to_pert))+"_ant_"+str(Npix)+".png",dpi=200)
+plt.savefig("simulated_CHORD_512_"+str(int(test_freq))+"_MHz_"+str(int(ant_pert*1e3))+"_mm_"+str(int(N_ant_to_pert))+"_ant_"+str(Npixf)+"_"+str(Npixp)+".png",dpi=200)
 plt.show()
