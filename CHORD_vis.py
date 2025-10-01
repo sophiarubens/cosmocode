@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib
 from matplotlib import pyplot as plt
-from numpy.fft import ifft2,fftshift #,ifftshift
+from numpy.fft import ifft2,fftshift,ifftshift
 import time
 from scipy.signal import convolve
 import scipy.sparse as spsp
@@ -143,19 +143,23 @@ class CHORD_image(object):
         if pbw_fidu_use is None: # otherwise, use the one that was passed
             pbw_fidu_use=self.pbw_fidu
         t0=time.time()
-        abs_uv_synth=np.abs(self.uv_synth)
-        uvmin=np.min([np.min(abs_uv_synth[:,0,:]),np.min(abs_uv_synth[:,1,:])]) # better to deal with a square image
-        self.uvmin=uvmin
-        uvmax=np.max([np.max(abs_uv_synth[:,0,:]),np.max(abs_uv_synth[:,1,:])])
-        self.uvmax=uvmax
-        thetamax=1/uvmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
-        self.thetamax=thetamax
-        uvbins=np.linspace(uvmin,uvmax,Npix) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
-        d2u=uvbins[1]-uvbins[0]
-        uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij")
+        # uvmin=np.min([np.min(self.uv_synth[:,0,:]),np.min(self.uv_synth[:,1,:])]) # better to deal with a square image
+        # self.uvmin=uvmin
+        # uvmax=np.max([np.max(self.uv_synth[:,0,:]),np.max(self.uv_synth[:,1,:])])
+        # self.uvmax=uvmax
 
-        uvplane=0.*uubins
-        uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
+        # uvbins=np.linspace(uvmin,uvmax,Npix) # the kind of thing I tended to call "vec" in forecasting_pipeline.py
+        # uvbins=np.histogram_bin_edges()
+        # uvmagmin=np.min(np.abs(uvbins))
+        # thetamax=1/uvmagmin # these are 1/-convention Fourier duals, not 2pi/-convention Fourier duals
+        # self.thetamax=thetamax
+        # print("uvmax,uvmin,uvmagmin,thetamax=",uvmax,uvmin,uvmagmin,thetamax)
+        # d2u=uvbins[1]-uvbins[0]
+        # uubins,vvbins=np.meshgrid(uvbins,uvbins,indexing="ij")
+        # print("calc_dirty_image: uubins.shape=",uubins.shape)
+
+        # uvplane=0.*uubins
+        # uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
         pad_lo,pad_hi=get_padding(Npix)
         for i in range(self.N_beam_types):
             eps_i=self.epsilons[i]
@@ -168,22 +172,29 @@ class CHORD_image(object):
                 N_here=N_bl_here*N_hr_angles_here
                 reshaped_u=np.reshape(u_here,N_here)
                 reshaped_v=np.reshape(v_here,N_here)
-                gridded,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use)
+                if (i==0 and j==0):
+                    gridded,ubins_use,vbins_use=np.histogram2d(reshaped_u,reshaped_v,bins="auto")
+                    uubins,vvbins=np.meshgrid(ubins_use[:-1],vbins_use[:-1],indexing="ij")
+                    uvmagmin=np.min([np.abs(ubins_use),np.abs(vbins_use)])
+                    thetamax=1/uvmagmin
+                    self.thetamax=thetamax
+                    d2u=(ubins_use[1]-ubins_use[0])*(vbins_use[1]-vbins_use[0])
                 width_here=pbw_fidu_use*np.sqrt((1-eps_i)*(1-eps_j))
                 kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.],width_here)
                 kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge")
                 convolution_here=convolve(kernel_padded,gridded,mode="valid") # beam-smeared version of the uv-plane for this perturbation permutation
                 uvplane+=convolution_here
-
-        uvplane/=self.N_beam_types**2 # divide out the artifact of there having been multiple convolutions
+        
+        uvplane/=(self.N_beam_types**2*np.sum(uvplane)) # divide out the artifact of there having been multiple convolutions
         self.uvplane=uvplane
-        dirty_image=np.abs(fftshift(ifft2(uvplane*d2u,norm="forward")))
-        uv_bin_edges=[uvbins,uvbins]
+        print("calc_dirty_image: uvplane.shape=",uvplane.shape)
+        dirty_image=np.abs(fftshift(ifft2(ifftshift(uvplane)*d2u,norm="forward")))
+        dirty_image/=np.sum(dirty_image) # also account for renormalization in image space
+        uv_bin_edges=[ubins_use,vbins_use]
         t1=time.time()
         print("computed dirty image in ",t1-t0,"s")
         self.dirty_image=dirty_image
         self.uv_bin_edges=uv_bin_edges
-        self.thetamax=thetamax # eventually get rid of this redundant block once I fully remove the attribute-baked checks of per_antenna_permuts.py
         return dirty_image,uv_bin_edges,thetamax
 
     def stack_to_box(self,delta_nu,evol_restriction_threshold=1./15., N_grid_pix=1024):
@@ -194,13 +205,13 @@ class CHORD_image(object):
         N_chan=int(bw/delta_nu)
         self.nu_lo=self.nu_ctr-bw/2.
         self.nu_hi=self.nu_ctr+bw/2.
-        # surv_channels=np.linspace(self.nu_hi,self.nu_lo,N_chan) # descending
-        surv_channels=np.linspace(self.nu_lo,self.nu_hi,N_chan)
+        surv_channels=np.linspace(self.nu_lo,self.nu_hi,N_chan) # um
+        print("surv_channels.shape=",surv_channels.shape)
         surv_wavelengths=c/surv_channels # ascending
         surv_beam_widths=surv_wavelengths/D # ascending (need to traverse the beam widths in ascending order in order to use the 0th entry to set the excision cross-section)
         self.surv_channels=surv_channels
         box=np.zeros((N_chan,N_grid_pix,N_grid_pix))
-        print("N_chan, surv_channels.shape=",N_chan,surv_channels.shape)
+        print("box.shape=",box.shape)
         for i,beam_width in enumerate(surv_beam_widths):
             # rescale the uv-coverage to this channel's frequency
             self.uv_synth=self.uv_synth*self.lambda_obs/surv_wavelengths[i] # rescale according to observing frequency: multiply up by the prev lambda to cancel, then divide by the current/new lambda
@@ -214,7 +225,7 @@ class CHORD_image(object):
             if i==0:
                 uv_bin_edges_0=chan_uv_bin_edges[0]
                 uu_bin_edges_0,vv_bin_edges_0=np.meshgrid(uv_bin_edges_0,uv_bin_edges_0,indexing="ij")
-                theta_max=thetamax
+                theta_max_box=thetamax
                 interpolated_slice=chan_dirty_image
             else:
                 # print("chan_uv_bin_edges=",chan_uv_bin_edges)
@@ -228,7 +239,7 @@ class CHORD_image(object):
             if ((i%(N_chan//10))==0):
                 print("{:5}%% complete".format(i/N_chan*100))
         self.box=box # it would be lowkey diabolical to send this to cosmo_stats to window numerically and expect to generate box realizations at the same resolution
-        self.theta_max=theta_max
+        self.theta_max_box=theta_max_box
 
 # use the part of the Blues colour map with decent contrast and eyeball-ably perceivable differences between adjacent samplings
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=1000): # https://stackoverflow.com/questions/18926031/how-to-extract-a-subset-of-a-colormap-as-a-new-colormap-in-matplotlib
