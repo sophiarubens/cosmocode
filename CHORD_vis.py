@@ -43,11 +43,12 @@ class CHORD_image(object):
         self.N_bl=self.N_ant*(self.N_ant-1)//2
         self.observing_dec=observing_dec
         self.num_timesteps=num_timesteps
-        self.nu_ctr=nu_ctr
+        self.nu_ctr_MHz=nu_ctr
+        self.nu_ctr_Hz=nu_ctr*1e6
         if (num_hrs is None):
-            num_hrs=primary_beam_crossing_time(self.nu_ctr*1e6,dec=self.observing_dec,D=D) # frew needs to be in Hz
+            num_hrs=primary_beam_crossing_time(self.nu_ctr_Hz,dec=self.observing_dec,D=D) # frew needs to be in Hz
         self.num_hrs=num_hrs
-        self.lambda_obs=c/self.nu_ctr
+        self.lambda_obs=c/self.nu_ctr_Hz
         if (pbw_fidu is None):
             pbw_fidu=self.lambda_obs/D
         self.pbw_fidu=pbw_fidu
@@ -135,7 +136,8 @@ class CHORD_image(object):
                                         [-np.sin(theta),np.cos(theta),0],
                                         [ 0,            0,            1]])
             uvw_rotated=uvw_inst@accumulate_rotation
-            uv_synth[:,:,i]=uvw_rotated@project_to_dec.T/self.lambda_obs
+            uvw_projected=uvw_rotated@project_to_dec.T
+            uv_synth[:,:,i]=uvw_projected/self.lambda_obs
         self.uv_synth=uv_synth
         print("synthesized rotation")
 
@@ -143,15 +145,12 @@ class CHORD_image(object):
         if pbw_fidu_use is None: # otherwise, use the one that was passed
             pbw_fidu_use=self.pbw_fidu
         t0=time.time()
-        # uvbins=np.histogram_bin_edges(np.reshape(self.uv_synth[:,0,:],(self.num_timesteps*self.N_bl*2,)),bins="auto")
-        #####
         uvmin=np.min([np.min(self.uv_synth[:,0,:]),np.min(self.uv_synth[:,1,:])])
         uvmax=np.max([np.max(self.uv_synth[:,0,:]),np.max(self.uv_synth[:,1,:])])
         # print("uvmin,uvmax=",uvmin,uvmax)
         uvbins=np.linspace(tol*uvmin,tol*uvmax,Npix)
         self.uvmin=uvmin
         self.uvmax=uvmax
-        #####
         Npix=uvbins.shape[0]
         self.Npix=Npix
         uvmagmin=np.sort(np.abs(uvbins))[1]
@@ -182,7 +181,6 @@ class CHORD_image(object):
         
         uvplane/=(self.N_beam_types**2*np.sum(uvplane)) # divide out the artifact of there having been multiple convolutions
         self.uvplane=uvplane
-        print("calc_dirty_image: uvplane.shape=",uvplane.shape)
         dirty_image=np.abs(fftshift(ifft2(ifftshift(uvplane)*d2u,norm="forward")))
         dirty_image/=np.sum(dirty_image) # also account for renormalization in image space
         uv_bin_edges=[uvbins,uvbins]
@@ -193,13 +191,13 @@ class CHORD_image(object):
         return dirty_image,uv_bin_edges,thetamax
 
     def stack_to_box(self,delta_nu,evol_restriction_threshold=1./15., N_grid_pix=1024):
-        if (self.nu_ctr<(350/(1-evol_restriction_threshold/2)) or self.nu_ctr>(nu_HI_z0/(1+evol_restriction_threshold/2))):
+        if (self.nu_ctr_MHz<(350/(1-evol_restriction_threshold/2)) or self.nu_ctr_MHz>(nu_HI_z0/(1+evol_restriction_threshold/2))):
             raise SurveyOutOfBoundsError
         self.N_grid_pix=N_grid_pix
-        bw=self.nu_ctr*evol_restriction_threshold
-        N_chan=int(bw/delta_nu)
-        self.nu_lo=self.nu_ctr-bw/2.
-        self.nu_hi=self.nu_ctr+bw/2.
+        bw_MHz=self.nu_ctr_MHz*evol_restriction_threshold
+        N_chan=int(bw_MHz/delta_nu)
+        self.nu_lo=self.nu_ctr_MHz-bw_MHz/2.
+        self.nu_hi=self.nu_ctr_MHz+bw_MHz/2.
         surv_channels=np.linspace(self.nu_lo,self.nu_hi,N_chan) # um
         print("surv_channels.shape=",surv_channels.shape)
         surv_wavelengths=c/surv_channels # ascending
@@ -279,7 +277,7 @@ def sparse_gaussian_primary_beam_uv(u,v,ctr,fwhm,nsigma_npix):
     return evaled_sparse
 
 def primary_beam_crossing_time(nu,dec=30.,D=6.):
-    beam_width_deg=1.22*(2.998e8/nu)/D*180/np.pi
+    beam_width_deg=1.029*(2.998e8/nu)/D*180/np.pi
     crossing_time_hrs_no_dec=beam_width_deg/15
-    crossing_time_hrs= crossing_time_hrs_no_dec*np.cos(dec)
+    crossing_time_hrs= crossing_time_hrs_no_dec*np.cos(dec*pi/180)
     return crossing_time_hrs

@@ -21,7 +21,6 @@ prb_pert=fidu.pbw_pert_sigma
 
 print("N_pert_types=",N_pert_types)
 fidu.calc_dirty_image()
-# assert(1==0), "checking convolution ingredients"
 prbp.calc_dirty_image()
 Npixf=fidu.Npix
 Npixp=prbp.Npix
@@ -34,28 +33,34 @@ z_obs=nu_HI_z0/test_freq-1.
 cases=[fidu,prbp]
 
 # plot
-lo=2
+lo=1 # vmin=np.percentile(dirty_image,lo),vmax=np.percentile(dirty_image,100-lo), # ofc will not work when lo=0
 fig,axs=plt.subplots(2,4,figsize=(18,8))
 for i in range(2):
-    axs[i,0].set_xlabel("u ($\lambda$)")
-    axs[i,0].set_ylabel("v ($\lambda$)")
+    axs[i,0].set_xlabel("u (λ)")
+    axs[i,0].set_ylabel("v (λ)")
 
     for j in range(1,4):
-        axs[i,j].set_xlabel("$θ_x$ (rad)")
-        axs[i,j].set_ylabel("$θ_y$ (rad)")
+        axij=axs[i,j]
+        axij.set_xlabel("$θ_x$ (rad)")
+        axij.set_ylabel("$θ_y$ (rad)")
+        secaxij=axij.secondary_xaxis('top', functions=(lambda rad: rad*180/pi*60, lambda arcmin: arcmin/60*pi/180))
+        secaxij.set_xlabel("arcmin")
+        secaxij=axij.secondary_yaxis('right', functions=(lambda rad: rad*180/pi*60, lambda arcmin: arcmin/60*pi/180))
+        secaxij.set_ylabel("arcmin")
 axs[0,0].set_title("binned rot-synth and\n primary-beamed uv")
-axs[0,1].set_title("dirty image\n(IFT(gridded uv) \n"+str(Npixf)+" bins/axis)")
+axs[0,1].set_title("dirty image\n(IFT(gridded uv)) \n"+str(Npixf)+" bins/axis)")
 axs[1,1].set_title(str(Npixp)+" bins/axis")
 axs[1,2].set_title("ratio: \nfiducial/perturbed")
 axs[1,3].set_title("residual: \nfiducial-perturbed")
 axs[1,0].set_title("PERTURBED PBWs\nfractional magnitude="+str(prb_pert))
 
 off=0.8 # multiplicative offset so the rms isn't squished against the edge of each annotated subplot
+anchor_here=(5,0.5)
 for k,case in enumerate(cases):
     uvplane=case.uvplane
-    im=axs[k,0].imshow(uvplane,cmap="Blues",vmin=np.percentile(uvplane,1),vmax=np.percentile(uvplane,99),origin="lower",
+    im=axs[k,0].imshow(uvplane,cmap="Blues",vmin=np.percentile(uvplane,lo),vmax=np.percentile(uvplane,100-lo),
                        extent=[case.uvmin,case.uvmax,case.uvmin,case.uvmax])
-    clb=plt.colorbar(im,ax=axs[k,0])
+    clb=plt.colorbar(im,ax=axs[k,0],anchor=(3,0.5))
     clb.ax.set_title("#bl")
 
     dirty_image=case.dirty_image
@@ -63,20 +68,22 @@ for k,case in enumerate(cases):
         dirty_image_fidu=dirty_image
     thetalim=case.thetamax
     theta_extent=[-thetalim,thetalim,-thetalim,thetalim]
-    im=axs[k,1].imshow(dirty_image,cmap="Blues",vmin=np.percentile(dirty_image,lo),vmax=np.percentile(dirty_image,100-lo),origin="lower",
+    im=axs[k,1].imshow(dirty_image,cmap="Blues",origin="lower",vmin=np.percentile(dirty_image,lo),vmax=np.percentile(dirty_image,100-lo),
                        extent=theta_extent)
-    plt.colorbar(im,ax=axs[k,1])
+    plt.colorbar(im,ax=axs[k,1],anchor=anchor_here)
 
     if (k>0):
         ratio=dirty_image_fidu/dirty_image
-        im=axs[k,2].imshow(ratio,cmap="Blues",origin="lower",vmin=np.nanpercentile(ratio,lo),vmax=np.nanpercentile(ratio,100-lo),extent=theta_extent)
-        plt.colorbar(im,ax=axs[k,2])
-        axs[k,2].text(-off*thetalim,-off*thetalim,"rms={:8.4}".format(np.sqrt(np.nanmean(ratio**2))),c="r")
+        ratio_safe=ratio[np.logical_and(~np.isnan(ratio),~np.isinf(ratio))]
+        im=axs[k,2].imshow(ratio,cmap="Blues",origin="lower",vmin=np.percentile(ratio_safe,lo),vmax=np.percentile(ratio_safe,100-lo),extent=theta_extent)
+        plt.colorbar(im,ax=axs[k,2],norm="log",anchor=anchor_here) #),pad=pad_val,shrink=cb_width)
+        residual_rms=np.sqrt(np.mean(ratio_safe**2))
+        axs[k,2].text(-off*thetalim,-off*thetalim,"rms={:8.4}".format(residual_rms),c="r")
 
         residual=dirty_image_fidu-dirty_image
         im=axs[k,3].imshow(residual,cmap="Blues",origin="lower",vmin=np.percentile(residual,lo),vmax=np.percentile(residual,100-lo),extent=theta_extent)
-        plt.colorbar(im,ax=axs[k,3])
-        axs[k,3].text(-off*thetalim,-off*thetalim,"rms={:8.4}".format(np.sqrt(np.nanmean(residual**2))),c="r")
+        plt.colorbar(im,ax=axs[k,3],norm="log",anchor=anchor_here) #),pad=pad_val,shrink=cb_width)
+        axs[k,3].text(-off*thetalim,-off*thetalim,"rms={:8.4}".format(np.sqrt(np.mean(residual**2))),c="r")
 
 plt.suptitle("simulated CHORD-512 observing at "+str(int(test_freq))+" MHz (z="+str(round(z_obs,3))+") with "+str(N_pert_types)+" kinds of primary beam perturbations")
 plt.tight_layout()
