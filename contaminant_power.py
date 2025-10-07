@@ -51,12 +51,13 @@ hpbw_x= 6*  pi/180. # rad; lambda/D estimate (actually physically realistic)
 hpbw_y= 4.5*pi/180.
 
 epsLoS=0.1
-epsx=0.1
-epsy=0.1
+epsxy=0.1
+# epsx=0.1
+# epsy=0.1
 
 ##############################
 bundled_gaussian_primary_args=[hpbw_x,hpbw_y]
-bundled_gaussian_primary_uncs=[epsLoS,epsx,epsy]
+bundled_gaussian_primary_uncs=[epsLoS,epsxy,epsxy]
 
 redo_window_calc=False
 nu_window=window_calcs(bminCHORD,bmaxCHORD,
@@ -100,14 +101,8 @@ kcyl_for_interp=(kpar,kperp)
 Pfidu_sph=np.reshape(Pfidu_sph,(Pfidu_sph.shape[-1],))
 
 Pcont_sph=interpn(kcyl_for_interp, Pcont_cyl_surv, k_sph, bounds_error=False, fill_value=None)
-# print("kcyl_for_interp[0].shape=",kcyl_for_interp[0].shape)
-# print("kcyl_for_interp[1].shape=",kcyl_for_interp[1].shape)
-# print("Pthought_cyl_surv.shape=",Pthought_cyl_surv.shape)
-# print("k_sph.shape",k_sph.shape)
-# Pthought_sph=interpn(kcyl_for_interp, Pthought_cyl_surv, k_sph, bounds_error=False, fill_value=None)
 doubled=np.linspace(kmin_surv,kmax_surv,N_sph*2) # print statements offer no reason why this should have to be a workaround
 Pthought_sph=interpn(kcyl_for_interp, Pthought_cyl_surv, doubled, bounds_error=False, fill_value=None)
-# print("Pthought_sph.shape=",Pthought_sph.shape)
 fig,axs=plt.subplots(1,2,figsize=(12,5))
 Delta2_fidu=kfidu_sph**3*Pfidu_sph/(2*pi**2)
 Delta2_thought=k_sph**3*Pthought_sph/(2*pi**2)
@@ -117,22 +112,27 @@ kmodes=[kfidu_sph,k_sph]
 spectra=[P,Delta2]
 labels=["fiducial","systematic-laden"]
 
-for j,case in enumerate(P): # index fidu vs. thought
-    axs[0].plot(kmodes[j],P[j],label=labels[j]) # probably need to convert the Delta2 to a loglog plot... which defeats the point of i
-    axs[1].loglog(kmodes[j],Delta2[j],label=labels[j])
-    axs[j].set_xlabel("k (1/Mpc)")
-    axs[j].set_xlim(k_sph[1],k_sph[-1])
+fidu=[Pfidu_sph,Delta2_fidu]
+thought=[Pthought_sph,Delta2_thought]
+
+# for i,case in enumerate(P): # index fidu vs. thought
+#     axs[0].loglog(kmodes[i],P[i],label=labels[i]) # probably need to convert the Delta2 to a loglog plot... which defeats the point of i
+#     axs[1].loglog(kmodes[i],Delta2[i],label=labels[i])
+
+for i,case in enumerate(fidu):
+    axs[i].loglog(kfidu_sph,case,label="fiducial")
+    axs[i].loglog(k_sph,thought[i],label="frac. unc. in HPBW= "+str(epsxy))
+    axs[i].set_xlabel("k (1/Mpc)")
+    axs[i].set_xlim(k_sph[1],k_sph[-1])
 axs[0].set_ylabel("P (K$^2$ Mpc$^3$)")
 axs[0].set_title("Power")
 axs[1].set_ylabel("Δ$^2$ (log(K$^2$/K$^2$)")
 axs[1].set_title("Dimensionless power")
 axs[1].legend()
-plt.suptitle("contaminant power visualization test")
+plt.suptitle("900 MHz CHORD-512 survey (high kperp truncated)\nGaussian passband FWHM {:5.2} Mpc; Airy HPBW {:5.3} (x) and {:5.3} (y)\n with respective fractional uncertainties {:4.2}, {:4.2}, and {:4.2}".format(nu_window.sigLoS,hpbw_x,hpbw_y,epsLoS,epsxy,epsxy))
 plt.tight_layout()
 plt.savefig("contaminant_power_test.png")
 plt.show()
 
-# re-bin to spherical
-# plot
 # iterate over different epsilons
 # plot each curve as a different shade of the same colour map
