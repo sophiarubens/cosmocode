@@ -65,7 +65,7 @@ nu_window=window_calcs(bminCHORD,bmaxCHORD,
                         pars_Planck18,pars_Planck18,
                         n_sph_nu,dpar,
                         nu_ctr,channel_width,
-                        pars_forecast_names=parnames)
+                        pars_forecast_names=parnames, no_monopole=False)
 nu_window.print_survey_characteristics()
 if redo_window_calc:
     t0=time.time()
@@ -73,46 +73,64 @@ if redo_window_calc:
     t1=time.time()
     print("Pcont calculation time was",t1-t0)
 
-    Pcont_cyl=nu_window.Pcont_cyl
-    # need to interpolate to survey modes even though I'm not interested in the whole bias calculation... try to short-circuit?
-    Pthought_cyl=nu_window.Pthought_cyl
-    Pfidu_sph=nu_window.Psph
+    Pcont_cyl_surv=nu_window.Pcont_cyl_surv
+    # need to interpolate to survey modes even though I'm not interested in the whole bias calculation... try to short-circuit? changed in pipeline for now
+    Pthought_cyl_surv=nu_window.Pthought_cyl_surv
+    Pfidu_sph=nu_window.Ptruesph # self.ksph,self.Ptruesph
+    kfidu_sph=nu_window.ksph
 
-    np.save("Pcont_cyl.npy",Pcont_cyl)
-    np.save("Pthought_cyl.npy",Pthought_cyl)
+    np.save("Pcont_cyl_surv.npy",Pcont_cyl_surv)
+    np.save("Pthought_cyl_surv.npy",Pthought_cyl_surv)
     np.save("Pfidu_sph.npy",Pfidu_sph)
+    np.save("kfidu_sph.npy",kfidu_sph)
 else:
-    Pcont_cyl=np.load("Pcont_cyl.npy")
-    Pthought_cyl=np.load("Pthought_cyl.npy")
+    Pcont_cyl_surv=np.load("Pcont_cyl_surv.npy")
+    Pthought_cyl_surv=np.load("Pthought_cyl_surv.npy")
     Pfidu_sph=np.load("Pfidu_sph.npy")
+    kfidu_sph=np.load("kfidu_sph.npy")
 
 N_sph=128
-k_sph=np.linspace(nu_window.kmin_surv,nu_window.kmax_surv,N_sph)
+kmin_surv=nu_window.kmin_surv
+kmax_surv=nu_window.kmax_surv
+k_sph=np.linspace(kmin_surv,kmax_surv,N_sph)
 kpar=nu_window.kpar_surv
 kperp=nu_window.kperp_surv
-print("kpar.shape,kperp.shape=",kpar.shape,kperp.shape)
 k00,k11=np.meshgrid(kpar,kperp,indexing="ij")
-# kcyl_for_interp=(k00,k11)
 kcyl_for_interp=(kpar,kperp)
-Pcont_sph=interpn(kcyl_for_interp, Pcont_cyl, k_sph) #,bounds_error=False, fill_value=None)
-Pthought_sph=interpn(kcyl_for_interp, Pthought_cyl, k_sph)
-plt.figure()
-plt.plot(k_sph,Pfidu_sph,label="fiducial")
-plt.plot(k_sph,Pthought_sph,label="systematic-laden") # = from a difference of window functions, NOT a difference of power spectra
-plt.xlabel("k (1/Mpc)")
-plt.ylabel("power (K$^2$/Mpc$^3$)")
-plt.title("contaminant power visualization test")
-plt.legend()
-plt.savefig("contaminant_power_test.png")
-plt.tight_layout()
-plt.show()
+Pfidu_sph=np.reshape(Pfidu_sph,(Pfidu_sph.shape[-1],))
 
-# ###
-# interpolated_slice=interpn(chan_uv_bin_edges,
-#                           chan_dirty_image,
-#                           (uu_bin_edges_0,vv_bin_edges_0),
-#                           bounds_error=False, fill_value=None)
-# ###
+Pcont_sph=interpn(kcyl_for_interp, Pcont_cyl_surv, k_sph, bounds_error=False, fill_value=None)
+# print("kcyl_for_interp[0].shape=",kcyl_for_interp[0].shape)
+# print("kcyl_for_interp[1].shape=",kcyl_for_interp[1].shape)
+# print("Pthought_cyl_surv.shape=",Pthought_cyl_surv.shape)
+# print("k_sph.shape",k_sph.shape)
+# Pthought_sph=interpn(kcyl_for_interp, Pthought_cyl_surv, k_sph, bounds_error=False, fill_value=None)
+doubled=np.linspace(kmin_surv,kmax_surv,N_sph*2) # print statements offer no reason why this should have to be a workaround
+Pthought_sph=interpn(kcyl_for_interp, Pthought_cyl_surv, doubled, bounds_error=False, fill_value=None)
+# print("Pthought_sph.shape=",Pthought_sph.shape)
+fig,axs=plt.subplots(1,2,figsize=(12,5))
+Delta2_fidu=kfidu_sph**3*Pfidu_sph/(2*pi**2)
+Delta2_thought=k_sph**3*Pthought_sph/(2*pi**2)
+P=[Pfidu_sph,Pthought_sph]
+Delta2=[Delta2_fidu,Delta2_thought]
+kmodes=[kfidu_sph,k_sph]
+spectra=[P,Delta2]
+labels=["fiducial","systematic-laden"]
+
+for j,case in enumerate(P): # index fidu vs. thought
+    axs[0].plot(kmodes[j],P[j],label=labels[j]) # probably need to convert the Delta2 to a loglog plot... which defeats the point of i
+    axs[1].loglog(kmodes[j],Delta2[j],label=labels[j])
+    axs[j].set_xlabel("k (1/Mpc)")
+    axs[j].set_xlim(k_sph[1],k_sph[-1])
+axs[0].set_ylabel("P (K$^2$ Mpc$^3$)")
+axs[0].set_title("Power")
+axs[1].set_ylabel("Δ$^2$ (log(K$^2$/K$^2$)")
+axs[1].set_title("Dimensionless power")
+axs[1].legend()
+plt.suptitle("contaminant power visualization test")
+plt.tight_layout()
+plt.savefig("contaminant_power_test.png")
+plt.show()
 
 # re-bin to spherical
 # plot
