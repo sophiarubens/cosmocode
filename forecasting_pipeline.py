@@ -19,7 +19,7 @@ H0_Planck18=67.32
 h_Planck18=H0_Planck18/100.
 Omegamh2_Planck18=Omegam_Planck18*h_Planck18**2
 pars_set_cosmo_Planck18=[H0_Planck18,Omegabh2_Planck18,Omegamh2_Planck18,AS_Planck18,ns_Planck18] # suitable for get_mps
-infty=np.infty
+infty=np.inf # np.infty deprecated in numpy 2.0
 pi=np.pi
 twopi=2.*pi
 ln2=np.log(2)
@@ -161,7 +161,7 @@ class window_calcs(object):
         self.dpar=dpar
         self.nu_ctr=nu_ctr
         self.Deltanu=delta_nu
-        self.bw=nu_ctr*evol_restriction_threshold # previously NDeltanu
+        self.bw=nu_ctr*evol_restriction_threshold
         self.Nchan=int(self.bw/self.Deltanu)
         self.z_ctr=freq2z(nu_rest_21,nu_ctr)
         self.nu_lo=self.nu_ctr-self.bw/2.
@@ -271,6 +271,7 @@ class window_calcs(object):
         """
         k,Psph_use=self.get_mps(pars_to_use,minkh=self.kmin_surv,maxkh=self.kmax_surv)
         Psph_use=Psph_use.reshape((Psph_use.shape[1],))
+        self.Psph=Psph_use
         kpar_grid,kperp_grid=np.meshgrid(self.kpar_surv,self.kperp_surv,indexing="ij")
         kmag_grid=np.sqrt(kpar_grid**2+kperp_grid**2)
 
@@ -617,7 +618,6 @@ class cosmo_stats(object):
                                                            self.z_vec_for_box,
                                                            indexing="ij")      # box-shaped Cartesian coords
         self.r_grid=np.sqrt(self.xx_grid**2+self.yy_grid**2+self.zz_grid**2)   # r magnitudes at each voxel
-        self.rmag_grid_centre_flat=np.reshape(self.r_grid,(self.Nvox*self.Nvoxz**2,))
 
         # Fourier space
         self.Deltakxy=twopi/self.Lxy                                        # voxel side length
@@ -625,20 +625,13 @@ class cosmo_stats(object):
         self.d3k=self.Deltakxy**2*self.Deltakz                              # volume element / voxel volume
         self.kxy_vec_for_box_corner=twopi*fftfreq(self.Nvox,d=self.Deltaxy) # one Cartesian coordinate axis - non-fftshifted/ corner origin
         self.kz_vec_for_box_corner= twopi*fftfreq(self.Nvoxz,d=self.Deltaz)
-        self.kxy_vec_for_box_centre=fftshift(self.kxy_vec_for_box_corner)   # one Cartesian coordinate axis -     fftshifted/ centre origin
-        self.kz_vec_for_box_centre= fftshift(self.kz_vec_for_box_corner)
-        # self.kxy_vec_for_box_centre=twopi*fftshift(fftfreq(self.Nvox, d=self.Deltakxy)) ###
-        self.kz_vec_for_box_centre= twopi*fftshift(fftfreq(self.Nvoxz,d=self.Deltaz)) ###
         self.kx_grid_corner,self.ky_grid_corner,self.kz_grid_corner=np.meshgrid(self.kxy_vec_for_box_corner,
                                                                                 self.kxy_vec_for_box_corner,
                                                                                 self.kz_vec_for_box_corner,
                                                                                 indexing="ij")               # box-shaped Cartesian coords
         self.kmag_grid_corner= np.sqrt(self.kx_grid_corner**2+self.ky_grid_corner**2+self.kz_grid_corner**2) # k magnitudes for each voxel (need for the generate_box direction)
+        self.kmag_grid_centre=fftshift(self.kmag_grid_corner) 
         self.kmag_grid_corner_flat=np.reshape(self.kmag_grid_corner,(self.Nvox**2*self.Nvoxz,))
-        self.kx_grid_centre,self.ky_grid_centre,self.kz_grid_centre=np.meshgrid(self.kxy_vec_for_box_centre,
-                                                                                self.kxy_vec_for_box_centre,
-                                                                                self.kz_vec_for_box_centre,
-                                                                                indexing="ij")
 
         # if P_fid was passed, establish its values on the k grid (helpful when generating a box)
         self.k_fid=k_fid
@@ -673,17 +666,16 @@ class cosmo_stats(object):
             self.k1bins=None
         
             # voxel grids for sph binning        
-        self.k_grid_centre=               np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2+self.kz_grid_centre**2)   # useful for the generate_P direction
-        self.sph_bin_indices_centre=      np.digitize(self.k_grid_centre,self.k0bins)
+        self.sph_bin_indices_centre=      np.digitize(self.kmag_grid_centre,self.k0bins)
         self.sph_bin_indices_1d_centre=   np.reshape(self.sph_bin_indices_centre, (self.Nvox**2*self.Nvoxz,))
 
             # voxel grids for cyl binning
         if (self.Nk1>0):
-            self.kpar_column_centre= np.abs(self.kz_vec_for_box_centre)                                         # magnitudes of kpar for a representative column along the line of sight (z-like)
-            self.kperp_slice_centre= np.sqrt(self.kx_grid_centre**2+self.ky_grid_centre**2)[:,:,0]              # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
-            self.perpbin_indices_slice_centre=    np.digitize(self.kperp_slice_centre,self.k1bins)              # cyl kperp bin that each voxel falls into
-            self.perpbin_indices_slice_1d_centre= np.reshape(self.perpbin_indices_slice_centre,(self.Nvox**2,)) # 1d version of ^ (compatible with np.bincount)
-            self.parbin_indices_column_centre=    np.digitize(self.kpar_column_centre,self.k0bins)              # cyl kpar bin that each voxel falls into
+            self.kpar_column_centre= np.abs(fftshift(self.kz_vec_for_box_corner))                                      # magnitudes of kpar for a representative column along the line of sight (z-like)
+            self.kperp_slice_centre= np.sqrt(fftshift(self.kx_grid_corner)**2+fftshift(self.ky_grid_corner)**2)[:,:,0] # magnitudes of kperp for a representative slice transverse to the line of sight (x- and y-like)
+            self.perpbin_indices_slice_centre=    np.digitize(self.kperp_slice_centre,self.k1bins)                     # cyl kperp bin that each voxel falls into
+            self.perpbin_indices_slice_1d_centre= np.reshape(self.perpbin_indices_slice_centre,(self.Nvox**2,))        # 1d version of ^ (compatible with np.bincount)
+            self.parbin_indices_column_centre=    np.digitize(self.kpar_column_centre,self.k0bins)                     # cyl kpar bin that each voxel falls into
 
         # primary beam
         self.primary_beam=primary_beam
@@ -760,7 +752,6 @@ class cosmo_stats(object):
         * for now, I don't have a solution better than overwriting the k=0 term after the fact (because extrapolation to this term based on a reasonable CAMB call leads to negative power there)
         """
         P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
-        # P_interp_flat=P_fid_interpolator(fftshift(self.kmag_grid_centre_flat)) # need to ifftshift to bring to corner (numpy's default is corner, fftshift takes that to centre, and ifftshift takes centre to corner)
         P_interp_flat=P_fid_interpolator(self.kmag_grid_corner_flat)
         self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
             
