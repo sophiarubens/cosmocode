@@ -105,7 +105,7 @@ class window_calcs(object):
                                                                                 PASS fwhm_x,fwhm_y
                                                                                 ++r0 appended internally
         primary_beam_uncs          :: (N_uncertain_args) of floats :: Gaussian, AiryGaussian: fractional       :: ---
-                                                                      uncertainties epsLoS, epsfwhmx, epsfwhmy 
+                                                                      uncertainties epsfwhmx, epsfwhmy 
         pars_set_cosmo             :: (N_fid_pars,) of floats      :: params to condition a CAMB/etc. call     :: as found in ΛCDM
         pars_forecast              :: (N_forecast_pars,) of floats :: params for which you'd like to forecast  :: as found in ΛCDM
         n_sph_modes                :: int                          :: # modes to put in CAMB/etc. MPS          :: ---
@@ -134,7 +134,7 @@ class window_calcs(object):
         if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
             self.fwhm_x,self.fwhm_y=primary_beam_args
             self.primary_beam_uncs=              primary_beam_uncs
-            self.epsLoS,self.epsx,self.epsy=     self.primary_beam_uncs
+            self.epsx,self.epsy=     self.primary_beam_uncs
         elif (primary_beam_type.lower()=="manual"):
             if (manual_primary_beam_modes is None):
                 raise NotEnoughInfoError
