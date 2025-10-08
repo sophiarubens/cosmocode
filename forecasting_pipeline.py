@@ -57,17 +57,19 @@ def represent(cosmo_stats_instance):
     representation='\n'.join("%s: %s" % item for item in attributes.items())
     print(representation)
 
-def Gaussian_primary(X,Y,Z,sigLoS,fwhm_x,fwhm_y,r0):
+def Gaussian_primary(X,Y,fwhm_x,fwhm_y,r0):
     """
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
-    return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/fwhm_x)**2+(Y/fwhm_y)**2)/r0**2)
+    # return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/fwhm_x)**2+(Y/fwhm_y)**2)/r0**2)
+    return np.exp(-ln2*((X/fwhm_x)**2+(Y/fwhm_y)**2)/r0**2)
 
-def AiryGaussian_primary(X,Y,Z,sigLoS,fwhm_x,fwhm_y,r0):
+def AiryGaussian_primary(X,Y,fwhm_x,fwhm_y,r0):
     """
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
-    par= np.exp(-(Z/(2*sigLoS))**2)
+    # par= np.exp(-(Z/(2*sigLoS))**2)
+    par= np.ones_like(Y)
     thetaX=X/r0
     argX=thetaX*BasicAiryHWHM/fwhm_x
     thetaY=Y/r0
@@ -96,8 +98,8 @@ class window_calcs(object):
                  uncs=None,frac_unc=0.1,                                # for Fisher-type calcs
                  Nkpar_box=15,Nkperp_box=18,frac_tol_conv=0.1,          # considerations for cyl binned power spectra from boxes
                  pars_forecast_names=None,                              # for verbose output
-                 manual_primary_beam_modes=None                         # config space pts at which a pre–discretely sampled primary beam is known
-                ):                                                      # implement soon: synthesized beam considerations, other primary beam types, and more
+                 manual_primary_beam_modes=None,                        # config space pts at which a pre–discretely sampled primary beam is known
+                 no_monopole=True):                                     # to implement: dirty image stacking compatibility, other primary beam types, and more
         """
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
@@ -173,7 +175,8 @@ class window_calcs(object):
         self.deltaz=self.z_hi-self.z_lo
         self.surv_channels=np.arange(self.nu_lo,self.nu_hi,self.Deltanu)
         self.r0=comoving_distance(self.z_ctr)
-        self.sigLoS=(self.r0-self.Dc_lo)/40.
+        # self.sigLoS=(self.r0-self.Dc_lo)/40.
+        self.sigLoS=0.
         if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
             self.perturbed_primary_beam_args=(self.sigLoS*(1-self.epsLoS),self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy))
             self.primary_beam_args=np.array([self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0]) # UPDATING ARGS NOW THAT THE FULL SET HAS BEEN SPECIFIED
@@ -210,7 +213,8 @@ class window_calcs(object):
         self.Deltabox=self.Lsurvbox/self.Nvoxbox
         if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
             sky_plane_sigmas=self.r0*np.array([self.fwhm_x,self.fwhm_y])/np.sqrt(2*np.log(2))
-            self.all_sigmas=np.concatenate((sky_plane_sigmas,[self.sigLoS]))
+            # self.all_sigmas=np.concatenate((sky_plane_sigmas,[self.sigLoS]))
+            self.all_sigmas=sky_plane_sigmas
             if (np.any(self.all_sigmas<self.Deltabox)):
                 raise NumericalDeltaError
         elif (primary_beam_type.lower()=="manual"):
@@ -237,6 +241,7 @@ class window_calcs(object):
         self.Nkpar_box=Nkpar_box
         self.Nkperp_box=Nkperp_box
         self.frac_tol_conv=frac_tol_conv
+        self.no_monopole=no_monopole
         
         # considerations for printing the calculated bias results
         self.pars_forecast_names=pars_forecast_names
@@ -302,6 +307,9 @@ class window_calcs(object):
         Wcontp=np.pad(self.Wcont,((pad0lo,pad0hi),(pad1lo,pad1hi)),"edge")
         conv=convolve(Wcontp,self.Pcyl,mode="valid")
         self.Pcont_cyl=conv ### same update as calc_Pcont_asym
+        self.Pcont_cyl_surv=self.Pcont_cyl       # for forward-compatibility
+        self.Pthought_cyl_surv=self.Pthought_cyl #
+        self.Ptrue_cyl_surv=self.Ptrue_cyl       #
     
     def W_cyl_binned(self,beam_pars_to_use):
         """
@@ -350,14 +358,14 @@ class window_calcs(object):
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
-                           k_fid=self.ksph)
+                           k_fid=self.ksph, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurvbox,
                            P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
                            primary_beam=Gaussian_primary,primary_beam_args=self.perturbed_primary_beam_args,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
-                           k_fid=self.ksph)
+                           k_fid=self.ksph, no_monopole=self.no_monopole)
         else:
             tr=cosmo_stats(self.Lsurvbox,
                            P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
@@ -366,7 +374,7 @@ class window_calcs(object):
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph,
-                           manual_primary_beam_modes=self.manual_primary_beam_modes)
+                           manual_primary_beam_modes=self.manual_primary_beam_modes, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurvbox,
                            P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
                            primary_beam=self.manual_primary_mis,primary_beam_type="manual",
@@ -374,7 +382,7 @@ class window_calcs(object):
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph,
-                           manual_primary_beam_modes=self.manual_primary_beam_modes)
+                           manual_primary_beam_modes=self.manual_primary_beam_modes, no_monopole=self.no_monopole)
         
         tr.avg_realizations()
         th.avg_realizations()
@@ -382,6 +390,33 @@ class window_calcs(object):
         self.Ptrue_cyl=    tr.P_converged
         self.Pthought_cyl= th.P_converged
         self.Pcont_cyl=    self.Ptrue_cyl-self.Pthought_cyl ### same update as calc_Pcont_sym
+
+        if (not np.all(self.Pcont_cyl.shape==self.uncs.shape)):
+            interp_holder=cosmo_stats(self.Lsurvbox,P_fid=self.Pcont_cyl,Nvox=self.Nvoxbox,
+                                      Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
+                                      k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
+                                      no_monopole=self.no_monopole) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial (or, at least, that's what I need to make happen)
+            interp_holder.interpolate_P(use_P_fid=True)
+            self.Pcont_cyl_surv=interp_holder.P_interp
+
+            interp_holder=cosmo_stats(self.Lsurvbox,P_fid=self.Pthought_cyl,Nvox=self.Nvoxbox,
+                                      Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
+                                      k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
+                                      no_monopole=self.no_monopole) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial (or, at least, that's what I need to make happen)
+            interp_holder.interpolate_P(use_P_fid=True)
+            self.Pthought_cyl_surv=interp_holder.P_interp
+
+            interp_holder=cosmo_stats(self.Lsurvbox,P_fid=self.Ptrue_cyl,Nvox=self.Nvoxbox,
+                                      Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
+                                      k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
+                                      no_monopole=self.no_monopole) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial (or, at least, that's what I need to make happen)
+            interp_holder.interpolate_P(use_P_fid=True)
+            self.Ptrue_cyl_surv=interp_holder.P_interp
+            print("interpolated Pcont, Ptrue, and Pthought to survey modes")
+        else: # no interpolation necessary
+            self.Pcont_cyl_surv=self.Pcont_cyl
+            self.Pthought_cyl_surv=self.Pthought_cyl
+            self.Ptrue_cyl_surv=self.Ptrue_cyl
 
     def cyl_partial(self,n):  
         """        
@@ -449,10 +484,11 @@ class window_calcs(object):
         else:
             raise NotYetImplementedError
 
-        if (use_asym_branch):
-            self.calc_Pcont_asym()
-        else:
-            self.calc_Pcont_cyl()
+        self.calc_Pcont_asym()
+        # if (use_asym_branch):
+        #     self.calc_Pcont_asym()
+        # else:
+        #     self.calc_Pcont_cyl()
         print("computed Pcont")
 
         V=0.*self.cyl_partials
@@ -461,15 +497,6 @@ class window_calcs(object):
         V_completely_transposed=np.transpose(V,axes=(2,1,0))
         F=np.einsum("ijk,kjl->il",V,V_completely_transposed)
         print("computed F")
-        if (not np.all(self.Pcont_cyl.shape==self.uncs.shape)):
-            interp_holder=cosmo_stats(self.Lsurvbox,P_fid=self.Pcont_cyl,Nvox=self.Nvoxbox,
-                                      Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
-                                      k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial (or, at least, that's what I need to make happen)
-            interp_holder.interpolate_P(use_P_fid=True)
-            self.Pcont_cyl_surv=interp_holder.P_interp
-            print("interpolated Pcont to survey modes")
-        else: # no interpolation necessary
-            self.Pcont_cyl_surv=self.Pcont_cyl
         Pcont_div_sigma=self.Pcont_cyl_surv/self.uncs
         B=np.einsum("jk,ijk->i",Pcont_div_sigma,V)
         print("computed B")
@@ -514,7 +541,7 @@ class cosmo_stats(object):
                  P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
                  verbose=False,                                                          # status updates for averaging over realizations
                  k_fid=None,kind="cubic",avoid_extrapolation=False,                      # helper vars for converting a 1d fid power spec to a box sampling
-                 no_monopole=False,                                                      # consideration when generating boxes
+                 no_monopole=True,                                                       # consideration when generating boxes
                  manual_primary_beam_modes=None,                                         # when using a discretely sampled primary beam not sampled internally using a callable, it is necessary to provide knowledge of the modes at which it was sampled
                  ):                                                                      # implement soon: synthesized beam considerations, other primary beam types, and more
         """
@@ -685,7 +712,7 @@ class cosmo_stats(object):
         if (self.primary_beam is not None): # non-identity primary beam
             if (self.primary_beam_type=="Gaussian" or self.primary_beam_type=="AiryGaussian"):
                 self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
-                evaled_primary=self.primary_beam(self.xx_grid,self.yy_grid,self.zz_grid,self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0)
+                evaled_primary=self.primary_beam(self.xx_grid,self.yy_grid,self.fwhm_x,self.fwhm_y,self.r0)
             elif (self.primary_beam_type=="manual"):
                 try:    # to access this branch, the manual/ numerically sampled primary beam needs to be close enough to a numpy array that it has a shape and not, e.g. a callable
                     primary_beam.shape
