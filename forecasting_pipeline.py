@@ -61,21 +61,18 @@ def Gaussian_primary(X,Y,fwhm_x,fwhm_y,r0):
     """
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
-    # return np.exp(-(Z/(2*sigLoS))**2 -ln2*((X/fwhm_x)**2+(Y/fwhm_y)**2)/r0**2)
     return np.exp(-ln2*((X/fwhm_x)**2+(Y/fwhm_y)**2)/r0**2)
 
 def AiryGaussian_primary(X,Y,fwhm_x,fwhm_y,r0):
     """
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
-    # par= np.exp(-(Z/(2*sigLoS))**2)
-    par= np.ones_like(Y)
     thetaX=X/r0
     argX=thetaX*BasicAiryHWHM/fwhm_x
     thetaY=Y/r0
     argY=thetaY*BasicAiryHWHM/fwhm_y
     perp=((j1(argX+eps)*j1(argY+eps))/((argX+eps)*(argY+eps)))**2
-    return par*perp
+    return perp
 
 """
 this class helps compute contaminant power and cosmological parameter biases using
@@ -104,9 +101,8 @@ class window_calcs(object):
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
         primary_beam_type          :: str                          :: implement soon: Airy etc.                :: ---
-        primary_beam_args          :: (N_args,) of floats          :: Gaussian, AiryGaussian: "μ"s and "σ"s    :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
+        primary_beam_args          :: (N_args,) of floats          :: Gaussian, AiryGaussian: "μ"s and "σ"s    :: Gaussian: r0 in Mpc; fwhm_x, fwhm_y in rad
                                                                                 PASS fwhm_x,fwhm_y
-                                                                                ++sigLoS prepended internally
                                                                                 ++r0 appended internally
         primary_beam_uncs          :: (N_uncertain_args) of floats :: Gaussian, AiryGaussian: fractional       :: ---
                                                                       uncertainties epsLoS, epsfwhmx, epsfwhmy 
@@ -175,11 +171,9 @@ class window_calcs(object):
         self.deltaz=self.z_hi-self.z_lo
         self.surv_channels=np.arange(self.nu_lo,self.nu_hi,self.Deltanu)
         self.r0=comoving_distance(self.z_ctr)
-        # self.sigLoS=(self.r0-self.Dc_lo)/40.
-        self.sigLoS=0.
         if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
-            self.perturbed_primary_beam_args=(self.sigLoS*(1-self.epsLoS),self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy))
-            self.primary_beam_args=np.array([self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0]) # UPDATING ARGS NOW THAT THE FULL SET HAS BEEN SPECIFIED
+            self.perturbed_primary_beam_args=(self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy))
+            self.primary_beam_args=np.array([self.fwhm_x,self.fwhm_y,self.r0]) # UPDATING ARGS NOW THAT THE FULL SET HAS BEEN SPECIFIED
             self.perturbed_primary_beam_args=np.append(self.perturbed_primary_beam_args,self.r0)
         elif (primary_beam_type.lower()=="manual"):
             pass
@@ -213,7 +207,6 @@ class window_calcs(object):
         self.Deltabox=self.Lsurvbox/self.Nvoxbox
         if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
             sky_plane_sigmas=self.r0*np.array([self.fwhm_x,self.fwhm_y])/np.sqrt(2*np.log(2))
-            # self.all_sigmas=np.concatenate((sky_plane_sigmas,[self.sigLoS]))
             self.all_sigmas=sky_plane_sigmas
             if (np.any(self.all_sigmas<self.Deltabox)):
                 raise NumericalDeltaError
@@ -285,56 +278,6 @@ class window_calcs(object):
         P_interp_flat=Psph_interpolator(kmag_grid_flat)
         Pcyl=np.reshape(P_interp_flat,(self.Nkpar_surv,self.Nkperp_surv))
         return kpar_grid,kperp_grid,Pcyl
-
-    def get_padding(self,n):
-        padding=n-1
-        padding_lo=int(np.ceil(padding / 2))
-        padding_hi=padding-padding_lo
-        return padding_lo,padding_hi
-    
-    def calc_Pcont_cyl(self):
-        """
-        calculate the cylindrically binned "contaminant power," following from the true and perceived window functions
-        """
-        self.calc_Wcont()
-        if (self.Pcyl.shape!=self.Wcont.shape):
-            if(self.Pcyl.shape.T!=self.Wcont.shape):
-                assert(1==0), "window and power spec shapes must match"
-            self.Wcont=self.Wcont.T # force P and Wcont to have the same shapes
-        s0,s1=self.Pcyl.shape # by now, P and Wcont have the same shapes
-        pad0lo,pad0hi=self.get_padding(s0)
-        pad1lo,pad1hi=self.get_padding(s1)
-        Wcontp=np.pad(self.Wcont,((pad0lo,pad0hi),(pad1lo,pad1hi)),"edge")
-        conv=convolve(Wcontp,self.Pcyl,mode="valid")
-        self.Pcont_cyl=conv ### same update as calc_Pcont_asym
-        self.Pcont_cyl_surv=self.Pcont_cyl       # for forward-compatibility
-        self.Pthought_cyl_surv=self.Pthought_cyl #
-        self.Ptrue_cyl_surv=self.Ptrue_cyl       #
-    
-    def W_cyl_binned(self,beam_pars_to_use):
-        """
-        wrapper to multiply the LoS and flat sky approximation sky plane terms of the cylindrically binned window function, for the grid described by the k-parallel and k-perp modes of the survey of interest
-        """
-        sigLoS_use,fwhm_x_use,_,r0_use=beam_pars_to_use
-        par_vec=np.exp(-(self.kpar_surv*sigLoS_use)**2)
-        perp_vec=np.exp(-(r0_use*fwhm_x_use*self.kperp_surv)**2/(2.*ln2))
-        par_arr,perp_arr=np.meshgrid(par_vec,perp_vec,indexing="ij")
-        meshed=par_arr*perp_arr
-        raw_sum=np.sum(meshed)
-        if raw_sum!=0.:
-            return meshed/raw_sum
-        else:
-            return meshed
-
-    def calc_Wcont(self):
-        """
-        calculate the "contaminant" windowing amplitude that will help give rise to the so-called "contaminant power"
-        (ignores fwhmy and epsfwhmy because of the limits of analytical cylindrical math, although they need to be passed when initializing the class object to avoid unpacking errors)
-        """
-        self.Wtr=self.W_cyl_binned(self.primary_beam_args)
-        self.Wth=self.W_cyl_binned(self.perturbed_primary_beam_args)
-        self.Wcont=self.Wtr-self.Wth
-        self.Wcontshape=self.Wcont.shape
     
     def NvoxPracticalityWarning(self,threshold_lo=75,threshold_hi=200):
         prefix="WARNING: the specified survey requires Nvox="
@@ -509,8 +452,8 @@ class window_calcs(object):
         print("survey centred at.......................................................................\n    nu ={:>7.4}     MHz \n    z  = {:>9.4} \n    Dc = {:>9.4f}  Mpc\n".format(self.nu_ctr,self.z_ctr,self.r0))
         print("survey spans............................................................................\n    nu =  {:>5.4}    -  {:>5.4}    MHz (deltanu = {:>6.4}    MHz) \n    z =  {:>9.4} - {:>9.4}     (deltaz  = {:>9.4}    ) \n    Dc = {:>9.4f} - {:>9.4f} Mpc (deltaDc = {:>9.4f} Mpc)\n".format(self.nu_lo,self.nu_hi,self.bw,self.z_hi,self.z_lo,self.z_hi-self.z_lo,self.Dc_hi,self.Dc_lo,self.Dc_hi-self.Dc_lo))
         if (self.primary_beam_type.lower()!="manual"):
-            print("characteristic instrument response widths...............................................\n    sigLoS = {:>7.4}     Mpc (frac. uncert. {:>7.4})\n    beamFWHM = {:>=8.4}  rad (frac. uncert. {:>7.4})\n".format(self.sigLoS,self.epsLoS,self.fwhm_x,self.epsx))
-            print("specific to the cylindrically asymmetric beam...........................................\n    beamFWHM1 {:>8.4} = rad (frac. uncert. {:>7.4}) \n".format(self.fwhm_y,self.epsy))
+            print("characteristic instrument response widths...............................................\n    beamFWHM0 = {:>8.4}  rad (frac. uncert. {:>7.4})\n".format(self.fwhm_x,self.epsx))
+            print("specific to the cylindrically asymmetric beam...........................................\n    beamFWHM1 = {:>8.4}  rad (frac. uncert. {:>7.4})\n".format(self.fwhm_y,self.epsy))
         print("cylindrically binned wavenumbers of the survey..........................................\n    kparallel {:>8.4} - {:>8.4} Mpc**(-1) ({:>4} channels of width {:>7.4}  Mpc**(-1)) \n    kperp     {:>8.4} - {:>8.4} Mpc**(-1) ({:>4} bins of width {:>8.4} Mpc**(-1))\n".format(self.kpar_surv[0],self.kpar_surv[-1],self.Nkpar_surv,self.kpar_surv[-1]-self.kpar_surv[-2],   self.kperp_surv[0],self.kperp_surv[-1],self.Nkperp_surv,self.kperp_surv[-1]-self.kperp_surv[-2]))
         print("cylindrically binned k-bin sensitivity..................................................\n    fraction of Pcyl amplitude = {:>7.4}".format(self.frac_unc))
 
@@ -553,7 +496,7 @@ class cosmo_stats(object):
         primary_beam              :: callable (or, if            :: power beam in Cartesian coords    :: ---
                                      primary_beam_type=="manual" 
                                      a 3D array)          
-        primary_beam_args         :: tuple of floats             :: Gaussian, AiryGaussian: μ, σ      :: Gaussian: sigLoS, r0 in Mpc; fwhm_x, fwhm_y in rad
+        primary_beam_args         :: tuple of floats             :: Gaussian, AiryGaussian: μ, σ      :: Gaussian: r0 in Mpc; fwhm_x, fwhm_y in rad
         primary_beam_type         :: str                         :: for now: Gaussian / AiryGaussian  :: ---
         Nk0, Nk1                  :: int                         :: # power spec bins for axis 0/1    :: ---
         binning_mode              :: str                         :: lin/log sp. P_realizations bins   :: ---
@@ -711,7 +654,7 @@ class cosmo_stats(object):
         self.manual_primary_beam_modes=manual_primary_beam_modes
         if (self.primary_beam is not None): # non-identity primary beam
             if (self.primary_beam_type=="Gaussian" or self.primary_beam_type=="AiryGaussian"):
-                self.sigLoS,self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
+                self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
                 evaled_primary=self.primary_beam(self.xx_grid,self.yy_grid,self.fwhm_x,self.fwhm_y,self.r0)
             elif (self.primary_beam_type=="manual"):
                 try:    # to access this branch, the manual/ numerically sampled primary beam needs to be close enough to a numpy array that it has a shape and not, e.g. a callable
