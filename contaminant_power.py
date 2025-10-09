@@ -18,7 +18,6 @@ ns_Planck18=0.96605
 H0_Planck18=67.32
 pi=np.pi
 nu_rest_21=1420.405751768 # MHz
-tiny=1e-100
 
 ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
 scale=1e-9
@@ -41,12 +40,8 @@ N_NS_CHORD=24
 b_EW_CHORD=6.3 # m
 N_EW_CHORD=22
 bminCHORD=6.3
-# bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2) # optimistic (includes low-redundancy baselines for CHORD-512) 
 bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2) # pathfinder (as per the CHORD-all telecon on May 26th, but without holes)
-kperp_surv=kperp(nu_ctr,N_CHORDbaselines,bminCHORD,bmaxCHORD) # kperp(nu_ctr,N_modes,bmin,bmax)
 ceil=275
-# ceil=0 # takes way too long to evaluate
-# ceil=200 # apparently also takes way too long to evaluate
 # ceil=230 # 485 s for the test to run (in the form it was in around 09:00 on Thursday.)
 
 n_sph_nu=250
@@ -54,9 +49,7 @@ n_sph_nu=250
 hpbw_x= 6*  pi/180. # rad; lambda/D estimate (actually physically realistic)
 hpbw_y= 4.5*pi/180.
 
-# epsilons_xy=[0.05]
-# epsilons_xy=[0.05,0.3]
-epsilons_xy=np.arange(0.0,0.2,0.05)
+epsilons_xy=np.arange(0.0,0.35,0.05) # use a smaller vector for a faster test (or just toggle into read-only mode)
 N_systematic_cases=len(epsilons_xy)
 blues_here = plt.cm.Blues( np.linspace(1,0.2,N_systematic_cases))
 redo_window_calc=False
@@ -65,7 +58,6 @@ powers=[["Power\n","Dimensionless power\n"],["",""],["",""]]
 ylabels=["P (K$^2$ Mpc$^3$)","Δ$^2$ (log(K$^2$/K$^2$)"]
 labels=["fiducial","systematic-laden"]
 
-# fig,axs=plt.subplots(1,2,figsize=(12,5))
 fig,axs=plt.subplots(3,2,figsize=(12,12))
 for i in range(3):
     for j in range(2):
@@ -95,7 +87,7 @@ for i,epsilon_xy in enumerate(epsilons_xy):
         Pcont_cyl_surv=nu_window.Pcont_cyl_surv
         Ptrue_cyl_surv=nu_window.Ptrue_cyl_surv
         Pthought_cyl_surv=nu_window.Pthought_cyl_surv
-        Pfidu_sph=nu_window.Ptruesph # self.ksph,self.Ptruesph
+        Pfidu_sph=nu_window.Ptruesph
         kfidu_sph=nu_window.ksph
 
         np.save("Pcont_cyl_surv_"+str(i)+".npy",Pcont_cyl_surv)
@@ -116,7 +108,6 @@ for i,epsilon_xy in enumerate(epsilons_xy):
     k_sph=np.linspace(kmin_surv,kmax_surv,N_sph)
     kpar=nu_window.kpar_surv
     kperp=nu_window.kperp_surv
-    k00,k11=np.meshgrid(kpar,kperp,indexing="ij")
     kcyl_for_interp=(kpar,kperp)
     Pfidu_sph=np.reshape(Pfidu_sph,(Pfidu_sph.shape[-1],))
 
@@ -124,14 +115,11 @@ for i,epsilon_xy in enumerate(epsilons_xy):
     Pcont_sph=interpn(kcyl_for_interp, Pcont_cyl_surv, doubled, bounds_error=False, fill_value=None)
     Pthought_sph=interpn(kcyl_for_interp, Pthought_cyl_surv, doubled, bounds_error=False, fill_value=None)
     Ptrue_sph=interpn(kcyl_for_interp, Ptrue_cyl_surv, doubled, bounds_error=False, fill_value=None)
+
     Delta2_fidu=kfidu_sph**3*Pfidu_sph/(2*pi**2)
     Delta2_thought=k_sph**3*Pthought_sph/(2*pi**2)
     Delta2_true=k_sph**3*Ptrue_sph/(2*pi**2)
     Delta2_cont=k_sph**3*Pcont_sph/(2*pi**2)
-    P=[Pfidu_sph,Pthought_sph]
-    Delta2=[Delta2_fidu,Delta2_thought]
-    kmodes=[kfidu_sph,k_sph]
-    spectra=[P,Delta2]
 
     fidu=[Pfidu_sph,Delta2_fidu]
     thought=[Pthought_sph,Delta2_thought]
@@ -154,6 +142,3 @@ plt.suptitle("900 MHz CHORD-512 survey (high kperp truncated)\nAiry HPBW {:5.3} 
 plt.tight_layout()
 plt.savefig("contaminant_power_test.png")
 plt.show()
-
-# iterate over different epsilons
-# plot each curve as a different shade of the same colour map
