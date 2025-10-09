@@ -147,7 +147,6 @@ class CHORD_image(object):
         t0=time.time()
         uvmin=np.min([np.min(self.uv_synth[:,0,:]),np.min(self.uv_synth[:,1,:])])
         uvmax=np.max([np.max(self.uv_synth[:,0,:]),np.max(self.uv_synth[:,1,:])])
-        # print("uvmin,uvmax=",uvmin,uvmax)
         uvbins=np.linspace(tol*uvmin,tol*uvmax,Npix)
         self.uvmin=uvmin
         self.uvmax=uvmax
@@ -198,13 +197,11 @@ class CHORD_image(object):
         N_chan=int(bw_MHz/delta_nu)
         self.nu_lo=self.nu_ctr_MHz-bw_MHz/2.
         self.nu_hi=self.nu_ctr_MHz+bw_MHz/2.
-        surv_channels=np.linspace(self.nu_lo,self.nu_hi,N_chan) # um
-        print("surv_channels.shape=",surv_channels.shape)
-        surv_wavelengths=c/surv_channels # ascending
+        surv_channels_Hz=1e6*np.linspace(self.nu_lo,self.nu_hi,N_chan) # um
+        surv_wavelengths=c/surv_channels_Hz # ascending
         surv_beam_widths=surv_wavelengths/D # ascending (need to traverse the beam widths in ascending order in order to use the 0th entry to set the excision cross-section)
-        self.surv_channels=surv_channels
+        self.surv_channels=surv_channels_Hz
         box=np.zeros((N_chan,N_grid_pix,N_grid_pix))
-        print("box.shape=",box.shape)
         for i,beam_width in enumerate(surv_beam_widths):
             # rescale the uv-coverage to this channel's frequency
             self.uv_synth=self.uv_synth*self.lambda_obs/surv_wavelengths[i] # rescale according to observing frequency: multiply up by the prev lambda to cancel, then divide by the current/new lambda
@@ -212,7 +209,6 @@ class CHORD_image(object):
 
             # compute the dirty image
             chan_dirty_image,chan_uv_bin_edges,thetamax=self.calc_dirty_image(Npix=N_grid_pix, pbw_fidu_use=beam_width)
-            # print("thetamax=",thetamax)
             
             # interpolate to store in stack
             if i==0:
@@ -221,8 +217,6 @@ class CHORD_image(object):
                 theta_max_box=thetamax
                 interpolated_slice=chan_dirty_image
             else:
-                # print("chan_uv_bin_edges=",chan_uv_bin_edges)
-                # print("uu_bin_edges_0=",uu_bin_edges_0)
                 # chunk excision and interpolation in one step:
                 interpolated_slice=interpn(chan_uv_bin_edges,
                                            chan_dirty_image,

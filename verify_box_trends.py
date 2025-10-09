@@ -3,12 +3,12 @@ import matplotlib.pyplot as plt
 from matplotlib.cm import Blues
 from cosmo_distances import *
 
-fidu_images=np.load("fidu_box_400.npy")
-pert_images=np.load("pert_box_400.npy")
+fidu_images=np.load("fidu_box_363_256.npy")
+pert_images=np.load("pert_box_363_256.npy")
 statuses=[fidu_images,pert_images]
 status_names=["fiducial","perturbed"]
 
-nu_ctr=400.
+nu_ctr=363.
 nu_HI_z0=1420.405751768 # MHz
 bw=nu_ctr/15. # reverse-engineering the class calculation for the call used when creating that box
 N_chan=int(bw/0.183)
@@ -25,9 +25,9 @@ ppct98=np.percentile(pert_images,98)
 pct2s=[fpct2,ppct2]
 pct98s=[fpct98,ppct98]
 cases=[0,-1]
-thetamax=1073.2097528662257 # carried over literally from what I calculated in the other script
+thetamax=2.3466116336602156 # carried over literally from what I calculated in the other script... 06 Oct. ~17:30 run
 ex=[-thetamax,thetamax,-thetamax,thetamax]
-line=400
+line=1
 
 fig,axs=plt.subplots(2,3,figsize=(16,12))
 for i,stat in enumerate(statuses):
@@ -48,8 +48,8 @@ for i,stat in enumerate(statuses):
         axs[i,k].axvline(-line,c="C2")
         axs[i,k].axhline(line,c="C2")
         axs[i,k].axhline(-line,c="C2")
-plt.suptitle("verifying image stacking scaling intuition—400 MHz survey")
-plt.savefig("verifying_stacking_scaling.png")
+plt.suptitle("verifying image stacking scaling intuition—"+str(int(nu_ctr))+" MHz survey")
+plt.savefig("verifying_stacking_scaling"+str(int(nu_ctr))+".png")
 plt.show()
 
 # Nrow=12
