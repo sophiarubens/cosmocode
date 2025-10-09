@@ -183,7 +183,9 @@ class window_calcs(object):
         # cylindrically binned survey k-modes and box considerations
         kpar_surv=kpar(self.nu_ctr,self.Deltanu,self.Nchan)
         self.ceil=ceil
-        self.kpar_surv=kpar_surv[:-self.ceil]
+        self.kpar_surv=kpar_surv
+        if self.ceil>0:
+            self.kpar_surv=self.kpar_surv[:-self.ceil]
         self.Nkpar_surv=len(self.kpar_surv)
         self.bmin=bmin
         self.bmax=bmax
@@ -192,7 +194,7 @@ class window_calcs(object):
 
         # self.kmin_surv=np.min((self.kpar_surv[0 ],self.kperp_surv[0 ])) # no extrap issues but slow (mult. factors of 1.1 and 1.2 also incur this issue, to their respective extents)
         self.kmin_surv=1.25*np.min((self.kpar_surv[ 0],self.kperp_surv[ 0])) # slow and slight extrap issues
-        self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2) #very fast but extrap issues
+        self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2)
         self.Lsurvbox= twopi/self.kmin_surv
         self.Nvoxbox=  int(self.Lsurvbox*self.kmax_surv/pi)
         print("Nvoxbox=",self.Nvoxbox)
@@ -725,16 +727,20 @@ class cosmo_stats(object):
         P_interp_flat=P_fid_interpolator(self.kmag_grid_corner_flat)
         self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
             
-    def generate_P(self,send_to_P_fid=False):
+    def generate_P(self,send_to_P_fid=False,T_use=None):
         """
         philosophy: 
         * compute the power spectrum of a known cosmological box and bin it spherically or cylindrically
         * append to the list of reconstructed P realizations (self.P_realizations)
         """
+        if T_use is None:
+            T_use=self.T_pristine
+        else:
+            T_use=self.T_primary
         if (self.T_pristine is None):    # power spec has to come from a box
             self.generate_box() # populates/overwrites self.T_pristine and self.T_primary
 
-        T_tilde=            fftshift(fftn((ifftshift(self.T_pristine)*self.d3r)))
+        T_tilde=            fftshift(fftn((ifftshift(T_use)*self.d3r)))
         modsq_T_tilde=     (T_tilde*np.conjugate(T_tilde)).real
         modsq_T_tilde[:,:,self.Nvox//2]*=2 # fix pos/neg duplication issue at the origin
         if (self.Nk1==0):   # bin to sph
@@ -824,7 +830,7 @@ class cosmo_stats(object):
         i=0
         for i in range(self.realization_ceiling):
             self.generate_box()
-            self.generate_P()
+            self.generate_P(T_use="primary")
             if self.verbose:
                 if (i%(self.realization_ceiling//10)==0):
                     print("realization",i)

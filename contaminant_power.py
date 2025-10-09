@@ -41,8 +41,11 @@ b_EW_CHORD=6.3 # m
 N_EW_CHORD=22
 bminCHORD=6.3
 bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2) # pathfinder (as per the CHORD-all telecon on May 26th, but without holes)
-ceil=275
+# ceil=300 # necessary compromise when asking for 0.04 convergence
+ceil=275 # fine for 0.1 Poisson noise level
 # ceil=230 # 485 s for the test to run (in the form it was in around 09:00 on Thursday.)
+# frac_tol_conv=0.075
+frac_tol_conv=0.1
 
 n_sph_nu=250
 
@@ -50,16 +53,18 @@ hpbw_x= 6*  pi/180. # rad; lambda/D estimate (actually physically realistic)
 hpbw_y= 4.5*pi/180.
 
 epsilons_xy=np.arange(0.0,0.35,0.05) # use a smaller vector for a faster test (or just toggle into read-only mode)
+# epsilons_xy=np.arange(0.35,0.6,0.05)
 N_systematic_cases=len(epsilons_xy)
 blues_here = plt.cm.Blues( np.linspace(1,0.2,N_systematic_cases))
+oranges_here = plt.cm.Oranges( np.linspace(1,0.2,N_systematic_cases))
 redo_window_calc=False
 suffixes=["systematic-laden and fiducially beamed side-by-side","fractional difference of systematic-laden and fiducially beamed","contaminant beamed, fractional"]
-powers=[["Power\n","Dimensionless power\n"],["",""],["",""]]
+powers=[["Power\n","Dimensionless power\n"],["",""]]
 ylabels=["P (K$^2$ Mpc$^3$)","Δ$^2$ (log(K$^2$/K$^2$)"]
 labels=["fiducial","systematic-laden"]
 
-fig,axs=plt.subplots(3,2,figsize=(12,12))
-for i in range(3):
+fig,axs=plt.subplots(2,2,figsize=(12,8))
+for i in range(2):
     for j in range(2):
         axs[i,j].set_ylabel(ylabels[j])
         axs[i,j].set_xlabel("k (1/Mpc)")
@@ -76,6 +81,7 @@ for i,epsilon_xy in enumerate(epsilons_xy):
                             pars_Planck18,pars_Planck18,
                             n_sph_nu,dpar,
                             nu_ctr,channel_width,
+                            frac_tol_conv=frac_tol_conv,
                             pars_forecast_names=parnames, no_monopole=False)
     nu_window.print_survey_characteristics()
     if redo_window_calc:
@@ -127,18 +133,20 @@ for i,epsilon_xy in enumerate(epsilons_xy):
     cont=[Pcont_sph,Delta2_cont]
 
     for k,case in enumerate(fidu):
-        label_for_eps="frac. unc. in HPBW= "+str(epsxy)
-        axs[0,k].loglog(k_sph,true[k],label="fiducially beamed data",c="C1")
+        if i==0:
+            fid_label="fiducially beamed data"
+        else:
+            fid_label=""
+        label_for_eps="frac. unc. in HPBW= "+str(np.round(epsxy,2))
+        axs[0,k].loglog(k_sph,true[k],label=fid_label,c=oranges_here[i])
         axs[0,k].loglog(k_sph,thought[k],label=label_for_eps,c=blues_here[i])
 
         axs[1,k].plot(k_sph,(true[k]-thought[k])/true[k],label=label_for_eps,c=blues_here[i])
 
-        axs[2,k].plot(k_sph,cont[k]/true[k],label=label_for_eps,c=blues_here[i])
-
-        for m in range(3):
-            axs[m,k].set_xlim(k_sph[1],k_sph[-1])
+        for m in range(2):
+            axs[m,k].set_xlim(kmin_surv,kmax_surv/2) # /2 in kmax b/c of +/- in box
     axs[0,1].legend()
-plt.suptitle("900 MHz CHORD-512 survey (high kperp truncated)\nAiry HPBW {:5.3} (x) and {:5.3} (y)".format(hpbw_x,hpbw_y))
+plt.suptitle("900 MHz CHORD-64 survey (high kperp truncated)\nAiry HPBW {:5.3} (x) and {:5.3} (y)".format(hpbw_x,hpbw_y))
 plt.tight_layout()
-plt.savefig("contaminant_power_test.png")
+plt.savefig("contaminant_power_test.png",dpi=200)
 plt.show()
