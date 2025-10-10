@@ -146,6 +146,8 @@ class window_calcs(object):
                 self.manual_primary_beam_modes=manual_primary_beam_modes
             try: # philosophy here is that two discretely sampled beam arrays (assumed to be sampled at the same array of config space points) need to be passed such that they can be unpacked into the fiducial and mis-modelled evaled primary beams
                 self.manual_primary_fid,self.manual_primary_mis=primary_beam_args # make the args serve a double purpose in this outer layer (have the attribute store arrays in this mode)
+                print("__init__ of window_calcs:")
+                print("np.max(self.manual_primary_fid),np.max(self.manual_primary_mis)=",np.max(self.manual_primary_fid),np.max(self.manual_primary_mis)) # OKAY HERE
             except: # primary beam samplings not unpackable the way they should be
                 raise NotEnoughInfoError
         else:
@@ -670,6 +672,29 @@ class cosmo_stats(object):
                 if self.manual_primary_beam_modes is None:
                     raise NotEnoughInfoError
 
+                x_manual_primary,y_manual_primary,z_manual_primary=manual_primary_beam_modes
+                x_have_lo=x_manual_primary[0]
+                x_have_hi=x_manual_primary[-1]
+                y_have_lo=y_manual_primary[0]
+                y_have_hi=y_manual_primary[-1]
+                z_have_lo=z_manual_primary[0]
+                z_have_hi=z_manual_primary[-1]
+                xy_want_lo=self.xy_vec_for_box[0]
+                xy_want_hi=self.xy_vec_for_box[-1]
+                z_want_lo=self.z_vec_for_box[0]
+                z_want_hi=self.z_vec_for_box[-1]
+                if (xy_want_lo<x_have_lo):
+                    extrapolation_warning("low x",   xy_want_lo,  x_have_lo)
+                if (xy_want_hi>x_have_hi):
+                    extrapolation_warning("high x",   xy_want_hi,  x_have_hi)
+                if (xy_want_lo<y_have_lo):
+                    extrapolation_warning("low y",   xy_want_lo,  y_have_lo)
+                if (xy_want_hi>y_have_hi):
+                    extrapolation_warning("high y",   xy_want_hi,  y_have_hi)
+                if (z_want_lo<z_have_lo):
+                    extrapolation_warning("low z",   z_want_lo,  z_have_lo)
+                if (z_want_hi>z_have_hi):
+                    extrapolation_warning("high z",   z_want_hi,  z_have_hi)
                 evaled_primary=interpn(manual_primary_beam_modes,
                                        self.primary_beam,
                                        (self.xx_grid,self.yy_grid,self.zz_grid),
@@ -813,20 +838,15 @@ class cosmo_stats(object):
         if (np.min(self.P_fid_box)<0):
             self.P_fid_box[self.P_fid_box<0]=0 # hackily overwriting error from having to extrapolate at the origin
         sigmas=np.sqrt(self.Veff*self.P_fid_box/2.) # from inverting the estimator equation and turning variances into std devs
-        # print("np.any(sigmas==0), np.any(np.isnan(sigmas)), np.any(np.isinf(sigmas))=",np.any(sigmas==0), np.any(np.isnan(sigmas)), np.any(np.isinf(sigmas)))
         T_tilde_Re,T_tilde_Im=np.random.normal(loc=0.*sigmas,scale=sigmas,size=np.insert(sigmas.shape,0,2))
         
         T_tilde=T_tilde_Re+1j*T_tilde_Im # have not yet applied the symmetry that ensures T is real-valued 
         T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvoxz),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: fftshiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
-        # print("np.any(T==0), np.any(np.isnan(T)), np.any(np.isinf(T))=",np.any(T==0), np.any(np.isnan(T)), np.any(np.isinf(T)))
         if self.no_monopole:
             T-=np.mean(T) # subtract monopole moment to make things more akin to what powerbox does
         self.T_pristine=T
-        # print("np.any(self.evaled_primary==0), np.any(np.isnan(self.evaled_primary)), np.any(np.isinf(self.evaled_primary))=",np.any(self.evaled_primary==0), np.any(np.isnan(self.evaled_primary)), np.any(np.isinf(self.evaled_primary))) 
         print("np.min(self.evaled_primary), np.nanmin(self.evaled_primary), np.max(self.evaled_primary), np.nanmax(self.evaled_primary)=",np.min(self.evaled_primary), np.nanmin(self.evaled_primary), np.max(self.evaled_primary), np.nanmax(self.evaled_primary))
-        # print("np.min(T), np.nanmin(T), np.max(T), np.nanmax(T)=",np.min(T), np.nanmin(T), np.max(T), np.nanmax(T))
         self.T_primary=T*self.evaled_primary
-        # print("np.any(self.T_primary==0), np.any(np.isnan(self.T_primary)), np.any(np.isinf(self.T_primary))=",np.any(self.T_primary==0), np.any(np.isnan(self.T_primary)), np.any(np.isinf(self.T_primary)))
 
     def avg_realizations(self):
         """

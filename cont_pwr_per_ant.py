@@ -29,7 +29,7 @@ dpar=1e-3*np.ones(nprm) # gets overwritten by the adaptive stepper in my numeric
 dpar[3]*=scale
 
 ############################## details of a hypothetical survey cooked up for testing purposes ########################################################################################################################
-nu_ctr=900. # centre frequency of survey in MHz
+nu_ctr=363. # centre frequency of survey in MHz
 channel_width=0.183 # 183 kHz from CHORD Wiki -> SWGs -> Galaxies -> CHORD Pathfinder specs -> Spectral resolution
 
 ############################## initializations related to cylindrically binned k-modes ########################################################################################################################
@@ -42,8 +42,9 @@ N_EW_CHORD=22
 bminCHORD=6.3
 bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2) # pathfinder (as per the CHORD-all telecon on May 26th, but without holes)
 # ceil=300 # necessary compromise when asking for 0.04 convergence
-ceil=275 # fine for 0.1 Poisson noise level
+# ceil=275 # fine for 0.1 Poisson noise level
 # ceil=230 # 485 s for the test to run (in the form it was in around 09:00 on Thursday.)
+ceil=12
 # frac_tol_conv=0.075
 frac_tol_conv=0.1
 
