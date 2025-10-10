@@ -100,11 +100,13 @@ class window_calcs(object):
         """
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
-        primary_beam_type          :: str                          :: implement soon: Airy etc.                :: ---
-        primary_beam_args          :: (N_args,) of floats          :: Gaussian, AiryGaussian: "μ"s and "σ"s    :: Gaussian: r0 in Mpc; fwhm_x, fwhm_y in rad
-                                                                                PASS fwhm_x,fwhm_y
-                                                                                ++r0 appended internally
-        primary_beam_uncs          :: (N_uncertain_args) of floats :: Gaussian, AiryGaussian: fractional       :: ---
+        primary_beam_type          :: str                          :: implement more complex forms soon?       :: ---
+        primary_beam_args          :: (N_args,) of floats          :: Gaussian, Airy: "μ"s and "σ"s            :: Gaussian: r0 in Mpc; fwhm_x, fwhm_y in rad
+                                                                      PASS fwhm_{x/y}; r0 appended internally
+                                                                      Manual: **oversubscribed** = primary
+                                                                      beam evaluated on the grid of interest,
+                                                                      a list ordered as [fidu,pert]
+        primary_beam_uncs          :: (N_uncertain_args) of floats :: Gaussian, Airy: fractional               :: ---
                                                                       uncertainties epsfwhmx, epsfwhmy 
         pars_set_cosmo             :: (N_fid_pars,) of floats      :: params to condition a CAMB/etc. call     :: as found in ΛCDM
         pars_forecast              :: (N_forecast_pars,) of floats :: params for which you'd like to forecast  :: as found in ΛCDM
@@ -128,7 +130,9 @@ class window_calcs(object):
                                                                       spec calcs from boxes
         frac_tol_conv              :: float                        :: how much the Poisson noise must fall off :: ---
         pars_forecast_names        :: (N_pars_forecast,) or equiv. :: names of the pars being forecast         :: ---
-                                      of strings     
+                                      of strings 
+        manual_primary_beam_modes  :: x,y,z coordinate axes        :: domain of a discrete sampling            :: Mpc
+                                      (if primary_beam !callable)    
         """
         # primary beam considerations
         if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
@@ -666,6 +670,11 @@ class cosmo_stats(object):
                 if self.manual_primary_beam_modes is None:
                     raise NotEnoughInfoError
 
+                # x_vec,y_vec,z_vec=manual_primary_beam_modes
+                # print("x_vec.shape=",x_vec.shape)
+                # print("y_vec.shape=",y_vec.shape)
+                # print("z_vec.shape=",z_vec.shape)
+                # print("self.primary_beam.shape=",self.primary_beam.shape)
                 evaled_primary=interpn(manual_primary_beam_modes,
                                        self.primary_beam,
                                        (self.xx_grid,self.yy_grid,self.zz_grid),
