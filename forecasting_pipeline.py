@@ -670,11 +670,6 @@ class cosmo_stats(object):
                 if self.manual_primary_beam_modes is None:
                     raise NotEnoughInfoError
 
-                # x_vec,y_vec,z_vec=manual_primary_beam_modes
-                # print("x_vec.shape=",x_vec.shape)
-                # print("y_vec.shape=",y_vec.shape)
-                # print("z_vec.shape=",z_vec.shape)
-                # print("self.primary_beam.shape=",self.primary_beam.shape)
                 evaled_primary=interpn(manual_primary_beam_modes,
                                        self.primary_beam,
                                        (self.xx_grid,self.yy_grid,self.zz_grid),
@@ -734,7 +729,7 @@ class cosmo_stats(object):
         """
         P_fid_interpolator=interp1d(self.k_fid,self.P_fid,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
         P_interp_flat=P_fid_interpolator(self.kmag_grid_corner_flat)
-        self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvox))
+        self.P_fid_box=np.reshape(P_interp_flat,(self.Nvox,self.Nvox,self.Nvoxz))
             
     def generate_P(self,send_to_P_fid=False,T_use=None):
         """
@@ -751,9 +746,9 @@ class cosmo_stats(object):
 
         T_tilde=            fftshift(fftn((ifftshift(T_use)*self.d3r)))
         modsq_T_tilde=     (T_tilde*np.conjugate(T_tilde)).real
-        modsq_T_tilde[:,:,self.Nvox//2]*=2 # fix pos/neg duplication issue at the origin
+        modsq_T_tilde[:,:,self.Nvoxz//2]*=2 # fix pos/neg duplication issue at the origin
         if (self.Nk1==0):   # bin to sph
-            modsq_T_tilde_1d= np.reshape(modsq_T_tilde,    (self.Nvox**3,))
+            modsq_T_tilde_1d= np.reshape(modsq_T_tilde,    (self.Nvox**2*self.Nvoxz,))
 
             sum_modsq_T_tilde= np.bincount(self.sph_bin_indices_1d_centre, 
                                            weights=modsq_T_tilde_1d, 
@@ -766,7 +761,7 @@ class cosmo_stats(object):
         elif (self.Nk0!=0): # bin to cyl
             sum_modsq_T_tilde= np.zeros((self.Nk0+1,self.Nk1+1)) # for the ensemble avg: sum    of modsq_T_tilde values in each bin  ...upon each access, update the kparBIN row of interest, but all Nkperp columns
             N_modsq_T_tilde=   np.zeros((self.Nk0+1,self.Nk1+1)) # for the ensemble avg: number of modsq_T_tilde values in each bin
-            for i in range(self.Nvox): # iterate over the kpar axis of the box to capture all LoS slices
+            for i in range(self.Nvoxz): # iterate over the kpar axis of the box to capture all LoS slices
                 if (i==0): # stats for the representative "bull's eye" slice transverse to the LoS
                     slice_bin_counts=np.bincount(self.perpbin_indices_slice_1d_centre, minlength=self.Nk1)
                 modsq_T_tilde_slice= modsq_T_tilde[:,:,i]                    # take the slice of interest of the preprocessed box values !!kpar is z-like
@@ -813,19 +808,25 @@ class cosmo_stats(object):
         # not warning abt potentially overwriting T -> the only case where info would be lost is where self.P_fid is None, and I already have a separate warning for that
         
         assert(self.P_fid_box is not None)
-        if (self.Veff<0):
+        if (self.Veff<=0):
             raise PathologicalError
         if (np.min(self.P_fid_box)<0):
             self.P_fid_box[self.P_fid_box<0]=0 # hackily overwriting error from having to extrapolate at the origin
         sigmas=np.sqrt(self.Veff*self.P_fid_box/2.) # from inverting the estimator equation and turning variances into std devs
+        # print("np.any(sigmas==0), np.any(np.isnan(sigmas)), np.any(np.isinf(sigmas))=",np.any(sigmas==0), np.any(np.isnan(sigmas)), np.any(np.isinf(sigmas)))
         T_tilde_Re,T_tilde_Im=np.random.normal(loc=0.*sigmas,scale=sigmas,size=np.insert(sigmas.shape,0,2))
         
         T_tilde=T_tilde_Re+1j*T_tilde_Im # have not yet applied the symmetry that ensures T is real-valued 
-        T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvox),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: fftshiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
+        T=fftshift(irfftn(T_tilde*self.d3k,s=(self.Nvox,self.Nvox,self.Nvoxz),axes=(0,1,2),norm="forward"))/(twopi)**3 # handle in one line: fftshiftedness, ensuring T is real-valued and box-shaped, enforcing the cosmology Fourier convention
+        # print("np.any(T==0), np.any(np.isnan(T)), np.any(np.isinf(T))=",np.any(T==0), np.any(np.isnan(T)), np.any(np.isinf(T)))
         if self.no_monopole:
             T-=np.mean(T) # subtract monopole moment to make things more akin to what powerbox does
-        self.T_pristine=T 
+        self.T_pristine=T
+        # print("np.any(self.evaled_primary==0), np.any(np.isnan(self.evaled_primary)), np.any(np.isinf(self.evaled_primary))=",np.any(self.evaled_primary==0), np.any(np.isnan(self.evaled_primary)), np.any(np.isinf(self.evaled_primary))) 
+        print("np.min(self.evaled_primary), np.nanmin(self.evaled_primary), np.max(self.evaled_primary), np.nanmax(self.evaled_primary)=",np.min(self.evaled_primary), np.nanmin(self.evaled_primary), np.max(self.evaled_primary), np.nanmax(self.evaled_primary))
+        # print("np.min(T), np.nanmin(T), np.max(T), np.nanmax(T)=",np.min(T), np.nanmin(T), np.max(T), np.nanmax(T))
         self.T_primary=T*self.evaled_primary
+        # print("np.any(self.T_primary==0), np.any(np.isnan(self.T_primary)), np.any(np.isinf(self.T_primary))=",np.any(self.T_primary==0), np.any(np.isnan(self.T_primary)), np.any(np.isinf(self.T_primary)))
 
     def avg_realizations(self):
         """
