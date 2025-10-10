@@ -6,6 +6,7 @@ import time
 from scipy.signal import convolve
 import scipy.sparse as spsp
 from scipy.interpolate import interpn
+from cosmo_distances import comoving_distance
 
 # CHORD immutables
 N_NS_full=24
@@ -201,7 +202,12 @@ class CHORD_image(object):
         surv_wavelengths=c/surv_channels_Hz # ascending
         surv_beam_widths=surv_wavelengths/D # ascending (need to traverse the beam widths in ascending order in order to use the 0th entry to set the excision cross-section)
         self.surv_channels=surv_channels_Hz
-        box=np.zeros((N_chan,N_grid_pix,N_grid_pix))
+        self.z_channels=self.surv_channels/nu_HI_z0-1.
+        self.comoving_distances_channels=np.asarray([comoving_distance(chan) for chan in self.z_channels])
+        self.ctr_chan_comov_dist=self.comoving_distances_channels[N_chan//2]
+
+        # box=np.zeros((N_chan,N_grid_pix,N_grid_pix)) # old
+        box=np.zeros((N_grid_pix,N_grid_pix,N_chan))
         for i,beam_width in enumerate(surv_beam_widths):
             # rescale the uv-coverage to this channel's frequency
             self.uv_synth=self.uv_synth*self.lambda_obs/surv_wavelengths[i] # rescale according to observing frequency: multiply up by the prev lambda to cancel, then divide by the current/new lambda
@@ -222,11 +228,22 @@ class CHORD_image(object):
                                            chan_dirty_image,
                                            (uu_bin_edges_0,vv_bin_edges_0),
                                            bounds_error=False, fill_value=None) # extrap necessary because the smallest u and v you have at a given slice-needing-extrapolation will be larger than the min u and v mags to extrapolate to
-            box[i]=interpolated_slice
+            box[:,:,i]=interpolated_slice
             if ((i%(N_chan//10))==0):
                 print("{:5}%% complete".format(i/N_chan*100))
         self.box=box # it would be lowkey diabolical to send this to cosmo_stats to window numerically and expect to generate box realizations at the same resolution
         self.theta_max_box=theta_max_box
+
+        # self.comoving_distances_channels self.ctr_chan_comov_dist
+        # generate a box of r-values (necessary for interpolation to survey modes in the manual beam mode of cosmo_stats as called by window_calcs)
+        thetas=np.linspace(-self.theta_max_box,self.theta_max_box,N_grid_pix)
+        xy_vec=self.ctr_chan_comov_dist*thetas # supply the thetas but multiply by the central channel's comoving distance (here, I'll need to make the coeval approximation)
+        z_vec=self.comoving_distances_channels # comoving distances from each freq channel... maybe eventually let cosmo_stats handle this? but also maybe not bc I call this before that? but also eventually I'll probably just refactor this to be a part of cosmo_stats?
+        self.xy_vec=xy_vec
+        self.z_vec=z_vec
+        # xx_grid,yy_grid,zz_grid=np.meshgrid(xy_vec,xy_vec,z_vec,indexing="ij")
+        # r_grid=np.sqrt(xx_grid**2+yy_grid**2+zz_grid**2)
+        # self.r_grid=r_grid
 
 # use the part of the Blues colour map with decent contrast and eyeball-ably perceivable differences between adjacent samplings
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=1000): # https://stackoverflow.com/questions/18926031/how-to-extract-a-subset-of-a-colormap-as-a-new-colormap-in-matplotlib
