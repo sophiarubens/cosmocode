@@ -43,7 +43,7 @@ bminCHORD=6.3
 bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2) # pathfinder (as per the CHORD-all telecon on May 26th, but without holes)
 # ceil=300 # necessary compromise when asking for 0.04 convergence
 ceil=275 # fine for 0.1 Poisson noise level
-# ceil=230 # 485 s for the test to run (in the form it was in around 09:00 on Thursday.)
+# ceil=230 # 485 s for the test to run (in the form it was in around 09:00 on the Thursday before Thanksgiving/reading week 2025.)
 # frac_tol_conv=0.075
 frac_tol_conv=0.1
 
@@ -52,12 +52,12 @@ n_sph_nu=250
 hpbw_x= 6*  pi/180. # rad; lambda/D estimate (actually physically realistic)
 hpbw_y= 4.5*pi/180.
 
-epsilons_xy=np.arange(0.0,0.35,0.05) # use a smaller vector for a faster test (or just toggle into read-only mode)
+epsilons_xy=np.arange(0.0,0.35,0.05) # use a smaller vector for a faster test (for speedy eval, alternatively just toggle into read-only mode)
 # epsilons_xy=np.arange(0.35,0.6,0.05)
 N_systematic_cases=len(epsilons_xy)
 blues_here = plt.cm.Blues( np.linspace(1,0.2,N_systematic_cases))
 oranges_here = plt.cm.Oranges( np.linspace(1,0.2,N_systematic_cases))
-redo_window_calc=False
+redo_window_calc=True
 suffixes=["systematic-laden and fiducially beamed side-by-side","fractional difference of systematic-laden and fiducially beamed","contaminant beamed, fractional"]
 powers=[["Power\n","Dimensionless power\n"],["",""]]
 ylabels=["P (K$^2$ Mpc$^3$)","Δ$^2$ (log(K$^2$/K$^2$)"]
@@ -141,10 +141,11 @@ for i,epsilon_xy in enumerate(epsilons_xy):
             fid_label=""
             label_for_dot=""
         label_for_eps="frac. unc. in HPBW= "+str(np.round(epsxy,2))
-        axs[0,k].loglog(k_sph,true[k],label=fid_label,c=oranges_here[i])
-        axs[0,k].loglog(k_sph,thought[k],label=label_for_eps,c=blues_here[i])
+        axs[0,k].plot(k_sph,true[k],label=fid_label,c=oranges_here[i])
+        axs[0,k].plot(k_sph,thought[k],label=label_for_eps,c=blues_here[i])
+        axs[0,k].set_ylim(0,1.2*np.max(true[k]))
 
-        axs[1,k].semilogx(k_sph,(true[k]-thought[k])/true[k],c=blues_here[i])
+        axs[1,k].plot(k_sph,(true[k]-thought[k])/true[k],c=blues_here[i])
         axs[1,k].axhline(epsilons_xy[i],c=blues_here[i],ls=":",label=label_for_dot)
 
         for m in range(2):

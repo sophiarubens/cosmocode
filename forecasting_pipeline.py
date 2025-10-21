@@ -6,6 +6,7 @@ from scipy.interpolate import interpn,interp1d,RectBivariateSpline
 from scipy.special import j1
 from numpy.fft import fftshift,ifftshift,fftn,irfftn,fftfreq
 from cosmo_distances import *
+from matplotlib import pyplot as plt
 
 Omegam_Planck18=0.3158
 Omegabh2_Planck18=0.022383
@@ -261,12 +262,19 @@ class window_calcs(object):
         As=pars_use[3]*scale
         ns=pars_use[4]
 
+        # REAL PHYSICS
         pars_use_internal=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0)
         pars_use_internal.InitPower.set_params(As=As,ns=ns,r=0)
         pars_use_internal.set_matter_power(redshifts=z, kmax=maxkh*h)
         results = camb.get_results(pars_use_internal)
         pars_use_internal.NonLinear = model.NonLinear_none
         kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=self.n_sph_modes)
+
+        # # NOT REAL PHYSICS (trying to tease out the k-dependence thing)
+        # pk=-4*(kh-0.75)**2+2.5 # peak near 0.75, pos bw about 0 and 1.5 ... fine, but I think I'd be more targeted if I were to switch to a Gaussian "..._parabola"
+        # pk=np.exp(-(kh-0.75)**2/(2*0.15**2))+0.25 # "..._gaussian"
+        # pk=np.reshape(pk,(len(pk),1)) # although this seems like jumping through a convoluted hoop, the whole rest of the pipeline is referenced to the kind of (1,npts) shape you get from CAMB... easier to address in one line here rather than comment out all the other places, even if it's conceptually redundant
+        # pk=pk.T
         return kh,pk
     
     def unbin_to_Pcyl(self,pars_to_use):
@@ -425,18 +433,8 @@ class window_calcs(object):
         """
         self.build_cyl_partials()
         print("built partials")
-        if (self.primary_beam_type.lower()=="gaussian" or self.primary_beam_type.lower()=="airygaussian"):
-            use_asym_branch=self.fwhm_x!=self.fwhm_y
-        elif (self.primary_beam_type.lower()=="manual"):
-            use_asym_branch=True
-        else:
-            raise NotYetImplementedError
 
         self.calc_Pcont_asym()
-        # if (use_asym_branch):
-        #     self.calc_Pcont_asym()
-        # else:
-        #     self.calc_Pcont_cyl()
         print("computed Pcont")
 
         V=0.*self.cyl_partials

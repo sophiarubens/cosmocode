@@ -150,8 +150,9 @@ for i,epsilon_xy in enumerate(epsilons_xy):
             fid_label=""
             label_for_dot=""
         label_for_eps="frac. unc. in HPBW= "+str(np.round(epsxy,2))
-        axs[0,k].loglog(k_sph,true[k],label=fid_label,c=oranges_here[i])
-        axs[0,k].loglog(k_sph,thought[k],label=label_for_eps,c=blues_here[i])
+        axs[0,k].plot(k_sph,true[k],label=fid_label,c=oranges_here[i])
+        axs[0,k].plot(k_sph,thought[k],label=label_for_eps,c=blues_here[i])
+        axs[0,k].set_ylim(0,1.2*np.max(true[k]))
 
         axs[1,k].plot(k_sph,(true[k]-thought[k])/true[k],c=blues_here[i])
         axs[1,k].axhline(epsilons_xy[i],c=blues_here[i],ls=":",label=label_for_dot)
@@ -160,7 +161,7 @@ for i,epsilon_xy in enumerate(epsilons_xy):
             axs[m,k].set_xlim(kmin_surv,kmax_surv/2) # /2 in kmax b/c of +/- in box
 axs[0,1].legend()
 axs[1,1].legend()
-plt.suptitle("900 MHz CHORD-64 survey (high kperp truncated)\nAiry HPBW {:5.3} (x) and {:5.3} (y)".format(hpbw_x,hpbw_y))
+plt.suptitle("900 MHz CHORD-64 survey (high kperp truncated)\nAiry HPBW {:5.3} (x) and {:5.3} (y)\n two perturbation types".format(hpbw_x,hpbw_y))
 plt.tight_layout()
 plt.savefig("contaminant_power_test_per_ant.png",dpi=200)
 plt.show()
