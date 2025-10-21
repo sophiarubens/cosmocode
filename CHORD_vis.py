@@ -119,6 +119,42 @@ class CHORD_image(object):
         indices_of_constituent_ant_pb_types=np.vstack((indices_of_constituent_ant_pb_types,indices_of_constituent_ant_pb_types))
         self.uvw_inst=uvw_inst
         self.indices_of_constituent_ant_pb_types=indices_of_constituent_ant_pb_types
+        u_inst=uvw_inst[:,0]
+        v_inst=uvw_inst[:,1]
+        
+        ad_hoc_antenna_colours=["r","y","b"]
+        plt.figure()
+        for i in range(N_beam_types):
+            keep=np.nonzero(pbw_types==i)
+            plt.scatter(antennas_xyz[keep,0],antennas_xyz[keep,1],c=ad_hoc_antenna_colours[i],label="antenna status "+str(i),edgecolors="k",lw=0.3,s=20)
+        plt.xlabel("x (m)")
+        plt.ylabel("y (m)")
+        plt.title("CHORD "+str(self.nu_ctr_MHz)+" MHz antenna positions by primary beam status")
+        plt.legend()
+        plt.savefig("ant_positions_colour_coded_by_ant_pert_status.png",dpi=350)
+        
+        ant_a_type,ant_b_type=indices_of_constituent_ant_pb_types.T
+        print("len(ant_a_type)=",len(ant_a_type))
+        # plt.figure()
+        fig,axs=plt.subplots(2,3,figsize=(9,8))
+        num=0
+        # ad_hoc_colours=[3,1,4,8,2,0] # only valid for a two-perturbation test
+        ad_hoc_colours=["r","tab:orange","tab:purple","y","tab:green","b"] # still only valid for a two-perturbation test
+        for a in range(N_beam_types):
+            for b in range(a,N_beam_types):
+                keep=np.nonzero(np.logical_and(ant_a_type==a,ant_b_type==b))
+                # print("len(keep>0)=",len(keep>0))
+                u_inst_ab=u_inst[keep]
+                v_inst_ab=v_inst[keep]
+                axs[num%2,num%3].scatter(u_inst_ab,v_inst_ab,c=ad_hoc_colours[num],label="antenna status "+str(a)+str(b),edgecolors="k",lw=0.15,s=4)
+                axs[num%2,num%3].set_xlabel("u (λ)")
+                axs[num%2,num%3].set_ylabel("v (λ)")
+                axs[num%2,num%3].set_title("antenna status "+str(a)+str(b))
+                axs[num%2,num%3].axis("equal")                
+                num+=1
+        plt.suptitle("CHORD "+str(self.nu_ctr_MHz)+" MHz instantaneous uv coverage ")
+        plt.tight_layout()
+        plt.savefig("inst_uv_colour_coded_by_ant_pert_status.png",dpi=250)
         print("computed ungridded instantaneous uv-coverage")
 
         # rotation-synthesized uv-coverage *******(N_bl,3,N_timesteps), accumulating xyz->uvw transformations at each timestep
@@ -204,13 +240,9 @@ class CHORD_image(object):
         surv_beam_widths=surv_wavelengths/D # incr.
         self.surv_channels=surv_channels_Hz
         self.z_channels=nu_HI_z0/surv_channels_MHz-1.
-        print("self.z_channels=",self.z_channels)
         self.comoving_distances_channels=np.asarray([comoving_distance(chan) for chan in self.z_channels]) # incr.
-        print("self.comoving_distances_channels=",self.comoving_distances_channels)
         self.ctr_chan_comov_dist=self.comoving_distances_channels[N_chan//2]
-        print("self.ctr_chan_comov_dist=",self.ctr_chan_comov_dist)
 
-        # box=np.zeros((N_chan,N_grid_pix,N_grid_pix)) # old
         box=np.zeros((N_grid_pix,N_grid_pix,N_chan))
         surv_beam_widths_desc=np.flip(surv_beam_widths) # traverse beam widths in descending order = handle first the slice with the narrowest uv bin extent
         for i,beam_width in enumerate(surv_beam_widths_desc):
@@ -220,6 +252,8 @@ class CHORD_image(object):
 
             # compute the dirty image
             chan_dirty_image,chan_uv_bin_edges,thetamax=self.calc_dirty_image(Npix=N_grid_pix, pbw_fidu_use=beam_width)
+            # print("self.comoving_distances_channels[-1]-self.comoving_distances_channels[0]=",self.comoving_distances_channels[-1]-self.comoving_distances_channels[0])
+            # print("thetamax*self.ctr_chan_comov_dist=",thetamax*self.ctr_chan_comov_dist)
             
             # interpolate to store in stack
             if i==0:
