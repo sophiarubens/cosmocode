@@ -34,3 +34,15 @@ print("built perturbed-beamed box in",t2-t1,"s")
 # np.save("r_grid_for_boxes_"+str(int(test_freq))+"_"+str(Npix)+".npy",pert.r_grid)
 np.save("xy_vec_for_boxes_"+str(int(test_freq))+"_"+str(Npix)+".npy",pert.xy_vec)
 np.save("z_vec_for_boxes_"+str(int(test_freq))+"_"+str(Npix)+".npy",pert.z_vec)
+
+# Nchan=len(fidu.surv_channels)
+# with open("fidu_per_ant_slices.txt", "w") as f:
+#     for i, slice2d in enumerate(fidu_box):
+#         np.savetxt(f, slice2d, fmt="%6.3e")
+#         if i < Nchan - 1:
+#             f.write("\n")
+# with open("pert_per_ant_slices.txt", "w") as f:
+#     for i, slice2d in enumerate(pert_box):
+#         np.savetxt(f, slice2d, fmt="%6.3e")
+#         if i < Nchan - 1:
+#             f.write("\n")

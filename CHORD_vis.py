@@ -198,17 +198,22 @@ class CHORD_image(object):
         N_chan=int(bw_MHz/delta_nu)
         self.nu_lo=self.nu_ctr_MHz-bw_MHz/2.
         self.nu_hi=self.nu_ctr_MHz+bw_MHz/2.
-        surv_channels_Hz=1e6*np.linspace(self.nu_lo,self.nu_hi,N_chan) # um
-        surv_wavelengths=c/surv_channels_Hz # ascending
-        surv_beam_widths=surv_wavelengths/D # ascending (need to traverse the beam widths in ascending order in order to use the 0th entry to set the excision cross-section)
+        surv_channels_MHz=np.linspace(self.nu_hi,self.nu_lo,N_chan) # decr.
+        surv_channels_Hz=1e6*surv_channels_MHz
+        surv_wavelengths=c/surv_channels_Hz # incr.
+        surv_beam_widths=surv_wavelengths/D # incr.
         self.surv_channels=surv_channels_Hz
-        self.z_channels=self.surv_channels/nu_HI_z0-1.
-        self.comoving_distances_channels=np.asarray([comoving_distance(chan) for chan in self.z_channels])
+        self.z_channels=nu_HI_z0/surv_channels_MHz-1.
+        print("self.z_channels=",self.z_channels)
+        self.comoving_distances_channels=np.asarray([comoving_distance(chan) for chan in self.z_channels]) # incr.
+        print("self.comoving_distances_channels=",self.comoving_distances_channels)
         self.ctr_chan_comov_dist=self.comoving_distances_channels[N_chan//2]
+        print("self.ctr_chan_comov_dist=",self.ctr_chan_comov_dist)
 
         # box=np.zeros((N_chan,N_grid_pix,N_grid_pix)) # old
         box=np.zeros((N_grid_pix,N_grid_pix,N_chan))
-        for i,beam_width in enumerate(surv_beam_widths):
+        surv_beam_widths_desc=np.flip(surv_beam_widths) # traverse beam widths in descending order = handle first the slice with the narrowest uv bin extent
+        for i,beam_width in enumerate(surv_beam_widths_desc):
             # rescale the uv-coverage to this channel's frequency
             self.uv_synth=self.uv_synth*self.lambda_obs/surv_wavelengths[i] # rescale according to observing frequency: multiply up by the prev lambda to cancel, then divide by the current/new lambda
             self.lambda_obs=surv_wavelengths[i] # update the observing frequency for next time
@@ -238,7 +243,7 @@ class CHORD_image(object):
         # generate a box of r-values (necessary for interpolation to survey modes in the manual beam mode of cosmo_stats as called by window_calcs)
         thetas=np.linspace(-self.theta_max_box,self.theta_max_box,N_grid_pix)
         xy_vec=self.ctr_chan_comov_dist*thetas # supply the thetas but multiply by the central channel's comoving distance (here, I'll need to make the coeval approximation)
-        z_vec=self.comoving_distances_channels # comoving distances from each freq channel... maybe eventually let cosmo_stats handle this? but also maybe not bc I call this before that? but also eventually I'll probably just refactor this to be a part of cosmo_stats?
+        z_vec=self.comoving_distances_channels-self.ctr_chan_comov_dist # comoving distances from each freq channel... maybe eventually let cosmo_stats handle this? but also maybe not bc I call this before that? but also eventually I'll probably just refactor this to be a part of cosmo_stats?
         self.xy_vec=xy_vec
         self.z_vec=z_vec
         # xx_grid,yy_grid,zz_grid=np.meshgrid(xy_vec,xy_vec,z_vec,indexing="ij")
