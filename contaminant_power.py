@@ -62,6 +62,7 @@ suffixes=["systematic-laden and fiducially beamed side-by-side","fractional diff
 powers=[["Power\n","Dimensionless power\n"],["",""]]
 ylabels=["P (K$^2$ Mpc$^3$)","Δ$^2$ (log(K$^2$/K$^2$)"]
 labels=["fiducial","systematic-laden"]
+ptail="_UNIF_ACR_ARR.npy"
 
 fig,axs=plt.subplots(2,2,figsize=(12,8))
 for i in range(2):
@@ -96,17 +97,17 @@ for i,epsilon_xy in enumerate(epsilons_xy):
         Pfidu_sph=nu_window.Ptruesph
         kfidu_sph=nu_window.ksph
 
-        np.save("Pcont_cyl_surv_"+str(i)+".npy",Pcont_cyl_surv)
-        np.save("Pthought_cyl_surv_"+str(i)+".npy",Pthought_cyl_surv)
-        np.save("Ptrue_cyl_"+str(i)+".npy",Ptrue_cyl_surv)
-        np.save("Pfidu_sph_"+str(i)+".npy",Pfidu_sph)
-        np.save("kfidu_sph_"+str(i)+".npy",kfidu_sph)
+        np.save("Pcont_cyl_surv_"+str(i)+ptail,Pcont_cyl_surv)
+        np.save("Pthought_cyl_surv_"+str(i)+ptail,Pthought_cyl_surv)
+        np.save("Ptrue_cyl_"+str(i)+ptail,Ptrue_cyl_surv)
+        np.save("Pfidu_sph_"+str(i)+ptail,Pfidu_sph)
+        np.save("kfidu_sph_"+str(i)+ptail,kfidu_sph)
     else:
-        Pcont_cyl_surv=np.load("Pcont_cyl_surv_"+str(i)+".npy")
-        Pthought_cyl_surv=np.load("Pthought_cyl_surv_"+str(i)+".npy")
-        Ptrue_cyl_surv=np.load("Ptrue_cyl_"+str(i)+".npy")
-        Pfidu_sph=np.load("Pfidu_sph_"+str(i)+".npy")
-        kfidu_sph=np.load("kfidu_sph_"+str(i)+".npy")
+        Pcont_cyl_surv=np.load("Pcont_cyl_surv_"+str(i)+ptail)
+        Pthought_cyl_surv=np.load("Pthought_cyl_surv_"+str(i)+ptail)
+        Ptrue_cyl_surv=np.load("Ptrue_cyl_"+str(i)+ptail)
+        Pfidu_sph=np.load("Pfidu_sph_"+str(i)+ptail)
+        kfidu_sph=np.load("kfidu_sph_"+str(i)+ptail)
 
     N_sph=128
     kmin_surv=nu_window.kmin_surv
@@ -135,18 +136,23 @@ for i,epsilon_xy in enumerate(epsilons_xy):
     for k,case in enumerate(fidu):
         if i==0:
             fid_label="fiducially beamed data"
+            label_for_dot="seeded fractional uncertainty in HPBW"
         else:
             fid_label=""
+            label_for_dot=""
         label_for_eps="frac. unc. in HPBW= "+str(np.round(epsxy,2))
         axs[0,k].loglog(k_sph,true[k],label=fid_label,c=oranges_here[i])
         axs[0,k].loglog(k_sph,thought[k],label=label_for_eps,c=blues_here[i])
 
-        axs[1,k].plot(k_sph,(true[k]-thought[k])/true[k],label=label_for_eps,c=blues_here[i])
+        axs[1,k].semilogx(k_sph,(true[k]-thought[k])/true[k],c=blues_here[i])
+        axs[1,k].axhline(epsilons_xy[i],c=blues_here[i],ls=":",label=label_for_dot)
 
         for m in range(2):
             axs[m,k].set_xlim(kmin_surv,kmax_surv/2) # /2 in kmax b/c of +/- in box
-    axs[0,1].legend()
-plt.suptitle("900 MHz CHORD-64 survey (high kperp truncated)\nAiry HPBW {:5.3} (x) and {:5.3} (y)".format(hpbw_x,hpbw_y))
+axs[0,1].legend()
+axs[1,1].legend()
+plt.suptitle("900 MHz CHORD-64 survey (high kperp and kpar truncated)\nAiry HPBW {:5.3} (x) and {:5.3} (y)".format(hpbw_x,hpbw_y))
 plt.tight_layout()
-plt.savefig("contaminant_power_test.png",dpi=200)
+# plt.savefig("contaminant_power_test_unif_acr_array.png",dpi=200)
+plt.savefig("contaminant_power_test_unif_acr_array_PEAKED_UNPHYS_FIDU_PWR_SPEC.png",dpi=200)
 plt.show()

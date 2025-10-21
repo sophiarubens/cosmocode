@@ -58,7 +58,7 @@ epsilons_xy=np.arange(0.0,0.35,0.05) # use a smaller vector for a faster test (o
 N_systematic_cases=len(epsilons_xy)
 blues_here = plt.cm.Blues( np.linspace(1,0.2,N_systematic_cases))
 oranges_here = plt.cm.Oranges( np.linspace(1,0.2,N_systematic_cases))
-redo_window_calc=True
+redo_window_calc=False
 suffixes=["systematic-laden and fiducially beamed side-by-side","fractional difference of systematic-laden and fiducially beamed","contaminant beamed, fractional"]
 powers=[["Power\n","Dimensionless power\n"],["",""]]
 ylabels=["P (K$^2$ Mpc$^3$)","Δ$^2$ (log(K$^2$/K$^2$)"]
@@ -70,6 +70,9 @@ fidu=np.load(phead+"fidu_box"+ptail)
 pert=np.load(phead+"pert_box"+ptail)
 xy_vec=np.load(phead+"xy_vec_for_boxes"+ptail)
 z_vec=np.load(phead+"z_vec_for_boxes"+ptail)
+
+print("2pi/(xy_vec[1]-xy_vec[0])= k_{perp,max}=",2*pi/(xy_vec[1]-xy_vec[0]))
+print("2pi/(z_vec[1]- z_vec[0])=  k_{perp,max}=",2*pi/(z_vec[1]-z_vec[0]))
 primary_beams=[fidu,pert]
 
 fig,axs=plt.subplots(2,2,figsize=(12,8))
@@ -80,24 +83,6 @@ for i in range(2):
         axs[i,j].set_title(powers[i][j]+suffixes[i])
 for i,epsilon_xy in enumerate(epsilons_xy):
     epsxy=epsilon_xy
-
-    # ###
-    # self,
-    #              bmin,bmax,                                             # extreme baselines of the array
-    #              ceil,                                                  # avoid kpars beyond the regime of linear theory
-    #              primary_beam_type,primary_beam_args,primary_beam_uncs, # primary beam considerations
-    #              pars_set_cosmo,pars_forecast,                          # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
-    #              n_sph_modes,dpar,                                      # conditioning the CAMB/etc. call
-    #              nu_ctr,delta_nu,                                       # for the survey of interest
-    #              evol_restriction_threshold=1./15.,                     # misc. numerical considerations
-    #              init_and_box_tol=0.05,CAMB_tol=0.05,                   # considerations for k-modes at different steps
-    #              ftol_deriv=1e-6,eps=1e-16,maxiter=5,                   # precision control for numerical derivatives
-    #              uncs=None,frac_unc=0.1,                                # for Fisher-type calcs
-    #              Nkpar_box=15,Nkperp_box=18,frac_tol_conv=0.1,          # considerations for cyl binned power spectra from boxes
-    #              pars_forecast_names=None,                              # for verbose output
-    #              manual_primary_beam_modes=None,                        # config space pts at which a pre–discretely sampled primary beam is known
-    #              no_monopole=True
-    # ###
 
     nu_window=window_calcs(bminCHORD,bmaxCHORD,
                             ceil,
@@ -177,5 +162,5 @@ axs[0,1].legend()
 axs[1,1].legend()
 plt.suptitle("900 MHz CHORD-64 survey (high kperp truncated)\nAiry HPBW {:5.3} (x) and {:5.3} (y)".format(hpbw_x,hpbw_y))
 plt.tight_layout()
-plt.savefig("contaminant_power_test.png",dpi=200)
+plt.savefig("contaminant_power_test_per_ant.png",dpi=200)
 plt.show()

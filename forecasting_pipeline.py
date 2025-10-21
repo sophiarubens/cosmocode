@@ -146,8 +146,6 @@ class window_calcs(object):
                 self.manual_primary_beam_modes=manual_primary_beam_modes
             try: # philosophy here is that two discretely sampled beam arrays (assumed to be sampled at the same array of config space points) need to be passed such that they can be unpacked into the fiducial and mis-modelled evaled primary beams
                 self.manual_primary_fid,self.manual_primary_mis=primary_beam_args # make the args serve a double purpose in this outer layer (have the attribute store arrays in this mode)
-                print("__init__ of window_calcs:")
-                print("np.max(self.manual_primary_fid),np.max(self.manual_primary_mis)=",np.max(self.manual_primary_fid),np.max(self.manual_primary_mis)) # OKAY HERE
             except: # primary beam samplings not unpackable the way they should be
                 raise NotEnoughInfoError
         else:
@@ -334,7 +332,6 @@ class window_calcs(object):
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph,
                            manual_primary_beam_modes=self.manual_primary_beam_modes, no_monopole=self.no_monopole)
-        
         tr.avg_realizations()
         th.avg_realizations()
 
@@ -672,6 +669,7 @@ class cosmo_stats(object):
                 if self.manual_primary_beam_modes is None:
                     raise NotEnoughInfoError
 
+                print("start... of manual primary beam extrapolation warning checks")
                 x_manual_primary,y_manual_primary,z_manual_primary=manual_primary_beam_modes
                 x_have_lo=x_manual_primary[0]
                 x_have_hi=x_manual_primary[-1]
@@ -695,21 +693,31 @@ class cosmo_stats(object):
                     extrapolation_warning("low z",   z_want_lo,  z_have_lo)
                 if (z_want_hi>z_have_hi):
                     extrapolation_warning("high z",   z_want_hi,  z_have_hi)
+                print("end..... of manual primary beam extrapolation warning checks")
                 evaled_primary=interpn(manual_primary_beam_modes,
                                        self.primary_beam,
                                        (self.xx_grid,self.yy_grid,self.zz_grid),
                                        method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
-            
+                with open("interpolated_evaled_primary.txt", "w") as f:
+                    for i, slice2d in enumerate(evaled_primary):
+                        np.savetxt(f, slice2d, fmt="%6.3e")
+                        if i < self.Nvoxz - 1:
+                            f.write("\n")
             else:
                 raise NotYetImplementedError
             self.Veff=np.sum(evaled_primary*self.d3r)           # rectangular sum method
-            evaled_primary[evaled_primary<nearly_zero]=maxfloat # protect against division-by-zero errors
-            self.evaled_primary=evaled_primary
+            evaled_primary_for_div=np.copy(evaled_primary)
+            evaled_primary_for_mul=np.copy(evaled_primary)
+            evaled_primary_for_div[evaled_primary_for_div<nearly_zero]=maxfloat # protect against division-by-zero errors
+            self.evaled_primary_for_div=evaled_primary_for_div
+            self.evaled_primary_for_mul=evaled_primary_for_mul
         else:                               # identity primary beam
             self.Veff=self.Lxy**2*self.Lz
-            self.evaled_primary=np.ones((self.Nvox,self.Nvox,self.Nvox))
+            self.evaled_primary_for_div=np.ones((self.Nvox,self.Nvox,self.Nvox))
+            self.evaled_primary_for_mul=np.copy(self.evaled_primary_for_div)
         if (self.T_pristine is not None):
             self.T_primary=self.T_pristine*self.evaled_primary
+        ############
         
         # strictness control for realization averaging
         self.frac_tol=frac_tol
@@ -768,7 +776,6 @@ class cosmo_stats(object):
             T_use=self.T_primary
         if (self.T_pristine is None):    # power spec has to come from a box
             self.generate_box() # populates/overwrites self.T_pristine and self.T_primary
-
         T_tilde=            fftshift(fftn((ifftshift(T_use)*self.d3r)))
         modsq_T_tilde=     (T_tilde*np.conjugate(T_tilde)).real
         modsq_T_tilde[:,:,self.Nvoxz//2]*=2 # fix pos/neg duplication issue at the origin
@@ -845,8 +852,7 @@ class cosmo_stats(object):
         if self.no_monopole:
             T-=np.mean(T) # subtract monopole moment to make things more akin to what powerbox does
         self.T_pristine=T
-        print("np.min(self.evaled_primary), np.nanmin(self.evaled_primary), np.max(self.evaled_primary), np.nanmax(self.evaled_primary)=",np.min(self.evaled_primary), np.nanmin(self.evaled_primary), np.max(self.evaled_primary), np.nanmax(self.evaled_primary))
-        self.T_primary=T*self.evaled_primary
+        self.T_primary=T*self.evaled_primary_for_mul
 
     def avg_realizations(self):
         """
@@ -858,6 +864,7 @@ class cosmo_stats(object):
         assert(self.P_fid is not None), "cannot average over numerically windowed realizations without a fiducial power spec"
         self.not_converged=True
         i=0
+
         for i in range(self.realization_ceiling):
             self.generate_box()
             self.generate_P(T_use="primary")
