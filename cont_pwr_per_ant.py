@@ -112,11 +112,11 @@ for i,epsilon_xy in enumerate(epsilons_xy):
         np.save("Pfidu_sph_"+str(i)+"_per_ant.npy",Pfidu_sph)
         np.save("kfidu_sph_"+str(i)+"_per_ant.npy",kfidu_sph)
     else:
-        Pcont_cyl_surv=np.load("Pcont_cyl_surv_"+str(i)+"_per_ant.npy")
-        Pthought_cyl_surv=np.load("Pthought_cyl_surv_"+str(i)+"_per_ant.npy")
-        Ptrue_cyl_surv=np.load("Ptrue_cyl_"+str(i)+"_per_ant.npy")
-        Pfidu_sph=np.load("Pfidu_sph_"+str(i)+"_per_ant.npy")
-        kfidu_sph=np.load("kfidu_sph_"+str(i)+"_per_ant.npy")
+        Pcont_cyl_surv=np.load(phead+"Pcont_cyl_surv_"+str(i)+"_per_ant.npy")
+        Pthought_cyl_surv=np.load(phead+"Pthought_cyl_surv_"+str(i)+"_per_ant.npy")
+        Ptrue_cyl_surv=np.load(phead+"Ptrue_cyl_"+str(i)+"_per_ant.npy")
+        Pfidu_sph=np.load(phead+"Pfidu_sph_"+str(i)+"_per_ant.npy")
+        kfidu_sph=np.load(phead+"kfidu_sph_"+str(i)+"_per_ant.npy")
 
     N_sph=128
     kmin_surv=nu_window.kmin_surv
@@ -164,4 +164,51 @@ axs[1,1].legend()
 plt.suptitle("900 MHz CHORD-64 survey (high kperp truncated)\nAiry HPBW {:5.3} (x) and {:5.3} (y)\n two perturbation types".format(hpbw_x,hpbw_y))
 plt.tight_layout()
 plt.savefig("contaminant_power_test_per_ant.png",dpi=200)
+# plt.show()
+
+
+
+
+
+
+
+xy_vec_box=np.load(phead+"xy_vec_for_boxes"+ptail)
+z_vec_box=np.load(phead+"z_vec_for_boxes"+ptail)
+
+kpar_min_box= twopi/(z_vec_box[-1]-  z_vec_box[0])
+kpar_max_box= twopi/(z_vec_box[-1]-  z_vec_box[-2])
+kpar_vec_box=np.linspace(kpar_min_box,kpar_max_box,len(xy_vec_box))
+kperp_min_box=twopi/(xy_vec_box[-1]-xy_vec_box[0])
+kperp_max_box=twopi/(xy_vec_box[-1]-xy_vec_box[-2])
+kperp_vec_box=np.linspace(kperp_min_box,kperp_max_box,len(z_vec_box))
+
+kx_grid_box,ky_grid_box,kpar_grid_box=np.meshgrid(kperp_vec_box,kperp_vec_box,kpar_vec_box)
+kperp_square=np.sqrt(kx_grid_box**2+ky_grid_box**2)
+kperp_grid_box=np.sqrt(kx_grid_box**2+ky_grid_box**2)
+k_grid_box=np.sqrt(kperp_grid_box**2+kpar_grid_box**2)
+
+all_histograms=np.zeros((len(kpar_vec_box),len(doubled)))
+histogram_bins=np.append(doubled,2*doubled[-1]-doubled[-2]) # need to add another bin to prevent vector length issues
+plt.figure()
+for i,kpar_value in enumerate(kpar_vec_box):
+    print("kpar_vec_box.shape=",kpar_vec_box.shape)
+    # print("kpar_vec_box[i]=",kpar_vec_box[i])
+    # print("kpar_value=",kpar) # for some reason, enumerate isn't doing what I need it to be doing 
+    kmags_slice=np.sqrt(kpar_vec_box[i]**2+kperp_square**2) # SHAPE ISSUE: (132,256) (132,)
+    histogram_slice,_=np.histogram(kmags_slice,histogram_bins)
+    all_histograms[i]=histogram_slice
+
+    # plt.plot(doubled[:-1],np.sum(all_histograms[:len(kpar_vec_box)-1,:],axis=-1),c="C"+str(i))
+    plt.scatter(doubled[:-1],all_histograms[i,:],c="C"+str(i))
+    plt.scatter(doubled[:-1],np.sum(all_histograms[:len(kpar_vec_box)-1,:],axis=-1),c="C"+str(i)) # makes the offset delta functions clear, but not so easy to interpret
+    # plt.bar(doubled[:-1],np.sum(all_histograms[:len(kpar_vec_box)-1,:],axis=-1),color="C"+str(i),width=0.1) # doesn't do a good job of capturing the smearing-out
+    # print("histogram_slice.shape=",histogram_slice.shape)
+    # print("len(histogram_slice)=",len(histogram_slice))
+
+np.savetxt("all_histograms.txt",all_histograms)
+plt.xlabel("k-bin")
+plt.ylabel("number of voxels")
+plt.title("bin stats of successive kpar slices")
+plt.tight_layout()
+plt.savefig("voxel_binning_histogram.png")
 plt.show()

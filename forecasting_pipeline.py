@@ -713,6 +713,7 @@ class cosmo_stats(object):
             self.Veff=self.Lxy**2*self.Lz
             self.evaled_primary_for_div=np.ones((self.Nvox,self.Nvox,self.Nvox))
             self.evaled_primary_for_mul=np.copy(self.evaled_primary_for_div)
+        # print("cosmo_stats.__init__: self.Veff=",self.Veff)
         if (self.T_pristine is not None):
             self.T_primary=self.T_pristine*self.evaled_primary
         ############
@@ -777,6 +778,7 @@ class cosmo_stats(object):
         T_tilde=            fftshift(fftn((ifftshift(T_use)*self.d3r)))
         modsq_T_tilde=     (T_tilde*np.conjugate(T_tilde)).real
         modsq_T_tilde[:,:,self.Nvoxz//2]*=2 # fix pos/neg duplication issue at the origin
+        # modsq_T_tilde/=self.modsq_fft_evaled_primary # NEW EXPERIMENT OCT 23RD
         if (self.Nk1==0):   # bin to sph
             modsq_T_tilde_1d= np.reshape(modsq_T_tilde,    (self.Nvox**2*self.Nvoxz,))
 
@@ -812,14 +814,17 @@ class cosmo_stats(object):
         N_modsq_T_tilde_truncated[N_modsq_T_tilde_truncated==0]=maxint # avoid division-by-zero errors during the division the estimator demands
 
         avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/N_modsq_T_tilde_truncated # actual estimator math
-        P=np.array(avg_modsq_T_tilde/self.Veff)
+        denom=self.Veff # what was in my code as of 08h 23/10/2025... maybe honestly okay for this "don't divide out the beam" philosophy?!
+        # Vphys=self.Lxy**2*self.Lz
+        # denom=Vphys # makes the reconstruction-too-low-the-narrower-your-beam problem worse
+        P=np.array(avg_modsq_T_tilde/denom)
         P.reshape(final_shape)
         if send_to_P_fid: # if generate_P was called speficially to have a spec from which all future box realizations will be generated
             self.P_fid=P
             self.P_fid_interp_1d_to_3d() # generate interpolated values of the newly established 1D P_fid over the k-magnitudes of the box
         else:             # the "normal" case where you're just accumulating a realization
             self.P_realizations.append([P])
-        self.unbinned_P=modsq_T_tilde/self.Veff # box-shaped, but calculated according to the power spectrum estimator equation
+        self.unbinned_P=modsq_T_tilde/denom # box-shaped, but calculated according to the power spectrum estimator equation
         
     def generate_box(self):
         """

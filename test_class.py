@@ -1,14 +1,15 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from power_class import *
-from bias_helper_fcns import *
+# from power_class import *
+# from bias_helper_fcns import *
+from forecasting_pipeline import *
 import time
 
 Lsurvey=126 # 63
 Nvox=54 # 10 
 Nk = 11 # 8
 Nk1=13
-mode="lin"
+# mode="lin"
 Nrealiz=100
 
 t0=time.time()
@@ -19,16 +20,15 @@ sigma12=10  # medium in config space
 sigma22=0.5 # narrow in config space
 beamfwhm_x=3.5 # kind of hacky but enough to stop it from entering the Delta-like case every single time (for the numerics as of 2025.07.07 09:47, the voxel scale comparison value is ~2.42)
 beamfwhm_y=np.copy(beamfwhm_x)
-sigLoS0=np.sqrt(2.*sigma02)
-sigLoS1=np.sqrt(2.*sigma12)
-sigLoS2=np.sqrt(2.*sigma22)
-r00=np.sqrt(np.log(2))*sigLoS0
-r10=np.sqrt(np.log(2))*sigLoS1
-r20=np.sqrt(np.log(2))*sigLoS2
-print("sigLoS0,sigLoS1,sigLoS2,r00,r10,r20=",sigLoS0,sigLoS1,sigLoS2,r00,r10,r20)
-bundled0=(sigLoS0,beamfwhm_x,beamfwhm_y,r00,)
-bundled1=(sigLoS1,beamfwhm_x,beamfwhm_y,r10,)
-bundled2=(sigLoS2,beamfwhm_x,beamfwhm_y,r20,)
+
+# need to add r0 when calling cosmo_stats directly (even if window_calcs handles it directly)
+# r0=comoving_distance(self.z_ctr)
+r0=2000
+bundled0=(beamfwhm_x,beamfwhm_y,r0)
+med=0.1
+bundled1=(med*beamfwhm_x,med*beamfwhm_y,r0)
+nar=0.01
+bundled2=(nar*beamfwhm_x,nar*beamfwhm_y,r0)
 
 # idx=-0.9 # DECAYING   power law
 # idx=2.3  # INCREASING power law
@@ -45,28 +45,41 @@ labelsf=["","","","fiducial"]
 ################################################################################################################################################################################################################
 spherical_test_suite=True
 if spherical_test_suite:
+
+    # ###
+    #     def __init__(self,
+    #              Lxy,Lz=None,                                                            # one scaling is nonnegotiable for box->spec and spec->box calcs; the other would be useful for rectangular prism box considerations (sky plane slice is square, but LoS extent can differ)
+    #              T_pristine=None,T_primary=None,P_fid=None,Nvox=None,Nvoxz=None,         # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
+    #              primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian",  # primary beam considerations
+    #              Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
+    #              frac_tol=0.1,                                                           # max number of realizations
+    #              k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
+    #              P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
+    #              verbose=False,                                                          # status updates for averaging over realizations
+    #              k_fid=None,kind="cubic",avoid_extrapolation=False,                      # helper vars for converting a 1d fid power spec to a box sampling
+    #              no_monopole=True,                                                       # consideration when generating boxes
+    #              manual_primary_beam_modes=None,                                         # when using a discretely sampled primary beam not sampled internally using a callable, it is necessary to provide knowledge of the modes at which it was sampled
+    #              ):
+    # ###
+
     unmodulated=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             Nk0=Nk,
-                            verbose=True,
                             k0bins_interp=test_interp_bins,k_fid=ktest)
     modulated_0=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
-                            primary_beam=custom_response,primary_beam_args=bundled0,
+                            primary_beam=Gaussian_primary,primary_beam_args=bundled0,
                             Nk0=Nk,
-                            verbose=True,
                             k0bins_interp=test_interp_bins,k_fid=ktest)
     modulated_1=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
-                            primary_beam=custom_response,primary_beam_args=bundled1,
+                            primary_beam=Gaussian_primary,primary_beam_args=bundled1,
                             Nk0=Nk,
-                            verbose=True,
                             k0bins_interp=test_interp_bins,k_fid=ktest)
     modulated_2=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
-                            primary_beam=custom_response,primary_beam_args=bundled2,
+                            primary_beam=Gaussian_primary,primary_beam_args=bundled2,
                             Nk0=Nk,
-                            verbose=True,
                             k0bins_interp=test_interp_bins,k_fid=ktest)
     cases=      [ unmodulated,  modulated_0,  modulated_1,  modulated_2 ]
     print("__init__ test complete")
@@ -168,28 +181,24 @@ if cylindrical_test_suite:
     unmodulated=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
                             Nk0=Nk,Nk1=Nk1,
-                            verbose=True,
                             k0bins_interp=test_interp_bins,
                             k1bins_interp=test_interp_bins_1,k_fid=ktest)
     modulated_0=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
-                            primary_beam=custom_response,primary_beam_args=bundled0,
+                            primary_beam=Gaussian_primary,primary_beam_args=bundled0,
                             Nk0=Nk,Nk1=Nk1,
-                            verbose=True,
                             k0bins_interp=test_interp_bins,
                             k1bins_interp=test_interp_bins_1,k_fid=ktest)
     modulated_1=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
-                            primary_beam=custom_response,primary_beam_args=bundled1,
+                            primary_beam=Gaussian_primary,primary_beam_args=bundled1,
                             Nk0=Nk,Nk1=Nk1,
-                            verbose=True,
                             k0bins_interp=test_interp_bins,
                             k1bins_interp=test_interp_bins_1,k_fid=ktest)
     modulated_2=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,
-                            primary_beam=custom_response,primary_beam_args=bundled2,
+                            primary_beam=Gaussian_primary,primary_beam_args=bundled2,
                             Nk0=Nk,Nk1=Nk1,
-                            verbose=True,
                             k0bins_interp=test_interp_bins,
                             k1bins_interp=test_interp_bins_1,k_fid=ktest)
     

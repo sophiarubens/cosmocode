@@ -1,8 +1,9 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from cosmo_distances import *
-from power_class import *
-from bias_class import *
+# from power_class import *
+# from bias_class import *
+from forecasting_pipeline import *
 
 ############################## cosmo params, constants, and conversion factors ########################################################################################################################
 Omegam_Planck18=0.3158
@@ -58,11 +59,9 @@ if limit==1:
     print("limit 1: identity response/ delta window")
     small=1.96 # self.Deltabox= 1.952263190540233 for this case
     # small=0.
-    sig_LoS=    small
     beam_fwhm0= small
     beam_fwhm1= small+tiny # perturb things slightly to avoid getting funnelled into the analytical case every time (I make sure both are tested below)
 
-    epsLoS_test=   0.1
     epsbeam0_test= 0.1
     epsbeam1_test= 0.1
 
@@ -70,12 +69,10 @@ if limit==1:
     savename="limit_1_identity_window.png"
 elif limit==2:
     print("limit 2: complete confidence in beam parametrization")
-    sig_LoS=siglos900 
     beam_fwhm0=hpbw 
     beam_fwhm1=hpbw+tiny
 
     small=1e-8
-    epsLoS_test=   small
     epsbeam0_test= small
     epsbeam1_test= small
 
@@ -83,11 +80,9 @@ elif limit==2:
     savename="limit_2_perfect_beam_confidence.png"
 elif limit==3:
     print("limit 3: recover analytical result when using numerical scheme w/ cyl sym call")
-    sig_LoS=siglos900 # dialing in the bound set by condition following from linearization...
     beam_fwhm0=hpbw
     beam_fwhm1=hpbw+tiny
 
-    epsLoS_test=   0.1
     epsbeam0_test= 0.1
     epsbeam1_test= 0.1
 
@@ -96,15 +91,26 @@ elif limit==3:
 else:
     assert(1==0), "limit not yet implemented"
 nu_bundled_gaussian_primary_args=[beam_fwhm0,beam_fwhm1]
-nu_bundled_gaussian_primary_uncs=[epsLoS_test,epsbeam0_test,epsbeam1_test]
+nu_bundled_gaussian_primary_uncs=[epsbeam0_test,epsbeam1_test]
 an_bundled_gaussian_primary_args=[beam_fwhm0,beam_fwhm0]
-an_bundled_gaussian_primary_uncs=[epsLoS_test,epsbeam0_test,epsbeam0_test]
+an_bundled_gaussian_primary_uncs=[epsbeam0_test,epsbeam0_test]
 
 ############################## actual pipeline test ########################################################################################################################
-print("analytical")
+
+nu_window=window_calcs(bminCHORD,bmaxCHORD,
+                       ceil,
+                       "AiryGaussian",nu_bundled_gaussian_primary_args,nu_bundled_gaussian_primary_uncs,
+                       pars_Planck18,pars_Planck18,
+                       n_sph_nu,dpar,
+                       nu_ctr,channel_width,
+                       pars_forecast_names=parnames)
+nu_window.print_survey_characteristics()
+nu_window.bias()
+nu_window.print_results()
+
 an_window=window_calcs(bminCHORD,bmaxCHORD,
                        ceil,
-                       "Gaussian",an_bundled_gaussian_primary_args,an_bundled_gaussian_primary_uncs,
+                       "AiryGaussian",an_bundled_gaussian_primary_args,an_bundled_gaussian_primary_uncs,
                        pars_Planck18,pars_Planck18,
                        n_sph_an,dpar,
                        nu_ctr,channel_width,
@@ -114,7 +120,7 @@ an_window.bias()
 an_window.print_results()
 an_Pcont=an_window.Pcont_cyl_surv
 an_Ptrue=an_window.Pcyl
-an_Wcont=an_window.Wcont
+# an_Wcont=an_window.Wcont
 np.save("an_Pcont.npy",an_Pcont)
 
 kpar_vec=an_window.kpar_surv
@@ -143,7 +149,8 @@ fig,axs=plt.subplots(4,3,figsize=(20,10))
 # row 0: analytical (columns: Ptrue-cyl, Wcont-or-simpler, Pcont-or-simpler)
 im=axs[0,0].pcolor(kpar_grid,kperp_grid,an_Ptrue)
 plt.colorbar(im,ax=axs[0,0])
-im=axs[0,1].pcolor(kpar_grid,kperp_grid,an_Wcont)
+# im=axs[0,1].pcolor(kpar_grid,kperp_grid,an_Wcont)
+axs[0,1].text(0,0, "DEPRECATED")
 plt.colorbar(im,ax=axs[0,1])
 im=axs[0,2].pcolor(kpar_grid,kperp_grid,an_Pcont)
 plt.colorbar(im,ax=axs[0,2])
