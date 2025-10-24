@@ -118,7 +118,7 @@ for i,epsilon_xy in enumerate(epsilons_xy):
         Pfidu_sph=np.load(phead+"Pfidu_sph_"+str(i)+"_per_ant.npy")
         kfidu_sph=np.load(phead+"kfidu_sph_"+str(i)+"_per_ant.npy")
 
-    N_sph=128
+    N_sph=256
     kmin_surv=nu_window.kmin_surv
     kmax_surv=nu_window.kmax_surv
     k_sph=np.linspace(kmin_surv,kmax_surv,N_sph)
@@ -189,26 +189,18 @@ k_grid_box=np.sqrt(kperp_grid_box**2+kpar_grid_box**2)
 
 all_histograms=np.zeros((len(kpar_vec_box),len(doubled)))
 histogram_bins=np.append(doubled,2*doubled[-1]-doubled[-2]) # need to add another bin to prevent vector length issues
-plt.figure()
+plt.figure(figsize=(12,5))
 for i,kpar_value in enumerate(kpar_vec_box):
     print("kpar_vec_box.shape=",kpar_vec_box.shape)
-    # print("kpar_vec_box[i]=",kpar_vec_box[i])
-    # print("kpar_value=",kpar) # for some reason, enumerate isn't doing what I need it to be doing 
     kmags_slice=np.sqrt(kpar_vec_box[i]**2+kperp_square**2) # SHAPE ISSUE: (132,256) (132,)
     histogram_slice,_=np.histogram(kmags_slice,histogram_bins)
     all_histograms[i]=histogram_slice
 
-    # plt.plot(doubled[:-1],np.sum(all_histograms[:len(kpar_vec_box)-1,:],axis=-1),c="C"+str(i))
-    plt.scatter(doubled[:-1],all_histograms[i,:],c="C"+str(i))
-    plt.scatter(doubled[:-1],np.sum(all_histograms[:len(kpar_vec_box)-1,:],axis=-1),c="C"+str(i)) # makes the offset delta functions clear, but not so easy to interpret
-    # plt.bar(doubled[:-1],np.sum(all_histograms[:len(kpar_vec_box)-1,:],axis=-1),color="C"+str(i),width=0.1) # doesn't do a good job of capturing the smearing-out
-    # print("histogram_slice.shape=",histogram_slice.shape)
-    # print("len(histogram_slice)=",len(histogram_slice))
-
+plt.stackplot(doubled,all_histograms)
 np.savetxt("all_histograms.txt",all_histograms)
-plt.xlabel("k-bin")
+plt.xlabel("k (1/Mpc)")
 plt.ylabel("number of voxels")
 plt.title("bin stats of successive kpar slices")
 plt.tight_layout()
-plt.savefig("voxel_binning_histogram.png")
+plt.savefig("voxel_binning_histogram_"+str(N_sph)+".png")
 plt.show()
