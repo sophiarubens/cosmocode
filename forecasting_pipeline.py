@@ -198,7 +198,8 @@ class window_calcs(object):
         self.Nkperp_surv=len(self.kperp_surv)
 
         # self.kmin_surv=np.min((self.kpar_surv[0 ],self.kperp_surv[0 ])) # no extrap issues but slow (mult. factors of 1.1 and 1.2 also incur this issue, to their respective extents)
-        self.kmin_surv=1.25*np.min((self.kpar_surv[ 0],self.kperp_surv[ 0])) # slow and slight extrap issues
+        # self.kmin_surv=1.25*np.min((self.kpar_surv[ 0],self.kperp_surv[ 0])) # slight extrap issues and not so slow
+        self.kmin_surv=np.min((self.kpar_surv[ 0],self.kperp_surv[ 0]))
         self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2)
         self.Lsurvbox= twopi/self.kmin_surv
         self.Nvoxbox=  int(self.Lsurvbox*self.kmax_surv/pi)
@@ -433,10 +434,8 @@ class window_calcs(object):
         """
         self.build_cyl_partials()
         print("built partials")
-
         self.calc_Pcont_asym()
         print("computed Pcont")
-
         V=0.*self.cyl_partials
         for i in range(self.N_pars_forecast):
             V[i,:,:]=self.cyl_partials[i,:,:]/self.uncs # elementwise division for an nkpar x nkperp slice
@@ -529,7 +528,6 @@ class cosmo_stats(object):
         else:            # the kind of rectangular prism box I care about for dirty image stacking
             self.Lz=Lz
             self.Lxy=Lxy
-        # self.Lsurvey=Lsurvey
         self.P_fid=P_fid
         self.T_primary=T_primary
         self.T_pristine=T_pristine
@@ -704,6 +702,32 @@ class cosmo_stats(object):
             else:
                 raise NotYetImplementedError
             self.Veff=np.sum(evaled_primary*self.d3r)           # rectangular sum method
+
+            # placeholder to avoid the shit I get with the real math
+            self.beamtildesq=np.ones_like(evaled_primary)
+
+            # what it seems like the math should be but tends to give me shit
+            with open("evaled_primary.txt", "w") as f:
+                for i, slice2d in enumerate(evaled_primary):
+                    np.savetxt(f, slice2d, fmt="%6.3e")
+                    if i < Nvox - 1:
+                        f.write("\n")
+            fft_evaled_primary=fftshift(fftn(ifftshift(evaled_primary)*self.d3r))
+            with open("fft_evaled_primary.txt", "w") as f:
+                for i, slice2d in enumerate(fft_evaled_primary):
+                    np.savetxt(f, slice2d, fmt="%6.3e")
+                    if i < Nvox - 1:
+                        f.write("\n")
+            beamtildesq_values=(fft_evaled_primary*np.conj(fft_evaled_primary)).real
+            beamtildesq=maxfloat*np.ones((self.Nvox,self.Nvox,self.Nvoxz))
+            use=np.nonzero(beamtildesq_values!=0.)
+            beamtildesq[use]=beamtildesq_values[use]
+            with open("beam_tilde_sq.txt", "w") as f:
+                for i, slice2d in enumerate(self.beamtildesq):
+                    np.savetxt(f, slice2d, fmt="%6.3e")
+                    if i < Nvox - 1:
+                        f.write("\n")
+
             evaled_primary_for_div=np.copy(evaled_primary)
             evaled_primary_for_mul=np.copy(evaled_primary)
             evaled_primary_for_div[evaled_primary_for_div<nearly_zero]=maxfloat # protect against division-by-zero errors
@@ -711,8 +735,9 @@ class cosmo_stats(object):
             self.evaled_primary_for_mul=evaled_primary_for_mul
         else:                               # identity primary beam
             self.Veff=self.Lxy**2*self.Lz
-            self.evaled_primary_for_div=np.ones((self.Nvox,self.Nvox,self.Nvox))
+            self.evaled_primary_for_div=np.ones((self.Nvox,self.Nvox,self.Nvoxz))
             self.evaled_primary_for_mul=np.copy(self.evaled_primary_for_div)
+            self.beamtildesq=np.ones((self.Nvox,self.Nvox,self.Nvoxz))
         if (self.T_pristine is not None):
             self.T_primary=self.T_pristine*self.evaled_primary
         ############
@@ -777,6 +802,7 @@ class cosmo_stats(object):
         T_tilde=            fftshift(fftn((ifftshift(T_use)*self.d3r)))
         modsq_T_tilde=     (T_tilde*np.conjugate(T_tilde)).real
         modsq_T_tilde[:,:,self.Nvoxz//2]*=2 # fix pos/neg duplication issue at the origin
+        modsq_T_tilde/=self.beamtildesq
         if (self.Nk1==0):   # bin to sph
             modsq_T_tilde_1d= np.reshape(modsq_T_tilde,    (self.Nvox**2*self.Nvoxz,))
 
@@ -811,16 +837,15 @@ class cosmo_stats(object):
 
         N_modsq_T_tilde_truncated[N_modsq_T_tilde_truncated==0]=maxint # avoid division-by-zero errors during the division the estimator demands
 
-        avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/N_modsq_T_tilde_truncated # actual estimator math
-        denom=self.Veff # what was in my code as of 08h 23/10/2025... maybe honestly okay for this "don't divide out the beam" philosophy?!
-        P=np.array(avg_modsq_T_tilde/denom)
+        avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/(N_modsq_T_tilde_truncated) # actual estimator math
+        P=np.array(avg_modsq_T_tilde/self.Veff)
         P.reshape(final_shape)
         if send_to_P_fid: # if generate_P was called speficially to have a spec from which all future box realizations will be generated
             self.P_fid=P
             self.P_fid_interp_1d_to_3d() # generate interpolated values of the newly established 1D P_fid over the k-magnitudes of the box
         else:             # the "normal" case where you're just accumulating a realization
             self.P_realizations.append([P])
-        self.unbinned_P=modsq_T_tilde/denom # box-shaped, but calculated according to the power spectrum estimator equation
+        self.unbinned_P=modsq_T_tilde/self.Veff # box-shaped, but calculated according to the power spectrum estimator equation
         
     def generate_box(self):
         """

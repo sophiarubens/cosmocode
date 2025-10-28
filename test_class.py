@@ -88,24 +88,26 @@ if spherical_test_suite:
     modulated_0.generate_box()
     modulated_1.generate_box()
     modulated_2.generate_box()
-    for i,case in enumerate(cases):
-        fig,axs=plt.subplots(2,3,figsize=(8,4))
-        axs[0,0].imshow(case.T_pristine[:,:,3])
-        axs[0,0].set_title(case_names[i]+".T_pristine[:,:,3]")
-        axs[0,1].imshow(case.T_pristine[:,37,:])
-        axs[0,1].set_title(case_names[i]+".T_pristine[:,37,:]")
-        axs[0,2].imshow(case.T_pristine[18,:,:])
-        axs[0,2].set_title(case_names[i]+".T_pristine[18,:,:]")
-        axs[1,0].imshow(case.T_primary[:,:,3])
-        axs[1,0].set_title(case_names[i]+".T_primary[:,:,3]")
-        axs[1,1].imshow(case.T_primary[:,37,:])
-        axs[1,1].set_title(case_names[i]+".T_primary[:,37,:]")
-        axs[1,2].imshow(case.T_primary[18,:,:])
-        axs[1,2].set_title(case_names[i]+".T_primary[18,:,:]")
-        plt.suptitle("box slices")
-        plt.tight_layout()
-        plt.savefig(case_names[i]+"_"+str(idx)+"_box_slices.png")
-        plt.show()
+    plot_boxes=False
+    if plot_boxes:
+        for i,case in enumerate(cases):
+            fig,axs=plt.subplots(2,3,figsize=(8,4))
+            axs[0,0].imshow(case.T_pristine[:,:,3])
+            axs[0,0].set_title(case_names[i]+".T_pristine[:,:,3]")
+            axs[0,1].imshow(case.T_pristine[:,37,:])
+            axs[0,1].set_title(case_names[i]+".T_pristine[:,37,:]")
+            axs[0,2].imshow(case.T_pristine[18,:,:])
+            axs[0,2].set_title(case_names[i]+".T_pristine[18,:,:]")
+            axs[1,0].imshow(case.T_primary[:,:,3])
+            axs[1,0].set_title(case_names[i]+".T_primary[:,:,3]")
+            axs[1,1].imshow(case.T_primary[:,37,:])
+            axs[1,1].set_title(case_names[i]+".T_primary[:,37,:]")
+            axs[1,2].imshow(case.T_primary[18,:,:])
+            axs[1,2].set_title(case_names[i]+".T_primary[18,:,:]")
+            plt.suptitle("box slices")
+            plt.tight_layout()
+            plt.savefig(case_names[i]+"_"+str(idx)+"_box_slices.png")
+            plt.show()
     print("generate_box() test complete")
 
     unmodulated.generate_P()
@@ -153,7 +155,7 @@ if spherical_test_suite:
     plt.savefig("avg_realizations_"+str(idx)+"_class.png")
     plt.show()
     print("avg_realizations() test complete")
-
+    assert(1==0), "checking only up to reconstruction for now"
     unmodulated.interpolate_P()
     modulated_0.interpolate_P()
     modulated_1.interpolate_P()
@@ -176,7 +178,7 @@ if spherical_test_suite:
     print("interpolate_P() test complete")
 
 ################################################################################################################################################################################################################
-cylindrical_test_suite=True
+cylindrical_test_suite=False
 if cylindrical_test_suite:
     unmodulated=cosmo_stats(Lsurvey,
                             P_fid=Ptest,Nvox=Nvox,

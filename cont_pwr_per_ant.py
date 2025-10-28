@@ -40,11 +40,13 @@ N_NS_CHORD=24
 b_EW_CHORD=6.3 # m
 N_EW_CHORD=22
 bminCHORD=6.3
-bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2) # pathfinder (as per the CHORD-all telecon on May 26th, but without holes)
-# ceil=300 # necessary compromise when asking for 0.04 convergence
+# bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2) # pathfinder (as per the CHORD-all telecon on May 26th, but without holes)
+bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2) # the boxes I built are for full CHORD
+# ceil=300 # necessary compromise when asking for 0.04 convergence 900 MHz
 # ceil=275 # fine for 0.1 Poisson noise level
 # ceil=230 # 485 s for the test to run (in the form it was in around 09:00 on Thursday.)
-ceil=12
+# ceil=12 # fine for the 0.1 Poisson noise level 363 MHz
+ceil=0
 # frac_tol_conv=0.075
 frac_tol_conv=0.1
 
@@ -53,27 +55,31 @@ n_sph_nu=250
 hpbw_x= 6*  pi/180. # rad; lambda/D estimate (actually physically realistic)
 hpbw_y= 4.5*pi/180.
 
-epsilons_xy=np.arange(0.0,0.35,0.05) # use a smaller vector for a faster test (or just toggle into read-only mode)
-# epsilons_xy=np.arange(0.35,0.6,0.05)
+epsilons_xy=np.arange(0.0,0.3,0.05) # use a smaller vector for a faster test (or just toggle into read-only mode)
+# epsilons_xy=np.arange(0.3,0.6,0.05)
 N_systematic_cases=len(epsilons_xy)
 blues_here = plt.cm.Blues( np.linspace(1,0.2,N_systematic_cases))
 oranges_here = plt.cm.Oranges( np.linspace(1,0.2,N_systematic_cases))
-redo_window_calc=False
+redo_window_calc=True
 suffixes=["systematic-laden and fiducially beamed side-by-side","fractional difference of systematic-laden and fiducially beamed","contaminant beamed, fractional"]
 powers=[["Power\n","Dimensionless power\n"],["",""]]
 ylabels=["P (K$^2$ Mpc$^3$)","Δ$^2$ (log(K$^2$/K$^2$)"]
 labels=["fiducial","systematic-laden"]
 
 phead="/Users/sophiarubens/Downloads/research/code/per_antenna/"
-ptail="_363_256.npy"
-fidu=np.load(phead+"fidu_box"+ptail)
-pert=np.load(phead+"pert_box"+ptail)
-xy_vec=np.load(phead+"xy_vec_for_boxes"+ptail)
-z_vec=np.load(phead+"z_vec_for_boxes"+ptail)
+pmid="_363_256"
+ptail="_4_528"
+fidu=np.load(phead+"fidu_box"+pmid+".npy")
+# pert_box_363_256_4_528_0.0
+pert_all=np.zeros((len(epsilons_xy),fidu.shape[0],fidu.shape[1],fidu.shape[2]))
+for i,eps in enumerate(epsilons_xy):
+    pert_all[i]=np.load(phead+"pert_box"+pmid+ptail+"_"+str(round(eps,2))+".npy")
+xy_vec=np.load(phead+"xy_vec_for_boxes"+pmid+".npy")
+z_vec=np.load(phead+"z_vec_for_boxes"+pmid+".npy")
 
 print("2pi/(xy_vec[1]-xy_vec[0])= k_{perp,max}=",2*pi/(xy_vec[1]-xy_vec[0]))
 print("2pi/(z_vec[1]- z_vec[0])=  k_{perp,max}=",2*pi/(z_vec[1]-z_vec[0]))
-primary_beams=[fidu,pert]
+# primary_beams=[fidu,pert]
 
 fig,axs=plt.subplots(2,2,figsize=(12,8))
 for i in range(2):
@@ -83,6 +89,7 @@ for i in range(2):
         axs[i,j].set_title(powers[i][j]+suffixes[i])
 for i,epsilon_xy in enumerate(epsilons_xy):
     epsxy=epsilon_xy
+    primary_beams=[fidu,np.array(pert_all[i])]
 
     nu_window=window_calcs(bminCHORD,bmaxCHORD,
                             ceil,
