@@ -105,7 +105,8 @@ class window_calcs(object):
     def __init__(self,
                  bmin,bmax,                                             # extreme baselines of the array
                  ceil,                                                  # avoid kpars beyond the regime of linear theory
-                 primary_beam_type,primary_beam_args,primary_beam_uncs, # primary beam considerations
+                 primary_beam_categ,primary_beam_type,                  # primary beam considerations
+                 primary_beam_aux,primary_beam_uncs,                    # primary beam details
                  pars_set_cosmo,pars_forecast,                          # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
                  n_sph_modes,dpar,                                      # conditioning the CAMB/etc. call
                  nu_ctr,delta_nu,                                       # for the survey of interest
@@ -120,16 +121,18 @@ class window_calcs(object):
         """
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
-        primary_beam_type          :: str                          :: always looking to implement more!!       :: ---
-        primary_beam_args          :: (N_args,) of floats          :: Gaussian, Airy: "μ"s and "σ"s            :: Gaussian: r0 in Mpc; fwhm_x, fwhm_y in rad
-                                                                      PASS fwhm_{x/y}; r0 appended internally
-
-                                                                      Manual: **oversubscribed** = primary
-                                                                      beam evaluated on the grid of interest,
-                                                                      a list ordered as [fidu,pert]
-
-                                                                      Per-antenna Gaussian: pre-implemented
-                                                                      use of Manual
+        primary_beam_categ         :: str                          :: * UAA = uniform across the array         :: ---
+                                                                      * PA  = per-antenna
+                                                                      * manual = pathological from elsewhere
+        primary_beam_type          :: str                          :: * UAA: Gaussian, Airy                    :: ---
+                                                                      * PA: Gaussian [MORE IN PROGRESS]
+                                                                      * manual: None
+        primary_beam_aux           :: (N_args,) of floats          :: * UAA Gaussian, Airy: "μ"s and "σ"s      :: Gaussian: r0 in Mpc; fwhm_x, fwhm_y in rad
+                                                                        PASS fwhms; r0 appended internally
+                                                                      * PA Gaussian: [NEWLY INTEGR. 29/10/25]
+                                                                      * Manual: primary beam evaluated on the 
+                                                                        grid of interest, a list ordered as 
+                                                                        [fidu,pert]
         primary_beam_uncs          :: (N_uncertain_args) of floats :: Gaussian, Airy: fractional               :: ---
                                                                       uncertainties epsfwhmx, epsfwhmy 
         pars_set_cosmo             :: (N_fid_pars,) of floats      :: params to condition a CAMB/etc. call     :: as found in ΛCDM
@@ -160,7 +163,7 @@ class window_calcs(object):
         """
         # primary beam considerations
         if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
-            self.fwhm_x,self.fwhm_y=primary_beam_args
+            self.fwhm_x,self.fwhm_y=primary_beam_aux
             self.primary_beam_uncs=              primary_beam_uncs
             self.epsx,self.epsy=     self.primary_beam_uncs
         elif (primary_beam_type.lower()=="manual"):
@@ -169,13 +172,13 @@ class window_calcs(object):
             else: 
                 self.manual_primary_beam_modes=manual_primary_beam_modes
             try: # philosophy here is that two discretely sampled beam arrays (assumed to be sampled at the same array of config space points) need to be passed such that they can be unpacked into the fiducial and mis-modelled evaled primary beams
-                self.manual_primary_fid,self.manual_primary_mis=primary_beam_args # make the args serve a double purpose in this outer layer (have the attribute store arrays in this mode)
+                self.manual_primary_fid,self.manual_primary_mis=primary_beam_aux # make the args serve a double purpose in this outer layer (have the attribute store arrays in this mode)
             except: # primary beam samplings not unpackable the way they should be
                 raise NotEnoughInfoError
         else:
             raise NotYetImplementedError
         self.primary_beam_type=primary_beam_type
-        self.primary_beam_args=primary_beam_args
+        self.primary_beam_aux=primary_beam_aux
         self.primary_beam_uncs=primary_beam_uncs
         
         # forecasting considerations
@@ -200,9 +203,9 @@ class window_calcs(object):
         self.surv_channels=np.arange(self.nu_lo,self.nu_hi,self.Deltanu)
         self.r0=comoving_distance(self.z_ctr)
         if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
-            self.perturbed_primary_beam_args=(self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy))
-            self.primary_beam_args=np.array([self.fwhm_x,self.fwhm_y,self.r0]) # UPDATING ARGS NOW THAT THE FULL SET HAS BEEN SPECIFIED
-            self.perturbed_primary_beam_args=np.append(self.perturbed_primary_beam_args,self.r0)
+            self.perturbed_primary_beam_aux=(self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy))
+            self.primary_beam_aux=np.array([self.fwhm_x,self.fwhm_y,self.r0]) # UPDATING ARGS NOW THAT THE FULL SET HAS BEEN SPECIFIED
+            self.perturbed_primary_beam_aux=np.append(self.perturbed_primary_beam_aux,self.r0)
         elif (primary_beam_type.lower()=="manual"):
             pass
         else:
@@ -335,14 +338,14 @@ class window_calcs(object):
         if (self.primary_beam_type!="manual"):
             tr=cosmo_stats(self.Lsurvbox,
                            P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
-                           primary_beam=Gaussian_primary,primary_beam_args=self.primary_beam_args,
+                           primary_beam=Gaussian_primary,primary_beam_aux=self.primary_beam_aux,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurvbox,
                            P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
-                           primary_beam=Gaussian_primary,primary_beam_args=self.perturbed_primary_beam_args,
+                           primary_beam=Gaussian_primary,primary_beam_aux=self.perturbed_primary_beam_aux,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
@@ -502,7 +505,7 @@ class cosmo_stats(object):
     def __init__(self,
                  Lxy,Lz=None,                                                            # one scaling is nonnegotiable for box->spec and spec->box calcs; the other would be useful for rectangular prism box considerations (sky plane slice is square, but LoS extent can differ)
                  T_pristine=None,T_primary=None,P_fid=None,Nvox=None,Nvoxz=None,         # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
-                 primary_beam=None,primary_beam_args=None,primary_beam_type="Gaussian",  # primary beam considerations
+                 primary_beam=None,primary_beam_aux=None,primary_beam_type="Gaussian",  # primary beam considerations
                  Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
                  frac_tol=0.1,                                                           # max number of realizations
                  k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
@@ -521,7 +524,7 @@ class cosmo_stats(object):
         primary_beam              :: callable (or, if            :: power beam in Cartesian coords    :: ---
                                      primary_beam_type=="manual" 
                                      a 3D array)          
-        primary_beam_args         :: tuple of floats             :: Gaussian, AiryGaussian: μ, σ      :: Gaussian: r0 in Mpc; fwhm_x, fwhm_y in rad
+        primary_beam_aux         :: tuple of floats             :: Gaussian, AiryGaussian: μ, σ      :: Gaussian: r0 in Mpc; fwhm_x, fwhm_y in rad
         primary_beam_type         :: str                         :: for now: Gaussian / AiryGaussian  :: ---
         Nk0, Nk1                  :: int                         :: # power spec bins for axis 0/1    :: ---
         binning_mode              :: str                         :: lin/log sp. P_realizations bins   :: ---
@@ -673,12 +676,12 @@ class cosmo_stats(object):
 
         # primary beam
         self.primary_beam=primary_beam
-        self.primary_beam_args=primary_beam_args
+        self.primary_beam_aux=primary_beam_aux
         self.primary_beam_type=primary_beam_type
         self.manual_primary_beam_modes=manual_primary_beam_modes
         if (self.primary_beam is not None): # non-identity primary beam
             if (self.primary_beam_type=="Gaussian" or self.primary_beam_type=="AiryGaussian"):
-                self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_args
+                self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_aux
                 evaled_primary=self.primary_beam(self.xx_grid,self.yy_grid,self.fwhm_x,self.fwhm_y,self.r0)
             elif (self.primary_beam_type=="manual"):
                 try:    # to access this branch, the manual/ numerically sampled primary beam needs to be close enough to a numpy array that it has a shape and not, e.g. a callable
