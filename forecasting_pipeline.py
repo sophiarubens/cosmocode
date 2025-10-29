@@ -694,39 +694,30 @@ class cosmo_stats(object):
                                        self.primary_beam,
                                        (self.xx_grid,self.yy_grid,self.zz_grid),
                                        method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
-                with open("interpolated_evaled_primary.txt", "w") as f:
-                    for i, slice2d in enumerate(evaled_primary):
-                        np.savetxt(f, slice2d, fmt="%6.3e")
-                        if i < self.Nvoxz - 1:
-                            f.write("\n")
             else:
                 raise NotYetImplementedError
             self.Veff=np.sum(evaled_primary*self.d3r)           # rectangular sum method
 
-            # placeholder to avoid the shit I get with the real math
-            self.beamtildesq=np.ones_like(evaled_primary)
-
-            # what it seems like the math should be but tends to give me shit
-            with open("evaled_primary.txt", "w") as f:
-                for i, slice2d in enumerate(evaled_primary):
-                    np.savetxt(f, slice2d, fmt="%6.3e")
-                    if i < Nvox - 1:
-                        f.write("\n")
             fft_evaled_primary=fftshift(fftn(ifftshift(evaled_primary)*self.d3r))
-            with open("fft_evaled_primary.txt", "w") as f:
-                for i, slice2d in enumerate(fft_evaled_primary):
-                    np.savetxt(f, slice2d, fmt="%6.3e")
-                    if i < Nvox - 1:
-                        f.write("\n")
             beamtildesq_values=(fft_evaled_primary*np.conj(fft_evaled_primary)).real
             beamtildesq=maxfloat*np.ones((self.Nvox,self.Nvox,self.Nvoxz))
             use=np.nonzero(beamtildesq_values!=0.)
             beamtildesq[use]=beamtildesq_values[use]
-            with open("beam_tilde_sq.txt", "w") as f:
-                for i, slice2d in enumerate(self.beamtildesq):
-                    np.savetxt(f, slice2d, fmt="%6.3e")
-                    if i < Nvox - 1:
-                        f.write("\n")
+            self.beamtildesq=beamtildesq
+            self.beamtildesq=1 # placeholder
+
+            xidx=self.Nvox//2
+            yidx=self.Nvox//2
+            zidx=self.Nvoxz//2
+            print("xidx,yidx,zidx=",xidx,yidx,zidx)
+            beam_x_slice=evaled_primary[:,yidx,zidx]
+            beam_x_norm=np.sum(beam_x_slice**2)/self.Nvox # adds up to 1 if the evaled primary beam is 1 everywhere
+            beam_y_slice=evaled_primary[xidx,:,zidx]
+            beam_y_norm=np.sum(beam_y_slice**2)/self.Nvox
+            beam_z_slice=evaled_primary[xidx,yidx,:]
+            beam_z_norm=np.sum(beam_z_slice**2)/self.Nvoxz
+            self.beam_norm=beam_x_norm*beam_y_norm*beam_z_norm
+            print("beam_x_norm,beam_y_norm,beam_z_norm,self.beam_norm=",beam_x_norm,beam_y_norm,beam_z_norm,self.beam_norm)
 
             evaled_primary_for_div=np.copy(evaled_primary)
             evaled_primary_for_mul=np.copy(evaled_primary)
@@ -738,6 +729,7 @@ class cosmo_stats(object):
             self.evaled_primary_for_div=np.ones((self.Nvox,self.Nvox,self.Nvoxz))
             self.evaled_primary_for_mul=np.copy(self.evaled_primary_for_div)
             self.beamtildesq=np.ones((self.Nvox,self.Nvox,self.Nvoxz))
+            self.beam_norm=1
         if (self.T_pristine is not None):
             self.T_primary=self.T_pristine*self.evaled_primary
         ############
@@ -838,14 +830,15 @@ class cosmo_stats(object):
         N_modsq_T_tilde_truncated[N_modsq_T_tilde_truncated==0]=maxint # avoid division-by-zero errors during the division the estimator demands
 
         avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/(N_modsq_T_tilde_truncated) # actual estimator math
-        P=np.array(avg_modsq_T_tilde/self.Veff)
+        denom=self.Veff*self.beam_norm
+        P=np.array(avg_modsq_T_tilde/denom)
         P.reshape(final_shape)
         if send_to_P_fid: # if generate_P was called speficially to have a spec from which all future box realizations will be generated
             self.P_fid=P
             self.P_fid_interp_1d_to_3d() # generate interpolated values of the newly established 1D P_fid over the k-magnitudes of the box
         else:             # the "normal" case where you're just accumulating a realization
             self.P_realizations.append([P])
-        self.unbinned_P=modsq_T_tilde/self.Veff # box-shaped, but calculated according to the power spectrum estimator equation
+        self.unbinned_P=modsq_T_tilde/denom # box-shaped, but calculated according to the power spectrum estimator equation
         
     def generate_box(self):
         """
