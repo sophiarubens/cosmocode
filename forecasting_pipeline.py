@@ -65,9 +65,10 @@ class NotEnoughInfoError(Exception):
     pass
 class PathologicalError(Exception):
     pass
-class ConflictingInfoError(Exception): # make these inherit from each other (or something) to avoid repetitive code
+class ConflictingInfoError(Exception):
     pass
-
+class SurveyOutOfBoundsError(Exception): # make these inherit from each other (or something) to avoid repetitive code
+    pass
 
 def extrapolation_warning(regime,want,have):
     print("WARNING: if extrapolation is permitted in the interpolate_P call, it will be conducted for {:15s} (want {:9.4}, have{:9.4})".format(regime,want,have))
@@ -77,13 +78,13 @@ def represent(cosmo_stats_instance):
     representation='\n'.join("%s: %s" % item for item in attributes.items())
     print(representation)
 
-def Gaussian_primary(X,Y,fwhm_x,fwhm_y,r0):
+def UAA_Gaussian(X,Y,fwhm_x,fwhm_y,r0):
     """
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
     return np.exp(-ln2*((X/fwhm_x)**2+(Y/fwhm_y)**2)/r0**2)
 
-def AiryGaussian_primary(X,Y,fwhm_x,fwhm_y,r0):
+def UAA_Airy(X,Y,fwhm_x,fwhm_y,r0):
     """
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
@@ -101,7 +102,7 @@ a Fisher-based formalism using two complementary strategies with different scope
 2. numerical  windowing for a Gaussian beam with different x- and y-pol widths
 """
 
-class window_calcs(object):
+class beam_effects(object):
     def __init__(self,
                  bmin,bmax,                                             # extreme baselines of the array
                  ceil,                                                  # avoid kpars beyond the regime of linear theory
@@ -127,14 +128,12 @@ class window_calcs(object):
         primary_beam_type          :: str                          :: * UAA: Gaussian, Airy                    :: ---
                                                                       * PA: Gaussian [MORE IN PROGRESS]
                                                                       * manual: None
-        primary_beam_aux           :: (N_args,) of floats          :: * UAA Gaussian, Airy: "μ"s and "σ"s      :: Gaussian: r0 in Mpc; fwhm_x, fwhm_y in rad
-                                                                        PASS fwhms; r0 appended internally
-                                                                      * PA Gaussian: [NEWLY INTEGR. 29/10/25]
-                                                                      * Manual: primary beam evaluated on the 
-                                                                        grid of interest, a list ordered as 
+        primary_beam_aux           :: (N_args,) of floats          :: * UAA:pass FWHMs; r0 appended internally :: r0:           Mpc
+                                                                      * manual: primary beams evaluated on the    fwhms:        rad
+                                                                        grid of interest, a list ordered as       evaled beams: ---
                                                                         [fidu,pert]
-        primary_beam_uncs          :: (N_uncertain_args) of floats :: Gaussian, Airy: fractional               :: ---
-                                                                      uncertainties epsfwhmx, epsfwhmy 
+                                                                      * PA-internal: FWHMs  
+        primary_beam_uncs          :: (2,) of floats               :: fractional uncertainties for x and y     :: ---
         pars_set_cosmo             :: (N_fid_pars,) of floats      :: params to condition a CAMB/etc. call     :: as found in ΛCDM
         pars_forecast              :: (N_forecast_pars,) of floats :: params for which you'd like to forecast  :: as found in ΛCDM
         n_sph_modes                :: int                          :: # modes to put in CAMB/etc. MPS          :: ---
@@ -157,26 +156,65 @@ class window_calcs(object):
                                                                       spec calcs from boxes
         frac_tol_conv              :: float                        :: how much the Poisson noise must fall off :: ---
         pars_forecast_names        :: (N_pars_forecast,) or equiv. :: names of the pars being forecast         :: ---
-                                      of strings 
+                                      of strs
         manual_primary_beam_modes  :: x,y,z coordinate axes        :: domain of a discrete sampling            :: Mpc
-                                      (if primary_beam !callable)    
+                                      (if primary_beam !callable)
+        per_ant_out_name           :: str                          :: name of per-antenna beam box to read     :: ---
+                                                                      from or write to
         """
         # primary beam considerations
-        if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
-            self.fwhm_x,self.fwhm_y=primary_beam_aux
-            self.primary_beam_uncs=              primary_beam_uncs
-            self.epsx,self.epsy=     self.primary_beam_uncs
-        elif (primary_beam_type.lower()=="manual"):
+        if (primary_beam_categ.lower()=="uaa"):
+            if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airy"):
+                self.fwhm_x,self.fwhm_y=primary_beam_aux
+                self.primary_beam_uncs= primary_beam_uncs
+                self.epsx,self.epsy=    self.primary_beam_uncs
+            else:
+                raise NotYetImplementedError
+        elif (primary_beam_categ.lower()=="pa" or primary_beam_categ.lower()=="manual"):
+            if (primary_beam_categ.lower()=="pa"):
+                # what happens in per_antenna? do I need to pass widths, or are those just calculated internally?
+                # yeah, I guess for now it's just that I'm falling back on the circular cross-section lambda/D thing
+
+                # self.box, self.xy_vec, self.z_vec
+                per_antenna(///)
+
+                # hmmmmm if the actual windowing calculation happens in a subsequent internal cosmo_stats call...
+                # should I do it here to establish the sampled beam...
+                # and then defer to manual mode
+            
+            # now do the manual-y things
             if (manual_primary_beam_modes is None):
                 raise NotEnoughInfoError
-            else: 
+            else:
                 self.manual_primary_beam_modes=manual_primary_beam_modes
-            try: # philosophy here is that two discretely sampled beam arrays (assumed to be sampled at the same array of config space points) need to be passed such that they can be unpacked into the fiducial and mis-modelled evaled primary beams
-                self.manual_primary_fid,self.manual_primary_mis=primary_beam_aux # make the args serve a double purpose in this outer layer (have the attribute store arrays in this mode)
-            except: # primary beam samplings not unpackable the way they should be
+            try:
+                self.manual_primary_fid,self.manual_primary_mis=primary_beam_aux # assumed to be sampled at the same config space points
+            except: # primary beam samplings not unpackable the way they need to be
                 raise NotEnoughInfoError
         else:
-            raise NotYetImplementedError
+            raise PathologicalError # as far as primary power beam perturbations go, they can all pretty much be described as being applied UAA, PA, or in some externally-implemented custom way
+        # elif (primary_beam_categ.lower()=="pa"):
+        #     ///
+        #     # what happens in per_antenna? do I need to pass widths, or are those just calculated internally?
+        #     # yeah, I guess for now it's just that I'm falling back on the circular cross-section lambda/D thing
+
+        #     # self.box, self.xy_vec, self.z_vec
+
+        #     # hmmmmm if the actual windowing calculation happens in a subsequent internal cosmo_stats call...
+        #     # should I do it here to establish the sampled beam...
+        #     # and then defer to manual mode
+        # elif (primary_beam_categ.lower()=="manual"):
+        #     if (manual_primary_beam_modes is None):
+        #         raise NotEnoughInfoError
+        #     else:
+        #         self.manual_primary_beam_modes=manual_primary_beam_modes
+        #     try:
+        #         self.manual_primary_fid,self.manual_primary_mis=primary_beam_aux # assumed to be sampled at the same config space points
+        #     except: # primary beam samplings not unpackable the way they need to be
+        #         raise NotEnoughInfoError
+        # else:
+        #     raise PathologicalError # as far as primary power beam perturbations go, they can all pretty much be described as being applied UAA, PA, or in some externally-implemented custom way
+
         self.primary_beam_type=primary_beam_type
         self.primary_beam_aux=primary_beam_aux
         self.primary_beam_uncs=primary_beam_uncs
@@ -202,7 +240,7 @@ class window_calcs(object):
         self.deltaz=self.z_hi-self.z_lo
         self.surv_channels=np.arange(self.nu_lo,self.nu_hi,self.Deltanu)
         self.r0=comoving_distance(self.z_ctr)
-        if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
+        if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airy"):
             self.perturbed_primary_beam_aux=(self.fwhm_x*(1-self.epsx),self.fwhm_y*(1-self.epsy))
             self.primary_beam_aux=np.array([self.fwhm_x,self.fwhm_y,self.r0]) # UPDATING ARGS NOW THAT THE FULL SET HAS BEEN SPECIFIED
             self.perturbed_primary_beam_aux=np.append(self.perturbed_primary_beam_aux,self.r0)
@@ -239,7 +277,7 @@ class window_calcs(object):
         kmax_CAMB=(1+CAMB_tol)*kmax_box_and_init*np.sqrt(3) # factor of sqrt(3) from pythag theorem for box to prevent the need for extrap
         self.ksph,self.Ptruesph=self.get_mps(self.pars_set_cosmo,kmin_CAMB,kmax_CAMB)
         self.Deltabox=self.Lsurvbox/self.Nvoxbox
-        if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airygaussian"):
+        if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airy"):
             sky_plane_sigmas=self.r0*np.array([self.fwhm_x,self.fwhm_y])/np.sqrt(2*np.log(2))
             self.all_sigmas=sky_plane_sigmas
             if (np.any(self.all_sigmas<self.Deltabox)):
@@ -336,16 +374,22 @@ class window_calcs(object):
         contaminant power, calculated as the difference of subtracted spectra with config space–multiplied "true" and "thought" instrument responses
         """
         if (self.primary_beam_type!="manual"):
+            if (self.primary_beam_type=="Gaussian"):
+                pb_here=UAA_Gaussian
+            elif (self.primary_beam_type=="Airy"):
+                pb_here=UAA_Airy
+            else:
+                raise NotYetImplementedError
             tr=cosmo_stats(self.Lsurvbox,
                            P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
-                           primary_beam=Gaussian_primary,primary_beam_aux=self.primary_beam_aux,
+                           primary_beam=pb_here,primary_beam_aux=self.primary_beam_aux,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurvbox,
                            P_fid=self.Ptruesph,Nvox=self.Nvoxbox,
-                           primary_beam=Gaussian_primary,primary_beam_aux=self.perturbed_primary_beam_aux,
+                           primary_beam=pb_here,primary_beam_aux=self.perturbed_primary_beam_aux,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
@@ -979,10 +1023,7 @@ class cosmo_stats(object):
             P_interpolator=interp1d(self.k0bins,self.P_converged,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
             self.P_interp=P_interpolator(self.k0bins_interp)
 
-class SurveyOutOfBoundsError(Exception):
-    pass
-
-class CHORD_image(object):
+class per_antenna(object):
     def __init__(self,
                  mode="full",b_NS=8.5,b_EW=6.3,observing_dec=pi/60.,offset_deg=1.75*pi/180.,N_pert_types=4,
                  num_ant_pos_to_pert=0,ant_pos_pert_sigma=1e-2,
@@ -1183,7 +1224,7 @@ class CHORD_image(object):
                 reshaped_v=np.reshape(v_here,N_here)
                 gridded,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use)
                 width_here=pbw_fidu_use*np.sqrt((1-eps_i)*(1-eps_j))
-                kernel=gaussian_primary_beam_uv(uubins,vvbins,[0.,0.],width_here)
+                kernel=PA_Gaussian(uubins,vvbins,[0.,0.],width_here)
                 kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge") # version that worked in pipeline branch 2
                 convolution_here=convolve(kernel_padded,gridded,mode="valid") # beam-smeared version of the uv-plane for this perturbation permutation
                 uvplane+=convolution_here
@@ -1240,11 +1281,10 @@ class CHORD_image(object):
             box[:,:,i]=interpolated_slice
             if ((i%(N_chan//10))==0):
                 print("{:5}%% complete".format(i/N_chan*100))
-        self.box=box # it would be lowkey diabolical to send this to cosmo_stats to window numerically and expect to generate box realizations at the same resolution
+        self.box=box 
         self.theta_max_box=theta_max_box
 
-        # self.comoving_distances_channels self.ctr_chan_comov_dist
-        # generate a box of r-values (necessary for interpolation to survey modes in the manual beam mode of cosmo_stats as called by window_calcs)
+        # generate a box of r-values (necessary for interpolation to survey modes in the manual beam mode of cosmo_stats as called by beam_effects)
         thetas=np.linspace(-self.theta_max_box,self.theta_max_box,N_grid_pix)
         xy_vec=self.ctr_chan_comov_dist*thetas # supply the thetas but multiply by the central channel's comoving distance (here, I'll need to make the coeval approximation)
         z_vec=self.comoving_distances_channels-self.ctr_chan_comov_dist # comoving distances from each freq channel... maybe eventually let cosmo_stats handle this? but also maybe not bc I call this before that? but also eventually I'll probably just refactor this to be a part of cosmo_stats?
@@ -1266,14 +1306,14 @@ def get_padding(n):
     padding_hi=padding-padding_lo
     return padding_lo,padding_hi
 
-def gaussian_primary_beam_uv(u,v,ctr,fwhm):
+def PA_Gaussian(u,v,ctr,fwhm):
     u0,v0=ctr
     evaled=((pi*ln2)/(fwhm**2))*np.exp(-pi**2*(((u-u0)**2+(v-v0)**2)*fwhm**2)/np.log(2))
     # fwhmx,fwhmy=fwhm
     # evaled=((pi*ln2)/(fwhmx*fwhmy))*np.exp(-pi**2*((u-u0)**2*fwhmx**2+(v-v0)**2*fwhmy**2)/np.log(2))
     return evaled
 
-def sparse_gaussian_primary_beam_uv(u,v,ctr,fwhm,nsigma_npix):
+def sparse_PA_Gaussian(u,v,ctr,fwhm,nsigma_npix):
     """
     same as the non-sparse version but uses scipy sparse arrays to make things less inefficient
 
