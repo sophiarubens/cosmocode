@@ -35,7 +35,7 @@ twopi=2.*pi
 ln2=np.log(2)
 
 # computational
-infty=np.inf # np.infty deprecated in numpy 2.0
+infty=np.inf 
 maxfloat= np.finfo(np.float64).max
 huge=np.sqrt(maxfloat)
 maxfloat= np.finfo(np.float64).max
@@ -47,11 +47,21 @@ scale=1e-9
 BasicAiryHWHM=1.616339948310703178119139753683896309743121097215461023581 # a preposterous number of sig figs from Mathematica (I haven't counted them but this is almost certainly overkill/ past the double-precision threshold)
 eps=1e-15
 
-# CHORD layout
+# CHORD
 N_NS_full=24
 N_EW_full=22
+b_NS=8.5
+b_EW=6.3
 DRAO_lat=49.320791*np.pi/180. # Google Maps satellite view, eyeballing what looks like the middle of the CHORD site: 49.320791, -119.621842 (bc considering drift-scan CHIME-like "pointing at zenith" mode, same as dec)
 D=6. # m
+def_observing_dec=pi/60.
+def_offset_deg=1.75*pi/180. # for this placeholder state where I build up the CHORD layout using rotation matrices instead of actual measurements (does Richard know more?)
+def_pbw_pert_frac=1e-2
+def_N_timesteps=15
+def_evol_restriction_threshold=1./15.
+img_bin_tol=1.75
+def_PA_N_timesteps=15
+def_PA_N_grid_pix=256
 
 class NotYetImplementedError(Exception):
     pass
@@ -104,21 +114,23 @@ a Fisher-based formalism using two complementary strategies with different scope
 
 class beam_effects(object):
     def __init__(self,
-                 bmin,bmax,                                             # extreme baselines of the array
-                 ceil,                                                  # avoid kpars beyond the regime of linear theory
-                 primary_beam_categ,primary_beam_type,                  # primary beam considerations
-                 primary_beam_aux,primary_beam_uncs,                    # primary beam details
-                 pars_set_cosmo,pars_forecast,                          # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
-                 n_sph_modes,dpar,                                      # conditioning the CAMB/etc. call
-                 nu_ctr,delta_nu,                                       # for the survey of interest
-                 evol_restriction_threshold=1./15.,                     # misc. numerical considerations
-                 init_and_box_tol=0.05,CAMB_tol=0.05,                   # considerations for k-modes at different steps
-                 ftol_deriv=1e-6,eps=1e-16,maxiter=5,                   # precision control for numerical derivatives
-                 uncs=None,frac_unc=0.1,                                # for Fisher-type calcs
-                 Nkpar_box=15,Nkperp_box=18,frac_tol_conv=0.1,          # considerations for cyl binned power spectra from boxes
-                 pars_forecast_names=None,                              # for verbose output
-                 manual_primary_beam_modes=None,                        # config space pts at which a pre–discretely sampled primary beam is known
-                 no_monopole=True):                                     # to implement: dirty image stacking compatibility, other primary beam types, and more
+                 bmin,bmax,                                                             # extreme baselines of the array
+                 ceil,                                                                  # avoid any high kpars to speed eval? (deprecate this soon; it was for testing, not science)
+                 primary_beam_categ,primary_beam_type,                                  # primary beam considerations
+                 primary_beam_aux,primary_beam_uncs,                                    # primary beam details
+                 pars_set_cosmo,pars_forecast,                                          # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
+                 n_sph_modes,dpar,                                                      # conditioning the CAMB/etc. call
+                 nu_ctr,delta_nu,                                                       # for the survey of interest
+                 evol_restriction_threshold=def_evol_restriction_threshold,             # misc. numerical considerations
+                 init_and_box_tol=0.05,CAMB_tol=0.05,                                   # considerations for k-modes at different steps
+                 ftol_deriv=1e-6,eps=1e-16,maxiter=5,                                   # precision control for numerical derivatives
+                 uncs=None,frac_unc=0.1,                                                # for Fisher-type calcs
+                 Nkpar_box=15,Nkperp_box=18,frac_tol_conv=0.1,                          # considerations for cyl binned power spectra from boxes
+                 pars_forecast_names=None,                                              # for verbose output
+                 manual_primary_beam_modes=None,                                        # config space pts at which a pre–discretely sampled primary beam is known
+                 no_monopole=True,                                                      # subtract off monopole moment to give zero-mean box?
+                 PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac, #
+                 PA_N_timesteps=def_PA_N_timesteps,PA_N_grid_pix=def_PA_N_grid_pix):  # 
         """
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
@@ -176,10 +188,10 @@ class beam_effects(object):
                 # yeah, I guess for now it's just that I'm falling back on the circular cross-section lambda/D thing
 
                 # self.box, self.xy_vec, self.z_vec
-                fidu=per_antenna(nu_ctr=self.nu_ctr, N_pert_types=0) # fidu=CHORD_image(nu_ctr=test_freq, N_pert_types=0)
-                fidu.stack_to_box(delta_nu=self.Deltanu,N_grid_pix=Npix)
+                fidu=per_antenna() # fidu=CHORD_image(nu_ctr=test_freq, N_pert_types=0) but that was with the old attributes
+                fidu.stack_to_box(delta_nu=self.Deltanu,N_grid_pix=self.PA_N_grid_pix)
                 fidu_box=fidu.box
-                pert=per_antenna(nu_ctr=self.nu_ctr, N_pert_types= , )
+                pert=per_antenna(N_pert_types=self., )
 
                 # hmmmmm if the actual windowing calculation happens in a subsequent internal cosmo_stats call...
                 # should I do it here to establish the sampled beam...
@@ -196,27 +208,6 @@ class beam_effects(object):
                 raise NotEnoughInfoError
         else:
             raise PathologicalError # as far as primary power beam perturbations go, they can all pretty much be described as being applied UAA, PA, or in some externally-implemented custom way
-        # elif (primary_beam_categ.lower()=="pa"):
-        #     ///
-        #     # what happens in per_antenna? do I need to pass widths, or are those just calculated internally?
-        #     # yeah, I guess for now it's just that I'm falling back on the circular cross-section lambda/D thing
-
-        #     # self.box, self.xy_vec, self.z_vec
-
-        #     # hmmmmm if the actual windowing calculation happens in a subsequent internal cosmo_stats call...
-        #     # should I do it here to establish the sampled beam...
-        #     # and then defer to manual mode
-        # elif (primary_beam_categ.lower()=="manual"):
-        #     if (manual_primary_beam_modes is None):
-        #         raise NotEnoughInfoError
-        #     else:
-        #         self.manual_primary_beam_modes=manual_primary_beam_modes
-        #     try:
-        #         self.manual_primary_fid,self.manual_primary_mis=primary_beam_aux # assumed to be sampled at the same config space points
-        #     except: # primary beam samplings not unpackable the way they need to be
-        #         raise NotEnoughInfoError
-        # else:
-        #     raise PathologicalError # as far as primary power beam perturbations go, they can all pretty much be described as being applied UAA, PA, or in some externally-implemented custom way
 
         self.primary_beam_type=primary_beam_type
         self.primary_beam_aux=primary_beam_aux
@@ -264,8 +255,6 @@ class beam_effects(object):
         self.kperp_surv=kperp(self.nu_ctr,self.Nchan,self.bmin,self.bmax)
         self.Nkperp_surv=len(self.kperp_surv)
 
-        # self.kmin_surv=np.min((self.kpar_surv[0 ],self.kperp_surv[0 ])) # no extrap issues but slow (mult. factors of 1.1 and 1.2 also incur this issue, to their respective extents)
-        # self.kmin_surv=1.25*np.min((self.kpar_surv[ 0],self.kperp_surv[ 0])) # slight extrap issues and not so slow
         self.kmin_surv=np.min((self.kpar_surv[ 0],self.kperp_surv[ 0]))
         self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2)
         self.Lsurvbox= twopi/self.kmin_surv
@@ -317,6 +306,13 @@ class beam_effects(object):
 
         # holder for numerical derivatives of a cylindrically binned power spectrum (sampled at the survey modes) wrt the params being forecast
         self.cyl_partials=np.zeros((self.N_pars_forecast,self.Nkpar_surv,self.Nkperp_surv))
+
+        # per-antenna PBW perturbation things that will be useful to keep around
+        self.PA_N_pert_types=  PA_N_pert_types
+        self.PA_N_pbws_pert=   PA_N_pbws_pert
+        self.PA_pbw_pert_frac= PA_pbw_pert_frac
+        self.PA_N_timesteps= PA_N_timesteps
+        self.PA_N_grid_pix=    PA_N_grid_pix
 
     def get_mps(self,pars_use,minkh=1e-4,maxkh=1):
         """
@@ -1026,12 +1022,13 @@ class cosmo_stats(object):
             P_interpolator=interp1d(self.k0bins,self.P_converged,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
             self.P_interp=P_interpolator(self.k0bins_interp)
 
-class per_antenna(object):
+# class per_antenna(object): # old
+class per_antenna(beam_effects):
     def __init__(self,
-                 mode="full",b_NS=8.5,b_EW=6.3,observing_dec=pi/60.,offset_deg=1.75*pi/180.,N_pert_types=4,
-                 num_pbws_to_pert=0,pbw_pert_frac=1e-2,
-                 num_timesteps=15,num_hrs=None,
-                 nu_ctr=nu_HI_z0,
+                 mode="full",b_NS=b_NS,b_EW=b_EW,observing_dec=def_observing_dec,offset_deg=def_offset_deg,
+                #  N_pert_types=0,N_pbws_to_pert=0,pbw_pert_frac=1e-2, # NOW ABSTRACTED TO THE LEVEL OF BEAM_EFFECTS
+                #  N_timesteps=15,
+                 N_hrs=None,nu_ctr=nu_HI_z0,
                  pbw_fidu=None
                  ):
         # array and observation geometry
@@ -1044,17 +1041,16 @@ class per_antenna(object):
         self.N_ant=self.N_NS*self.N_EW
         self.N_bl=self.N_ant*(self.N_ant-1)//2
         self.observing_dec=observing_dec
-        self.num_timesteps=num_timesteps
         self.nu_ctr_MHz=nu_ctr
         self.nu_ctr_Hz=nu_ctr*1e6
-        if (num_hrs is None):
-            num_hrs=primary_beam_crossing_time(self.nu_ctr_Hz,dec=self.observing_dec,D=D) # freq needs to be in Hz
-        self.num_hrs=num_hrs
+        if (N_hrs is None):
+            N_hrs=primary_beam_crossing_time(self.nu_ctr_Hz,dec=self.observing_dec,D=D) # freq needs to be in Hz
+        self.N_hrs=N_hrs
         self.lambda_obs=c/self.nu_ctr_Hz
         if (pbw_fidu is None):
             pbw_fidu=self.lambda_obs/D
         self.pbw_fidu=pbw_fidu
-        self.pbw_pert_frac=pbw_pert_frac
+        # self.pbw_pert_frac=self.pbw_pert_frac
         
         # antenna positions xyz
         antennas_EN=np.zeros((self.N_ant,2))
@@ -1078,24 +1074,24 @@ class per_antenna(object):
         self.antennas_xyz=antennas_xyz
 
         pbw_types=np.zeros((self.N_ant,))
-        self.N_pert_types=N_pert_types
-        N_beam_types=N_pert_types+1
+        N_beam_types=self.PA_N_pert_types+1
         self.N_beam_types=N_beam_types
         epsilons=np.zeros(N_beam_types)
-        if (num_pbws_to_pert>0):
-            epsilons[1:]=pbw_pert_frac*np.random.uniform(size=np.insert(N_pert_types,0,1))
+        
+        if (self.PA_N_pbws_pert>0):
+            epsilons[1:]=self.PA_pbw_pert_frac*np.random.uniform(size=np.insert(self.PA_N_pert_types,0,1))
 
             # the randomly drawn way (fallback)
-            indices_of_ants_w_pert_pbws=np.random.randint(0,self.N_ant,size=num_pbws_to_pert) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
-            pbw_types[indices_of_ants_w_pert_pbws]=np.random.randint(1,high=N_beam_types,size=np.insert(num_pbws_to_pert,0,1)) # leaves as zero the indices associated with unperturbed antennas
+            indices_of_ants_w_pert_pbws=np.random.randint(0,self.N_ant,size=self.PA_N_pbws_pert) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
+            pbw_types[indices_of_ants_w_pert_pbws]=np.random.randint(1,high=N_beam_types,size=np.insert(self.PA_N_pbws_pert,0,1)) # leaves as zero the indices associated with unperturbed antennas
         
             # # the segmented-across-the-array way (hypothesized example of a case that should give k-dependent results)
             ### THIS HAS 100 PERTURBED ANTENNAS AND TWO PERTURBATION TYPES BAKED IN... SHOULD GENERALIZE IF I REALLY WANT TO ROLL WITH THIS!!
             ### + BAKE IN OTHER OPTIONS BEYOND JUST THE CORNERS
             # antenna_numbers= np.reshape(np.arange(self.N_ant),(self.N_NS,self.N_EW))# row-major array to take chunks of for the chunks to perturb
             # print("self.N_NS,self.N_EW=",self.N_NS,self.N_EW)
-            # nw_corner_indices=np.reshape(antenna_numbers[:7,:7],(num_pbws_to_pert//2-1,)) # hackily hard-coding the two-class case I'm contrasting with on the 22 Oct 2025 beam meeting
-            # se_corner_indices=np.reshape(antenna_numbers[self.N_NS-7:,self.N_EW-7:],(num_pbws_to_pert//2-1,))
+            # nw_corner_indices=np.reshape(antenna_numbers[:7,:7],(N_pbws_to_pert//2-1,)) # hackily hard-coding the two-class case I'm contrasting with on the 22 Oct 2025 beam meeting
+            # se_corner_indices=np.reshape(antenna_numbers[self.N_NS-7:,self.N_EW-7:],(N_pbws_to_pert//2-1,))
             # nw_corner_indices=np.append(nw_corner_indices,7)
             # se_corner_indices=np.append(se_corner_indices,520)
             # np.savetxt("nw_corner_indices.txt",nw_corner_indices)
@@ -1159,8 +1155,8 @@ class per_antenna(object):
         print("computed ungridded instantaneous uv-coverage")
 
         # rotation-synthesized uv-coverage *******(N_bl,3,N_timesteps), accumulating xyz->uvw transformations at each timestep
-        hour_angle_ceiling=np.pi*num_hrs/12 # 2pi*num_hrs/24
-        hour_angles=np.linspace(0,hour_angle_ceiling,num_timesteps)
+        hour_angle_ceiling=np.pi*N_hrs/12
+        hour_angles=np.linspace(0,hour_angle_ceiling,self.PA_N_timesteps)
         thetas=hour_angles*15*np.pi/180
         
         zenith=np.array([np.cos(self.observing_dec),0,np.sin(self.observing_dec)]) # Jon math redux
@@ -1168,7 +1164,7 @@ class per_antenna(object):
         north=np.cross(zenith,east)
         project_to_dec=np.vstack([east,north])
 
-        uv_synth=np.zeros((2*self.N_bl,2,num_timesteps))
+        uv_synth=np.zeros((2*self.N_bl,2,self.PA_N_timesteps))
         for i,theta in enumerate(thetas): # thetas are the rotation synthesis angles (converted from hr. angles using 15 deg/hr rotation rate)
             accumulate_rotation=np.array([[ np.cos(theta),np.sin(theta),0],
                                         [-np.sin(theta),np.cos(theta),0],
@@ -1179,10 +1175,9 @@ class per_antenna(object):
         self.uv_synth=uv_synth
         print("synthesized rotation")
 
-    def calc_dirty_image(self, Npix=1024, pbw_fidu_use=None,tol=1.75):
+    def calc_dirty_image(self, Npix=1024, pbw_fidu_use=None,tol=img_bin_tol):
         if pbw_fidu_use is None: # otherwise, use the one that was passed
             pbw_fidu_use=self.pbw_fidu
-        t0=time.time()
         uvmin=np.min([np.min(self.uv_synth[:,0,:]),np.min(self.uv_synth[:,1,:])])
         uvmax=np.max([np.max(self.uv_synth[:,0,:]),np.max(self.uv_synth[:,1,:])])
         uvbins=np.linspace(tol*uvmin,tol*uvmax,Npix)
@@ -1221,12 +1216,11 @@ class per_antenna(object):
         dirty_image=np.abs(fftshift(ifft2(ifftshift(uvplane)*d2u,norm="forward")))
         dirty_image/=np.sum(dirty_image) # also account for renormalization in image space
         uv_bin_edges=[uvbins,uvbins]
-        t1=time.time()
         self.dirty_image=dirty_image
         self.uv_bin_edges=uv_bin_edges
         return dirty_image,uv_bin_edges,thetamax
 
-    def stack_to_box(self,delta_nu,evol_restriction_threshold=1./15., N_grid_pix=1024):
+    def stack_to_box(self,delta_nu,evol_restriction_threshold=def_evol_restriction_threshold, N_grid_pix=1024, tol=img_bin_tol):
         if (self.nu_ctr_MHz<(350/(1-evol_restriction_threshold/2)) or self.nu_ctr_MHz>(nu_HI_z0/(1+evol_restriction_threshold/2))):
             raise SurveyOutOfBoundsError
         self.N_grid_pix=N_grid_pix
