@@ -176,7 +176,10 @@ class beam_effects(object):
                 # yeah, I guess for now it's just that I'm falling back on the circular cross-section lambda/D thing
 
                 # self.box, self.xy_vec, self.z_vec
-                per_antenna(///)
+                fidu=per_antenna(nu_ctr=self.nu_ctr, N_pert_types=0) # fidu=CHORD_image(nu_ctr=test_freq, N_pert_types=0)
+                fidu.stack_to_box(delta_nu=self.Deltanu,N_grid_pix=Npix)
+                fidu_box=fidu.box
+                pert=per_antenna(nu_ctr=self.nu_ctr, N_pert_types= , )
 
                 # hmmmmm if the actual windowing calculation happens in a subsequent internal cosmo_stats call...
                 # should I do it here to establish the sampled beam...
@@ -1026,7 +1029,6 @@ class cosmo_stats(object):
 class per_antenna(object):
     def __init__(self,
                  mode="full",b_NS=8.5,b_EW=6.3,observing_dec=pi/60.,offset_deg=1.75*pi/180.,N_pert_types=4,
-                 num_ant_pos_to_pert=0,ant_pos_pert_sigma=1e-2,
                  num_pbws_to_pert=0,pbw_pert_frac=1e-2,
                  num_timesteps=15,num_hrs=None,
                  nu_ctr=nu_HI_z0,
@@ -1052,7 +1054,6 @@ class per_antenna(object):
         if (pbw_fidu is None):
             pbw_fidu=self.lambda_obs/D
         self.pbw_fidu=pbw_fidu
-        self.ant_pos_pert_sigma=ant_pos_pert_sigma
         self.pbw_pert_frac=pbw_pert_frac
         
         # antenna positions xyz
@@ -1068,20 +1069,6 @@ class per_antenna(object):
         dif=antennas_EN[0,0]-antennas_EN[0,-1]+antennas_EN[0,-1]-antennas_EN[-1,-1]
         up=np.reshape(2+(-antennas_EN[:,0]+antennas_EN[:,1])/dif, (self.N_ant,1)) # eyeballed ~2 m vertical range that ramps ~linearly from a high near the NW corner to a low near the SE corner
         antennas_ENU=np.hstack((antennas_EN,up))
-        if (num_ant_pos_to_pert>0):
-            indices_ant_pos_pert=np.random.randint(0,self.N_ant,size=num_ant_pos_to_pert) # indices of antennas to perturb
-            x_perturbations=np.zeros((self.N_ant,))
-            x_perturbations[indices_ant_pos_pert]=np.random.normal(loc=0.,scale=ant_pos_pert_sigma/np.sqrt(3),size=np.insert(num_ant_pos_to_pert,0,1))
-            y_perturbations=np.zeros((self.N_ant,))
-            y_perturbations[indices_ant_pos_pert]=np.random.normal(loc=0.,scale=ant_pos_pert_sigma/np.sqrt(3),size=np.insert(num_ant_pos_to_pert,0,1))
-            z_perturbations=np.zeros((self.N_ant,))
-            z_perturbations[indices_ant_pos_pert]=np.random.normal(loc=0.,scale=ant_pos_pert_sigma/np.sqrt(3),size=np.insert(num_ant_pos_to_pert,0,1))
-            antennas_ENU[:,0]+=x_perturbations
-            antennas_ENU[:,1]+=y_perturbations
-            antennas_ENU[:,2]+=z_perturbations
-        else:
-            indices_ant_pos_pert=None
-        self.indices_ant_pos_pert=indices_ant_pos_pert
         
         zenith=np.array([np.cos(DRAO_lat),0,np.sin(DRAO_lat)]) # Jon math
         east=np.array([0,1,0])
