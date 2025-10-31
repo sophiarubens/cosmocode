@@ -7,9 +7,11 @@ from scipy.special import j1
 from numpy.fft import fftshift,ifftshift,fftn,irfftn,fftfreq,ifft2
 from cosmo_distances import *
 from matplotlib import pyplot as plt
+import scipy.sparse as spsp
+
+# sometimes useful for testing
 import matplotlib
 import time
-import scipy.sparse as spsp
 
 # cosmological
 Omegam_Planck18=0.3158
@@ -44,7 +46,7 @@ nearly_zero=(1./maxfloat)**2
 
 # numerical
 scale=1e-9
-BasicAiryHWHM=1.616339948310703178119139753683896309743121097215461023581 # a preposterous number of sig figs from Mathematica (I haven't counted them but this is almost certainly overkill/ past the double-precision threshold)
+BasicAiryHWHM=1.616339948310703178119139753683896309743121097215461023581 # preposterous number of sig figs from Mathematica (past the double-precision threshold or whatever)
 eps=1e-15
 
 # CHORD
@@ -55,7 +57,7 @@ b_EW=6.3
 DRAO_lat=49.320791*np.pi/180. # Google Maps satellite view, eyeballing what looks like the middle of the CHORD site: 49.320791, -119.621842 (bc considering drift-scan CHIME-like "pointing at zenith" mode, same as dec)
 D=6. # m
 def_observing_dec=pi/60.
-def_offset_deg=1.75*pi/180. # for this placeholder state where I build up the CHORD layout using rotation matrices instead of actual measurements (does Richard know more?)
+def_offset_deg=1.75*pi/180. # for this placeholder state where I build up the CHORD layout using rotation matrices instead of actual measurements (does Richard know more? see if he gets back to me from when I asked on 30/10/25)
 def_pbw_pert_frac=1e-2
 def_N_timesteps=15
 def_evol_restriction_threshold=1./15.
@@ -63,6 +65,7 @@ img_bin_tol=1.75
 def_PA_N_timesteps=15
 def_PA_N_grid_pix=256
 
+# exceptions 
 class NotYetImplementedError(Exception):
     pass
 class NumericalDeltaError(Exception):
@@ -80,6 +83,7 @@ class ConflictingInfoError(Exception):
 class SurveyOutOfBoundsError(Exception): # make these inherit from each other (or something) to avoid repetitive code
     pass
 
+# presenting things
 def extrapolation_warning(regime,want,have):
     print("WARNING: if extrapolation is permitted in the interpolate_P call, it will be conducted for {:15s} (want {:9.4}, have{:9.4})".format(regime,want,have))
     return None
@@ -88,12 +92,24 @@ def represent(cosmo_stats_instance):
     representation='\n'.join("%s: %s" % item for item in attributes.items())
     print(representation)
 
+# side calculations
+def get_padding(n):
+    padding=n-1
+    padding_lo=int(np.ceil(padding / 2))
+    padding_hi=padding-padding_lo
+    return padding_lo,padding_hi
+def primary_beam_crossing_time(nu,dec=30.,D=6.):
+    beam_width_deg=1.029*(c/nu)/D*180/np.pi
+    crossing_time_hrs_no_dec=beam_width_deg/15
+    crossing_time_hrs= crossing_time_hrs_no_dec*np.cos(dec*pi/180)
+    return crossing_time_hrs
+
+# beams
 def UAA_Gaussian(X,Y,fwhm_x,fwhm_y,r0):
     """
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
     """
     return np.exp(-ln2*((X/fwhm_x)**2+(Y/fwhm_y)**2)/r0**2)
-
 def UAA_Airy(X,Y,fwhm_x,fwhm_y,r0):
     """
     (Nvox,Nvox,Nvox) Cartesian box (z=LoS direction), centred at r0, sampling the response fcn at each point
@@ -104,12 +120,37 @@ def UAA_Airy(X,Y,fwhm_x,fwhm_y,r0):
     argY=thetaY*BasicAiryHWHM/fwhm_y
     perp=((j1(argX+eps)*j1(argY+eps))/((argX+eps)*(argY+eps)))**2
     return perp
+def PA_Gaussian(u,v,ctr,fwhm):
+    u0,v0=ctr
+    # evaled=((pi*ln2)/(fwhm**2))*np.exp(-pi**2*(((u-u0)**2+(v-v0)**2)*fwhm**2)/np.log(2))
+    fwhmx,fwhmy=fwhm
+    evaled=((pi*ln2)/(fwhmx*fwhmy))*np.exp(-pi**2*((u-u0)**2*fwhmx**2+(v-v0)**2*fwhmy**2)/np.log(2))
+    return evaled
+def sparse_PA_Gaussian(u,v,ctr,fwhm,nsigma_npix):
+    """
+    same as the non-sparse version but uses scipy sparse arrays to make things less inefficient
 
+    u,v  - square coordinate arrays defining the grid
+    ctr  - uv coordinates of beam peak
+    fwhm -  
+    """
+    # figure out where to put the Gaussian and its values
+    u0,v0=ctr
+    # will need indices of the peak of the beam in the uv plane for sparse array anchoring purposes
+    base=0.*u
+    evaled=((pi*ln2)/(fwhm**2))*np.exp(-pi**2*(((u-u0)**2+(v-v0)**2)*fwhm**2)/np.log(2))
+    u0i,v0i=np.unravel_index(evaled.argmax(), evaled.shape)
+    base[u0i-nsigma_npix:u0i+nsigma_npix,v0i-nsigma_npix:v0i+nsigma_npix]=evaled[u0i-nsigma_npix:u0i+nsigma_npix,v0i-nsigma_npix:v0i+nsigma_npix]
+    evaled_sparse=spsp.csr_array(base)
+
+    # mask the 10-sigma region and store as a sparse array
+    return evaled_sparse
+
+# the actual pipeline!!
 """
 this class helps compute contaminant power and cosmological parameter biases using
-a Fisher-based formalism using two complementary strategies with different scopes:
-1. analytical windowing for a cylindrically symmetric Gaussian beam
-2. numerical  windowing for a Gaussian beam with different x- and y-pol widths
+a Fisher-based formalism numerical windowing for a Gaussian beam with different 
+x- and y-pol widths
 """
 
 class beam_effects(object):
@@ -129,8 +170,9 @@ class beam_effects(object):
                  pars_forecast_names=None,                                              # for verbose output
                  manual_primary_beam_modes=None,                                        # config space pts at which a pre–discretely sampled primary beam is known
                  no_monopole=True,                                                      # subtract off monopole moment to give zero-mean box?
-                 PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac, #
-                 PA_N_timesteps=def_PA_N_timesteps,PA_N_grid_pix=def_PA_N_grid_pix):  # 
+                 PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac, # !!! bruh finish documenting
+                 PA_N_timesteps=def_PA_N_timesteps,PA_N_grid_pix=def_PA_N_grid_pix,     # !!! idem
+                 PA_img_bin_tol=img_bin_tol,PA_ioname="placeholder",PA_recalc=False):   # !!! idemidem
         """
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
@@ -144,7 +186,7 @@ class beam_effects(object):
                                                                       * manual: primary beams evaluated on the    fwhms:        rad
                                                                         grid of interest, a list ordered as       evaled beams: ---
                                                                         [fidu,pert]
-                                                                      * PA-internal: FWHMs  
+                                                                      * PA: FWHM (only circular ok for now) 
         primary_beam_uncs          :: (2,) of floats               :: fractional uncertainties for x and y     :: ---
         pars_set_cosmo             :: (N_fid_pars,) of floats      :: params to condition a CAMB/etc. call     :: as found in ΛCDM
         pars_forecast              :: (N_forecast_pars,) of floats :: params for which you'd like to forecast  :: as found in ΛCDM
@@ -184,18 +226,45 @@ class beam_effects(object):
                 raise NotYetImplementedError
         elif (primary_beam_categ.lower()=="pa" or primary_beam_categ.lower()=="manual"):
             if (primary_beam_categ.lower()=="pa"):
-                # what happens in per_antenna? do I need to pass widths, or are those just calculated internally?
-                # yeah, I guess for now it's just that I'm falling back on the circular cross-section lambda/D thing
+                self.fwhm_x,self.fwhm_y=primary_beam_aux # MOVE THIS OUTSIDE THE LOOP TO AVOID REPETITIVE CODE
+                self.primary_beam_uncs= primary_beam_uncs
+                self.epsx,self.epsy=    self.primary_beam_uncs
+                if PA_recalc:
+                    self.PA_N_pert_types=  PA_N_pert_types
+                    self.PA_N_pbws_pert=   PA_N_pbws_pert
+                    self.PA_pbw_pert_frac= PA_pbw_pert_frac
+                    self.PA_N_timesteps=   PA_N_timesteps
+                    self.PA_N_grid_pix=    PA_N_grid_pix
+                    self.img_bin_tol=      PA_img_bin_tol
+                    print("beam_effects.__init__, PA branch: primary_beam_aux=",primary_beam_aux)
+                    fwhm=primary_beam_aux # eventually generalize to have two polarizations
+                    self.eps=primary_beam_uncs # also eventually generalize
 
-                # self.box, self.xy_vec, self.z_vec
-                fidu=per_antenna() # fidu=CHORD_image(nu_ctr=test_freq, N_pert_types=0) but that was with the old attributes
-                fidu.stack_to_box(delta_nu=self.Deltanu,N_grid_pix=self.PA_N_grid_pix)
-                fidu_box=fidu.box
-                pert=per_antenna(N_pert_types=self., )
+                    fidu=per_antenna(pbw_fidu=fwhm,PA_N_pert_types=0,
+                                    PA_pbw_pert_frac=0,N_timesteps=self.PA_N_timesteps,
+                                    PA_N_pbws_pert=0,nu_ctr=nu_ctr,PA_N_grid_pix=PA_N_grid_pix)
+                    fidu.stack_to_box()
+                    fidu_box=fidu.box
+                    xy_vec=fidu.xy_vec
+                    z_vec=fidu.z_vec
+                    pert=per_antenna(pbw_fidu=fwhm,PA_N_pert_types=self.PA_N_pert_types,
+                                    PA_pbw_pert_frac=self.PA_pbw_pert_frac,N_timesteps=self.PA_N_timesteps,
+                                    PA_N_pbws_pert=PA_N_pbws_pert,nu_ctr=nu_ctr,PA_N_grid_pix=PA_N_grid_pix)
+                    pert.stack_to_box()
+                    pert_box=pert.box
 
-                # hmmmmm if the actual windowing calculation happens in a subsequent internal cosmo_stats call...
-                # should I do it here to establish the sampled beam...
-                # and then defer to manual mode
+                    np.save("fidu_box_"+PA_ioname+".npy",fidu_box)
+                    np.save("pert_box_"+PA_ioname+".npy",pert_box)
+                    np.save("xy_vec_"+  PA_ioname+".npy",xy_vec)
+                    np.save("z_vec_"+   PA_ioname+".npy",z_vec)
+                else:
+                    fidu_box=np.load("fidu_box_"+PA_ioname+".npy")
+                    pert_box=np.load("pert_box_"+PA_ioname+".npy")
+                    xy_vec=  np.load("xy_vec_"+  PA_ioname+".npy")
+                    z_vec=   np.load("z_vec_"+   PA_ioname+".npy")
+
+                primary_beam_aux=[fidu_box,pert_box]
+                manual_primary_beam_modes=(xy_vec,xy_vec,z_vec)
             
             # now do the manual-y things
             if (manual_primary_beam_modes is None):
@@ -306,13 +375,6 @@ class beam_effects(object):
 
         # holder for numerical derivatives of a cylindrically binned power spectrum (sampled at the survey modes) wrt the params being forecast
         self.cyl_partials=np.zeros((self.N_pars_forecast,self.Nkpar_surv,self.Nkperp_surv))
-
-        # per-antenna PBW perturbation things that will be useful to keep around
-        self.PA_N_pert_types=  PA_N_pert_types
-        self.PA_N_pbws_pert=   PA_N_pbws_pert
-        self.PA_pbw_pert_frac= PA_pbw_pert_frac
-        self.PA_N_timesteps= PA_N_timesteps
-        self.PA_N_grid_pix=    PA_N_grid_pix
 
     def get_mps(self,pars_use,minkh=1e-4,maxkh=1):
         """
@@ -534,6 +596,7 @@ class beam_effects(object):
         for p,par in enumerate(self.pars_forecast):
             print('{:12} = {:-10.3e} with bias {:-12.5e} (fraction = {:-10.3e})'.format(self.pars_forecast_names[p], par, self.biases[p], self.biases[p]/par))
         return None
+####################################################################################################################################################################################################################################
 
 """
 this class helps connect ensemble-averaged power spectrum estimates and 
@@ -1021,17 +1084,28 @@ class cosmo_stats(object):
                 extrapolation_warning("high k",k_want_hi,k_have_hi)
             P_interpolator=interp1d(self.k0bins,self.P_converged,kind=self.kind,bounds_error=self.avoid_extrapolation,fill_value="extrapolate")
             self.P_interp=P_interpolator(self.k0bins_interp)
+####################################################################################################################################################################################################################################
 
-# class per_antenna(object): # old
-class per_antenna(beam_effects):
+"""
+this class helps compute numerical windowing boxes for brightness temp boxes
+resulting from primary beams that have the flexibility to differ on a per-
+antenna basis. (beam chromaticity built in).
+"""
+
+class per_antenna(beam_effects): # metastable state for a good chunk of Thurs 30/10/25
     def __init__(self,
                  mode="full",b_NS=b_NS,b_EW=b_EW,observing_dec=def_observing_dec,offset_deg=def_offset_deg,
-                #  N_pert_types=0,N_pbws_to_pert=0,pbw_pert_frac=1e-2, # NOW ABSTRACTED TO THE LEVEL OF BEAM_EFFECTS
-                #  N_timesteps=15,
-                 N_hrs=None,nu_ctr=nu_HI_z0,
-                 pbw_fidu=None
+                 PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac,
+                 N_timesteps=def_N_timesteps,nu_ctr=nu_HI_z0,
+                 pbw_fidu=None,PA_N_grid_pix=def_PA_N_grid_pix,Delta_nu=0.183
                  ):
         # array and observation geometry
+        self.PA_N_pert_types=PA_N_pert_types
+        self.PA_N_pbws_pert=PA_N_pbws_pert
+        self.PA_pbw_pert_frac=PA_pbw_pert_frac
+        self.PA_N_timesteps=N_timesteps
+        self.PA_N_grid_pix=PA_N_grid_pix
+        self.Delta_nu=Delta_nu
         self.N_NS=N_NS_full
         self.N_EW=N_EW_full
         self.DRAO_lat=DRAO_lat
@@ -1043,14 +1117,13 @@ class per_antenna(beam_effects):
         self.observing_dec=observing_dec
         self.nu_ctr_MHz=nu_ctr
         self.nu_ctr_Hz=nu_ctr*1e6
-        if (N_hrs is None):
-            N_hrs=primary_beam_crossing_time(self.nu_ctr_Hz,dec=self.observing_dec,D=D) # freq needs to be in Hz
-        self.N_hrs=N_hrs
+        self.N_hrs=primary_beam_crossing_time(self.nu_ctr_Hz,dec=self.observing_dec,D=D) # freq needs to be in Hz
         self.lambda_obs=c/self.nu_ctr_Hz
         if (pbw_fidu is None):
             pbw_fidu=self.lambda_obs/D
-        self.pbw_fidu=pbw_fidu
-        # self.pbw_pert_frac=self.pbw_pert_frac
+            pbw_fidu=[pbw_fidu,pbw_fidu]
+        self.pbw_fidu=np.array(pbw_fidu) # NEEDS TO BE UNPACKABLE AS X,Y ... but pointless to re-cast to np array here bc I've already done so in the calling routine
+        print("per_antenna.__init__: self.pbw_fidu=",self.pbw_fidu)
         
         # antenna positions xyz
         antennas_EN=np.zeros((self.N_ant,2))
@@ -1155,7 +1228,7 @@ class per_antenna(beam_effects):
         print("computed ungridded instantaneous uv-coverage")
 
         # rotation-synthesized uv-coverage *******(N_bl,3,N_timesteps), accumulating xyz->uvw transformations at each timestep
-        hour_angle_ceiling=np.pi*N_hrs/12
+        hour_angle_ceiling=np.pi*self.N_hrs/12
         hour_angles=np.linspace(0,hour_angle_ceiling,self.PA_N_timesteps)
         thetas=hour_angles*15*np.pi/180
         
@@ -1220,12 +1293,13 @@ class per_antenna(beam_effects):
         self.uv_bin_edges=uv_bin_edges
         return dirty_image,uv_bin_edges,thetamax
 
-    def stack_to_box(self,delta_nu,evol_restriction_threshold=def_evol_restriction_threshold, N_grid_pix=1024, tol=img_bin_tol):
+    def stack_to_box(self,evol_restriction_threshold=def_evol_restriction_threshold, tol=img_bin_tol):
         if (self.nu_ctr_MHz<(350/(1-evol_restriction_threshold/2)) or self.nu_ctr_MHz>(nu_HI_z0/(1+evol_restriction_threshold/2))):
             raise SurveyOutOfBoundsError
-        self.N_grid_pix=N_grid_pix
+        self.img_bin_tol=tol
+        N_grid_pix=self.PA_N_grid_pix
         bw_MHz=self.nu_ctr_MHz*evol_restriction_threshold
-        N_chan=int(bw_MHz/delta_nu)
+        N_chan=int(bw_MHz/self.Delta_nu)
         self.nu_lo=self.nu_ctr_MHz-bw_MHz/2.
         self.nu_hi=self.nu_ctr_MHz+bw_MHz/2.
         surv_channels_MHz=np.linspace(self.nu_hi,self.nu_lo,N_chan) # decr.
@@ -1237,15 +1311,22 @@ class per_antenna(beam_effects):
         self.comoving_distances_channels=np.asarray([comoving_distance(chan) for chan in self.z_channels]) # incr.
         self.ctr_chan_comov_dist=self.comoving_distances_channels[N_chan//2]
 
+        # rescale chromatic beam widths by whatever was passed
+        xy_beam_widths=np.array((surv_beam_widths,surv_beam_widths)).T
+        ctr_chan_beam_width=(c/(self.nu_ctr_Hz*D))
+        xy_beam_widths[:,0]*=(self.pbw_fidu[0]/ctr_chan_beam_width)
+        xy_beam_widths[:,1]*=(self.pbw_fidu[1]/ctr_chan_beam_width)
+
         box=np.zeros((N_grid_pix,N_grid_pix,N_chan))
-        surv_beam_widths_desc=np.flip(surv_beam_widths) # traverse beam widths in descending order = handle first the slice with the narrowest uv bin extent
-        for i,beam_width in enumerate(surv_beam_widths_desc):
+        # surv_beam_widths_desc=np.flip(surv_beam_widths) # traverse beam widths in descending order = handle first the slice with the narrowest uv bin extent
+        xy_beam_widths_desc=np.flip(xy_beam_widths,axis=0)
+        for i,xy_beam_width in enumerate(xy_beam_widths_desc):
             # rescale the uv-coverage to this channel's frequency
             self.uv_synth=self.uv_synth*self.lambda_obs/surv_wavelengths[i] # rescale according to observing frequency: multiply up by the prev lambda to cancel, then divide by the current/new lambda
             self.lambda_obs=surv_wavelengths[i] # update the observing frequency for next time
 
             # compute the dirty image
-            chan_dirty_image,chan_uv_bin_edges,thetamax=self.calc_dirty_image(Npix=N_grid_pix, pbw_fidu_use=beam_width)
+            chan_dirty_image,chan_uv_bin_edges,thetamax=self.calc_dirty_image(Npix=N_grid_pix, pbw_fidu_use=xy_beam_width, tol=self.img_bin_tol)
             
             # interpolate to store in stack
             if i==0:
@@ -1271,51 +1352,3 @@ class per_antenna(beam_effects):
         z_vec=self.comoving_distances_channels-self.ctr_chan_comov_dist # comoving distances from each freq channel... maybe eventually let cosmo_stats handle this? but also maybe not bc I call this before that? but also eventually I'll probably just refactor this to be a part of cosmo_stats?
         self.xy_vec=xy_vec
         self.z_vec=z_vec
-
-# use the part of the Blues colour map with decent contrast and eyeball-ably perceivable differences between adjacent samplings
-def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=1000): # https://stackoverflow.com/questions/18926031/how-to-extract-a-subset-of-a-colormap-as-a-new-colormap-in-matplotlib
-    new_cmap = matplotlib.colors.LinearSegmentedColormap.from_list(
-        'trunc({n},{a:.2f},{b:.2f})'.format(n=cmap.name, a=minval, b=maxval),
-        cmap(np.linspace(minval, maxval, n)))
-    return new_cmap
-cmap = plt.get_cmap("Blues")
-trunc_Blues = truncate_colormap(cmap, 0.2, 0.8)
-
-def get_padding(n):
-    padding=n-1
-    padding_lo=int(np.ceil(padding / 2))
-    padding_hi=padding-padding_lo
-    return padding_lo,padding_hi
-
-def PA_Gaussian(u,v,ctr,fwhm):
-    u0,v0=ctr
-    evaled=((pi*ln2)/(fwhm**2))*np.exp(-pi**2*(((u-u0)**2+(v-v0)**2)*fwhm**2)/np.log(2))
-    # fwhmx,fwhmy=fwhm
-    # evaled=((pi*ln2)/(fwhmx*fwhmy))*np.exp(-pi**2*((u-u0)**2*fwhmx**2+(v-v0)**2*fwhmy**2)/np.log(2))
-    return evaled
-
-def sparse_PA_Gaussian(u,v,ctr,fwhm,nsigma_npix):
-    """
-    same as the non-sparse version but uses scipy sparse arrays to make things less inefficient
-
-    u,v  - square coordinate arrays defining the grid
-    ctr  - uv coordinates of beam peak
-    fwhm -  
-    """
-    # figure out where to put the Gaussian and its values
-    u0,v0=ctr
-    # will need indices of the peak of the beam in the uv plane for sparse array anchoring purposes
-    base=0.*u
-    evaled=((pi*ln2)/(fwhm**2))*np.exp(-pi**2*(((u-u0)**2+(v-v0)**2)*fwhm**2)/np.log(2))
-    u0i,v0i=np.unravel_index(evaled.argmax(), evaled.shape)
-    base[u0i-nsigma_npix:u0i+nsigma_npix,v0i-nsigma_npix:v0i+nsigma_npix]=evaled[u0i-nsigma_npix:u0i+nsigma_npix,v0i-nsigma_npix:v0i+nsigma_npix]
-    evaled_sparse=spsp.csr_array(base)
-
-    # mask the 10-sigma region and store as a sparse array
-    return evaled_sparse
-
-def primary_beam_crossing_time(nu,dec=30.,D=6.):
-    beam_width_deg=1.029*(2.998e8/nu)/D*180/np.pi
-    crossing_time_hrs_no_dec=beam_width_deg/15
-    crossing_time_hrs= crossing_time_hrs_no_dec*np.cos(dec*pi/180)
-    return crossing_time_hrs
