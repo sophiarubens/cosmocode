@@ -65,7 +65,7 @@ img_bin_tol=1.75
 def_PA_N_timesteps=15
 def_PA_N_grid_pix=256
 
-# exceptions 
+# warnings 
 class NotYetImplementedError(Exception):
     pass
 class NumericalDeltaError(Exception):
@@ -82,18 +82,15 @@ class ConflictingInfoError(Exception):
     pass
 class SurveyOutOfBoundsError(Exception): # make these inherit from each other (or something) to avoid repetitive code
     pass
-
-# presenting things
 def extrapolation_warning(regime,want,have):
     print("WARNING: if extrapolation is permitted in the interpolate_P call, it will be conducted for {:15s} (want {:9.4}, have{:9.4})".format(regime,want,have))
     return None
-def represent(cosmo_stats_instance):
-    attributes=vars(cosmo_stats_instance)
-    representation='\n'.join("%s: %s" % item for item in attributes.items())
-    print(representation)
 
 # side calculations
 def get_padding(n):
+    """
+    to avoid edge effects in a convolution
+    """
     padding=n-1
     padding_lo=int(np.ceil(padding / 2))
     padding_hi=padding-padding_lo
@@ -122,7 +119,6 @@ def UAA_Airy(X,Y,fwhm_x,fwhm_y,r0):
     return perp
 def PA_Gaussian(u,v,ctr,fwhm):
     u0,v0=ctr
-    # evaled=((pi*ln2)/(fwhm**2))*np.exp(-pi**2*(((u-u0)**2+(v-v0)**2)*fwhm**2)/np.log(2))
     fwhmx,fwhmy=fwhm
     evaled=((pi*ln2)/(fwhmx*fwhmy))*np.exp(-pi**2*((u-u0)**2*fwhmx**2+(v-v0)**2*fwhmy**2)/np.log(2))
     return evaled
@@ -134,16 +130,12 @@ def sparse_PA_Gaussian(u,v,ctr,fwhm,nsigma_npix):
     ctr  - uv coordinates of beam peak
     fwhm -  
     """
-    # figure out where to put the Gaussian and its values
     u0,v0=ctr
-    # will need indices of the peak of the beam in the uv plane for sparse array anchoring purposes
     base=0.*u
     evaled=((pi*ln2)/(fwhm**2))*np.exp(-pi**2*(((u-u0)**2+(v-v0)**2)*fwhm**2)/np.log(2))
     u0i,v0i=np.unravel_index(evaled.argmax(), evaled.shape)
     base[u0i-nsigma_npix:u0i+nsigma_npix,v0i-nsigma_npix:v0i+nsigma_npix]=evaled[u0i-nsigma_npix:u0i+nsigma_npix,v0i-nsigma_npix:v0i+nsigma_npix]
     evaled_sparse=spsp.csr_array(base)
-
-    # mask the 10-sigma region and store as a sparse array
     return evaled_sparse
 
 # the actual pipeline!!
@@ -170,9 +162,9 @@ class beam_effects(object):
                  pars_forecast_names=None,                                              # for verbose output
                  manual_primary_beam_modes=None,                                        # config space pts at which a pre–discretely sampled primary beam is known
                  no_monopole=True,                                                      # subtract off monopole moment to give zero-mean box?
-                 PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac, # !!! bruh finish documenting
-                 PA_N_timesteps=def_PA_N_timesteps,PA_N_grid_pix=def_PA_N_grid_pix,     # !!! idem
-                 PA_img_bin_tol=img_bin_tol,PA_ioname="placeholder",PA_recalc=False):   # !!! idemidem
+                 PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac, # numbers of perturbation types, primary beam widths to perturb, and fraction governing the amplitude of the PDF from which perturbed primary beam widths are drawn
+                 PA_N_timesteps=def_PA_N_timesteps,PA_N_grid_pix=def_PA_N_grid_pix,     # numbers of timesteps to put in rotation synthesis and pixels per side of gridded uv plane
+                 PA_img_bin_tol=img_bin_tol,PA_ioname="placeholder",PA_recalc=False):   # 
         """
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
@@ -213,22 +205,31 @@ class beam_effects(object):
                                       of strs
         manual_primary_beam_modes  :: x,y,z coordinate axes        :: domain of a discrete sampling            :: Mpc
                                       (if primary_beam !callable)
-        per_ant_out_name           :: str                          :: name of per-antenna beam box to read     :: ---
-                                                                      from or write to
+        no_monopole                :: bool                         :: y/n enforce mean-0 in box realizations   :: ---
+        PA_N_pert_types            :: int                          :: # classes of PB (per-antenna only)       :: ---
+        PA_N_pbws_pert             :: int                          :: # antennas w/ pertn PBs (per-ant only)   :: ---
+        PA_pbw_pert_frac           :: float                        :: frac of fidu PBW governing PDF draw 
+                                                                      (per-antenna only)
+        PA_N_timesteps             :: int                          :: # time steps in rotation synthesis (per- :: ---
+                                                                      antenna only)
+        PA_N_grid_pix              :: int                          :: # bins per side for uv plane gridding    :: ---
+                                                                      (per-antenna only)
+        PA_img_bin_tol             :: float                        :: # how much padding (to avoid ringing) to :: ---
+                                                                      put in uv-plane gridding (per-ant only)
+        PA_ioname                  :: str                          :: fname to save/load stacked per-ant boxes :: ---
+        PA_recalc                  :: bool                         :: recalculate per-antenna beamed boxes?    :: ---
         """
         # primary beam considerations
+        if (primary_beam_categ.lower()!="manual"):
+            self.fwhm_x,self.fwhm_y=primary_beam_aux
+            self.primary_beam_uncs= primary_beam_uncs
+            self.epsx,self.epsy=    self.primary_beam_uncs
+
         if (primary_beam_categ.lower()=="uaa"):
-            if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airy"):
-                self.fwhm_x,self.fwhm_y=primary_beam_aux
-                self.primary_beam_uncs= primary_beam_uncs
-                self.epsx,self.epsy=    self.primary_beam_uncs
-            else:
+            if (primary_beam_type.lower()!="gaussian" and primary_beam_type.lower()!="airy"):
                 raise NotYetImplementedError
         elif (primary_beam_categ.lower()=="pa" or primary_beam_categ.lower()=="manual"):
             if (primary_beam_categ.lower()=="pa"):
-                self.fwhm_x,self.fwhm_y=primary_beam_aux # MOVE THIS OUTSIDE THE LOOP TO AVOID REPETITIVE CODE
-                self.primary_beam_uncs= primary_beam_uncs
-                self.epsx,self.epsy=    self.primary_beam_uncs
                 if PA_recalc:
                     self.PA_N_pert_types=  PA_N_pert_types
                     self.PA_N_pbws_pert=   PA_N_pbws_pert
@@ -236,7 +237,6 @@ class beam_effects(object):
                     self.PA_N_timesteps=   PA_N_timesteps
                     self.PA_N_grid_pix=    PA_N_grid_pix
                     self.img_bin_tol=      PA_img_bin_tol
-                    print("beam_effects.__init__, PA branch: primary_beam_aux=",primary_beam_aux)
                     fwhm=primary_beam_aux # eventually generalize to have two polarizations
                     self.eps=primary_beam_uncs # also eventually generalize
 
@@ -1092,12 +1092,13 @@ resulting from primary beams that have the flexibility to differ on a per-
 antenna basis. (beam chromaticity built in).
 """
 
-class per_antenna(beam_effects): # metastable state for a good chunk of Thurs 30/10/25
+class per_antenna(beam_effects):
     def __init__(self,
                  mode="full",b_NS=b_NS,b_EW=b_EW,observing_dec=def_observing_dec,offset_deg=def_offset_deg,
                  PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac,
                  N_timesteps=def_N_timesteps,nu_ctr=nu_HI_z0,
-                 pbw_fidu=None,PA_N_grid_pix=def_PA_N_grid_pix,Delta_nu=0.183
+                 pbw_fidu=None,PA_N_grid_pix=def_PA_N_grid_pix,Delta_nu=0.183,
+                 PA_distribution="random"
                  ):
         # array and observation geometry
         self.PA_N_pert_types=PA_N_pert_types
@@ -1105,6 +1106,7 @@ class per_antenna(beam_effects): # metastable state for a good chunk of Thurs 30
         self.PA_pbw_pert_frac=PA_pbw_pert_frac
         self.PA_N_timesteps=N_timesteps
         self.PA_N_grid_pix=PA_N_grid_pix
+        self.PA_distribution=PA_distribution
         self.Delta_nu=Delta_nu
         self.N_NS=N_NS_full
         self.N_EW=N_EW_full
@@ -1123,7 +1125,6 @@ class per_antenna(beam_effects): # metastable state for a good chunk of Thurs 30
             pbw_fidu=self.lambda_obs/D
             pbw_fidu=[pbw_fidu,pbw_fidu]
         self.pbw_fidu=np.array(pbw_fidu) # NEEDS TO BE UNPACKABLE AS X,Y ... but pointless to re-cast to np array here bc I've already done so in the calling routine
-        print("per_antenna.__init__: self.pbw_fidu=",self.pbw_fidu)
         
         # antenna positions xyz
         antennas_EN=np.zeros((self.N_ant,2))
@@ -1154,10 +1155,29 @@ class per_antenna(beam_effects): # metastable state for a good chunk of Thurs 30
         if (self.PA_N_pbws_pert>0):
             epsilons[1:]=self.PA_pbw_pert_frac*np.random.uniform(size=np.insert(self.PA_N_pert_types,0,1))
 
-            # the randomly drawn way (fallback)
-            indices_of_ants_w_pert_pbws=np.random.randint(0,self.N_ant,size=self.PA_N_pbws_pert) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
-            pbw_types[indices_of_ants_w_pert_pbws]=np.random.randint(1,high=N_beam_types,size=np.insert(self.PA_N_pbws_pert,0,1)) # leaves as zero the indices associated with unperturbed antennas
-        
+            if self.PA_distribution=="random":
+                indices_of_ants_w_pert_pbws=np.random.randint(0,self.N_ant,size=self.PA_N_pbws_pert) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
+                pbw_types[indices_of_ants_w_pert_pbws]=np.random.randint(1,high=N_beam_types,size=np.insert(self.PA_N_pbws_pert,0,1)) # leaves as zero the indices associated with unperturbed antennas
+            else:
+                antenna_numbers=np.reshape(np.arange(self.N_ant),(self.N_NS,self.N_EW)) # row-major. perturb chunks in turn
+                if self.PA_ditribution=="corner":
+                    if self.N_beam_types!=4:
+                        raise ConflictingInfoError
+                    half_NS=self.N_NS//2
+                    half_EW=self.N_EW//2
+                    NW_corner=antenna_numbers[:half_NS,:half_EW]
+                    NE_corner=antenna_numbers[:half_NS,half_EW:]
+                    SE_corner=antenna_numbers[half_NS:,half_EW:]
+                    SW_corner=antenna_numbers[half_NS:,:half_EW]
+                    raise NotYetImplementedError
+                elif self.PA_distribution=="diagonal":
+                    raise NotYetImplementedError
+                elif self.PA_distribution=="rowcol":
+                    raise NotYetImplementedError
+                elif self.PA_distribution=="ring":
+                    raise NotYetImplementedError
+                else:
+                    raise NotYetImplementedError
             # # the segmented-across-the-array way (hypothesized example of a case that should give k-dependent results)
             ### THIS HAS 100 PERTURBED ANTENNAS AND TWO PERTURBATION TYPES BAKED IN... SHOULD GENERALIZE IF I REALLY WANT TO ROLL WITH THIS!!
             ### + BAKE IN OTHER OPTIONS BEYOND JUST THE CORNERS
@@ -1318,7 +1338,6 @@ class per_antenna(beam_effects): # metastable state for a good chunk of Thurs 30
         xy_beam_widths[:,1]*=(self.pbw_fidu[1]/ctr_chan_beam_width)
 
         box=np.zeros((N_grid_pix,N_grid_pix,N_chan))
-        # surv_beam_widths_desc=np.flip(surv_beam_widths) # traverse beam widths in descending order = handle first the slice with the narrowest uv bin extent
         xy_beam_widths_desc=np.flip(xy_beam_widths,axis=0)
         for i,xy_beam_width in enumerate(xy_beam_widths_desc):
             # rescale the uv-coverage to this channel's frequency
@@ -1348,7 +1367,7 @@ class per_antenna(beam_effects): # metastable state for a good chunk of Thurs 30
 
         # generate a box of r-values (necessary for interpolation to survey modes in the manual beam mode of cosmo_stats as called by beam_effects)
         thetas=np.linspace(-self.theta_max_box,self.theta_max_box,N_grid_pix)
-        xy_vec=self.ctr_chan_comov_dist*thetas # supply the thetas but multiply by the central channel's comoving distance (here, I'll need to make the coeval approximation)
-        z_vec=self.comoving_distances_channels-self.ctr_chan_comov_dist # comoving distances from each freq channel... maybe eventually let cosmo_stats handle this? but also maybe not bc I call this before that? but also eventually I'll probably just refactor this to be a part of cosmo_stats?
+        xy_vec=self.ctr_chan_comov_dist*thetas # making the coeval approximation
+        z_vec=self.comoving_distances_channels-self.ctr_chan_comov_dist 
         self.xy_vec=xy_vec
         self.z_vec=z_vec

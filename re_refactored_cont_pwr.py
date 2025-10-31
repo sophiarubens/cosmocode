@@ -6,6 +6,8 @@ from cosmo_distances import *
 from forecasting_pipeline import *
 import time
 
+redo_window_calc=False
+
 ############################## cosmo params, constants, and conversion factors ########################################################################################################################
 Omegam_Planck18=0.3158
 Omegabh2_Planck18=0.022383
@@ -29,7 +31,9 @@ dpar=1e-3*np.ones(nprm) # gets overwritten by the adaptive stepper in my numeric
 dpar[3]*=scale
 
 ############################## details of a hypothetical survey cooked up for testing purposes ########################################################################################################################
-nu_ctr=900. # centre frequency of survey in MHz
+nu_ctr=363. # centre frequency of survey in MHz
+nu_ctr_Hz=nu_ctr*1e6
+wl_ctr_m=c/nu_ctr_Hz
 channel_width=0.183 # 183 kHz from CHORD Wiki -> SWGs -> Galaxies -> CHORD Pathfinder specs -> Spectral resolution
 
 ############################## initializations related to cylindrically binned k-modes ########################################################################################################################
@@ -40,10 +44,11 @@ N_EW_CHORD=22
 bminCHORD=6.3
 
 mode="pathfinder" 
-# mode="full"
+# mode="full" # Nvox goes to 370
 uaa_beam_type="Airy"
-# categ="UAA"
-categ="PA"
+categ="UAA"
+# categ="PA"
+PA_N_pbws_pert=100
 # categ="manual"
 
 plot="P" 
@@ -60,19 +65,19 @@ elif mode=="full":
 # ceil=300 # necessary compromise when asking for 0.04 convergence
 ceil=275 # fine for 0.1 Poisson noise level but better to use 0 when avoiding extrap
 # ceil=230 # 485 s for the test to run (in the form it was in around 09:00 on the Thursday before Thanksgiving/reading week 2025.)
+ceil=0 # Nvox=668 for a 900 MHz pathfinder survey; Nvox=266 for a 363 MHz pathfinder survey
 # frac_tol_conv=0.075
 frac_tol_conv=0.1
 
 N_sph=256
 
-hpbw_x= 6*  pi/180. # rad; lambda/D estimate (actually physically realistic)
-hpbw_y= 4.5*pi/180.
+hpbw_x= wl_ctr_m/D *  pi/180. # rad; lambda/D estimate (actually physically realistic)
+hpbw_y= 0.75 * hpbw_x         # we know this tends to be a little narrower, based on measurements
 
-epsilons_xy=np.arange(0.0,0.35,0.05) # use a smaller vector for a faster test (for speedy eval, alternatively just toggle into read-only mode)
+epsilons_xy=np.arange(0.0,0.3,0.05) 
 N_systematic_cases=len(epsilons_xy)
 blues_here = plt.cm.Blues( np.linspace(1,0.2,N_systematic_cases))
 oranges_here = plt.cm.Oranges( np.linspace(1,0.2,N_systematic_cases))
-redo_window_calc=True
 ptail="_"+categ+".npy"
 
 ioname=mode+"_"+str(int(nu_ctr))+"_MHz_"+categ+"_ceil_"+str(ceil)+"_Poisson_"+str(round(frac_tol_conv,1))
@@ -88,8 +93,8 @@ fig,axs=plt.subplots(1,2,figsize=(12,5))
 for i in range(2):
     axs[i].set_xlabel("k (1/Mpc)")
     axs[i].set_ylabel(y_label)
-axs[0].set_title(qty_title+"\n"+"systematic-laden and fiducially beamed side-by-side")
-axs[1].set_title("fractional difference of systematic-laden and fiducially beamed")
+axs[0].set_title("side-by-side")
+axs[1].set_title("fractional difference")
 for i,epsilon_xy in enumerate(epsilons_xy):
     epsxy=epsilon_xy
 
@@ -104,6 +109,7 @@ for i,epsilon_xy in enumerate(epsilons_xy):
                                           nu_ctr,channel_width,
                                           frac_tol_conv=frac_tol_conv,
                                           pars_forecast_names=parnames, no_monopole=False)
+            categ_title="primary beam widths perturbed uniformly across the array"
         elif categ=="PA":
             windowed_survey=beam_effects(bminCHORD,bmaxCHORD,ceil,
                                          categ,"Gaussian",bundled_non_manual_primary_aux,bundled_non_manual_primary_uncs, # right now, the beam type argument isn't actually doing anything (both in the sense that I've only implemented a Gaussian beam and I'm not filtering by this argument)
@@ -112,8 +118,9 @@ for i,epsilon_xy in enumerate(epsilons_xy):
                                          nu_ctr,channel_width,
                                          frac_tol_conv=frac_tol_conv,
                                          pars_forecast_names=parnames, no_monopole=False,
-                                         PA_N_pert_types=2,PA_N_pbws_pert=100,PA_pbw_pert_frac=epsxy,
+                                         PA_N_pert_types=2,PA_N_pbws_pert=PA_N_pbws_pert,PA_pbw_pert_frac=epsxy,
                                          PA_ioname=ioname,PA_recalc=False) # GET RID OF THE PA_PBW_PERT_FRAC ARGUMENT BC OF OVERLAP WITH PRIMARY_BEAM_UNCS (ONCE THIS QUASI-SPAGHETTI RUNS)
+            categ_title=str(PA_N_pbws_pert)+" antennas' primary beam widths perturbed randomly throughout the array"
     else:
         head="placeholder_fname_manual_"
         xy_vec=np.load(head+"_xy_vec.npy")
@@ -166,7 +173,6 @@ for i,epsilon_xy in enumerate(epsilons_xy):
     Pfidu_sph=np.reshape(Pfidu_sph,(Pfidu_sph.shape[-1],))
 
     doubled=np.linspace(kmin_surv,kmax_surv,N_sph*2) # print statements offer no reason why this should have to be a workaround (I think it was because I had conflicting versions of N_sph that were named confusingly and they were off by almost a factor of two: 128 and 250)
-    # doubled=np.copy(k_sph) # testing my N_sph theory and seeing if I can make the thing that used to have doubled resolution no longer have it. physically ok if so.
     Pcont_sph=interpn(kcyl_for_interp, Pcont_cyl_surv, doubled, bounds_error=False, fill_value=None)
     Pthought_sph=interpn(kcyl_for_interp, Pthought_cyl_surv, doubled, bounds_error=False, fill_value=None)
     Ptrue_sph=interpn(kcyl_for_interp, Ptrue_cyl_surv, doubled, bounds_error=False, fill_value=None)
@@ -195,15 +201,16 @@ for i,epsilon_xy in enumerate(epsilons_xy):
     label_for_eps="frac. unc. in HPBW= "+str(np.round(epsxy,2))
     axs[0].semilogy(k_sph,true[k],label=fid_label,c=oranges_here[i])
     axs[0].semilogy(k_sph,thought[k],label=label_for_eps,c=blues_here[i])
-    axs[0].set_ylim(0,1.2*np.max(true[k]))
 
-    axs[1].plot(k_sph,(true[k]-thought[k])/true[k],c=blues_here[i])
-    axs[1].axhline(epsilons_xy[i],c=blues_here[i],ls=":",label=label_for_dot)
+    frac_dif=(true[k]-thought[k])/true[k]
+    axs[1].plot(k_sph,frac_dif,c=blues_here[i])
 
     for m in range(2):
         axs[m].set_xlim(kmin_surv,kmax_surv*0.75) # /2 in kmax b/c of +/- in box
+frac_dif_lim=1.05*np.max(np.abs(frac_dif[:3*N_sph//4]))
+axs[1].set_ylim(-frac_dif_lim,frac_dif_lim)
 axs[0].legend()
-plt.suptitle("{:5} MHz CHORD {} survey \n{} HPBW {:5.3} (x) and {:5.3} (y)".format(nu_ctr,mode,uaa_beam_type,hpbw_x,hpbw_y))
+plt.suptitle("{:5} MHz CHORD {} survey \n{}\n{} HPBW {:5.3} (x) and {:5.3} (y)\nsystematic-laden and fiducially beamed {}".format(nu_ctr,mode,categ_title,uaa_beam_type,hpbw_x,hpbw_y,qty_title))
 plt.tight_layout()
 plt.savefig("Pcont_refactored_"+str(plot)+"_"+str(int(nu_ctr))+"_"+str(categ)+".png",dpi=200)
 plt.show()
