@@ -183,7 +183,7 @@ class beam_effects(object):
                                                                       * manual: primary beams evaluated on the    fwhms:        rad
                                                                         grid of interest, a list ordered as       evaled beams: ---
                                                                         [fidu,pert]
-                                                                      * PA: FWHM (only circular ok for now) 
+                                                                      * PA: FWHM (now with x- and y-pol!!) 
         primary_beam_uncs          :: (2,) of floats               :: fractional uncertainties for x and y     :: ---
         pars_set_cosmo             :: (N_fid_pars,) of floats      :: params to condition a CAMB/etc. call     :: as found in ΛCDM
         pars_forecast              :: (N_forecast_pars,) of floats :: params for which you'd like to forecast  :: as found in ΛCDM
@@ -224,6 +224,10 @@ class beam_effects(object):
         PA_ioname                  :: str                          :: fname to save/load stacked per-ant boxes :: ---
         PA_recalc                  :: bool                         :: recalculate per-antenna beamed boxes?    :: ---
         PA_distribution            :: str                          :: how to distribute perturbation types     :: ---
+        PA_N_fiducial_beam_types   :: int
+        PA_fidu_types_prefactors   :: (PA_N_fiducial_beam_types,)  :: initial inroads into making the dif fidu :: ---
+                                      of floats                       beam classes actually dif (multiplic.
+                                                                      prefactor compared to lambda/D)
         """
         # primary beam considerations
         if (primary_beam_categ.lower()!="manual"):
@@ -405,7 +409,6 @@ class beam_effects(object):
         As=pars_use[3]*scale
         ns=pars_use[4]
 
-        # REAL PHYSICS
         pars_use_internal=camb.set_params(H0=H0, ombh2=ombh2, omch2=omch2, ns=ns, mnu=0.06,omk=0)
         pars_use_internal.InitPower.set_params(As=As,ns=ns,r=0)
         pars_use_internal.set_matter_power(redshifts=z, kmax=maxkh*h)
@@ -413,11 +416,6 @@ class beam_effects(object):
         pars_use_internal.NonLinear = model.NonLinear_none
         kh,z,pk=results.get_matter_power_spectrum(minkh=minkh,maxkh=maxkh,npoints=self.n_sph_modes)
 
-        # # NOT REAL PHYSICS (trying to tease out the k-dependence thing)
-        # pk=-4*(kh-0.75)**2+2.5 # peak near 0.75, pos bw about 0 and 1.5 ... fine, but I think I'd be more targeted if I were to switch to a Gaussian "..._parabola"
-        # pk=np.exp(-(kh-0.75)**2/(2*0.15**2))+0.25 # "..._gaussian"
-        # pk=np.reshape(pk,(len(pk),1)) # although this seems like jumping through a convoluted hoop, the whole rest of the pipeline is referenced to the kind of (1,npts) shape you get from CAMB... easier to address in one line here rather than comment out all the other places, even if it's conceptually redundant
-        # pk=pk.T
         return kh,pk
     
     def unbin_to_Pcyl(self,pars_to_use):
@@ -447,8 +445,6 @@ class beam_effects(object):
     def calc_Pcont_asym(self):
         """
         calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
-        (you can still form a cylindrical summary statistic from brightness temp fields encoding effects beyond this symmetry)
-
         contaminant power, calculated as the difference of subtracted spectra with config space–multiplied "true" and "thought" instrument responses
         """
         if (self.primary_beam_type!="manual"):
@@ -494,27 +490,27 @@ class beam_effects(object):
 
         self.Ptrue_cyl=    tr.P_converged
         self.Pthought_cyl= th.P_converged
-        self.Pcont_cyl=    self.Ptrue_cyl-self.Pthought_cyl ### same update as calc_Pcont_sym
+        self.Pcont_cyl=    self.Ptrue_cyl-self.Pthought_cyl
 
         if (not np.all(self.Pcont_cyl.shape==self.uncs.shape)):
             interp_holder=cosmo_stats(self.Lsurvbox,P_fid=self.Pcont_cyl,Nvox=self.Nvoxbox,
                                       Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
                                       k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
-                                      no_monopole=self.no_monopole) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial (or, at least, that's what I need to make happen)
+                                      no_monopole=self.no_monopole) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial
             interp_holder.interpolate_P(use_P_fid=True)
             self.Pcont_cyl_surv=interp_holder.P_interp
 
             interp_holder=cosmo_stats(self.Lsurvbox,P_fid=self.Pthought_cyl,Nvox=self.Nvoxbox,
                                       Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
                                       k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
-                                      no_monopole=self.no_monopole) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial (or, at least, that's what I need to make happen)
+                                      no_monopole=self.no_monopole)
             interp_holder.interpolate_P(use_P_fid=True)
             self.Pthought_cyl_surv=interp_holder.P_interp
 
             interp_holder=cosmo_stats(self.Lsurvbox,P_fid=self.Ptrue_cyl,Nvox=self.Nvoxbox,
                                       Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
                                       k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
-                                      no_monopole=self.no_monopole) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial (or, at least, that's what I need to make happen)
+                                      no_monopole=self.no_monopole)
             interp_holder.interpolate_P(use_P_fid=True)
             self.Ptrue_cyl_surv=interp_holder.P_interp
             print("interpolated Pcont, Ptrue, and Pthought to survey modes")
@@ -532,7 +528,7 @@ class beam_effects(object):
         pndispersed=pcopy[n]+np.linspace(-2,2,5)*dparn
 
         P0=np.mean(np.abs(self.Pcyl))+self.eps
-        tol=self.ftol_deriv*P0 # generalizes tol=ftol*f0 from 512
+        tol=self.ftol_deriv*P0 # generalizes tol=ftol*f0 from PHYS512
 
         pcopy[n]=pcopy[n]+2*dparn # don't need to generate a fresh copy immediately before b/c the initial copy hasn't been modified yet
         _,_,Pcyl_2plus=self.unbin_to_Pcyl(pcopy)
@@ -556,7 +552,7 @@ class beam_effects(object):
             self.cyl_partials[n,:,:]=estimate
         else:
             pnmean=np.mean(np.abs(pndispersed)) # the np.abs part should be redundant because, by this point, all the k-mode values and their corresponding dpns and Ps should be nonnegative, but anyway... numerical stability or something idk
-            Psecond=np.abs(np.mean(2*self.Pcyl-Pcyl_minu-Pcyl_plus))/self.dpar[n]**2
+            Psecond=np.abs(np.mean(2*self.Pcyl-Pcyl_minu-Pcyl_plus))/self.dpar[n]**2 # an estimate!! break out of the vicious cycle of not having enough info
             dparn=np.sqrt(self.eps*pnmean*P0/Psecond)
             self.dpar[n]=dparn # send along knowledge of the updated step size
             self.iter+=1
@@ -674,7 +670,7 @@ class cosmo_stats(object):
         if (Lz is None): # cubic box
             self.Lz=Lxy
             self.Lxy=Lxy
-        else:            # the kind of rectangular prism box I care about for dirty image stacking
+        else:            # the kind of rectangular prism box I care about for dirty image stacking (+probably other extension)
             self.Lz=Lz
             self.Lxy=Lxy
         self.P_fid=P_fid
