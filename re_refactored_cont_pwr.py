@@ -6,7 +6,41 @@ from cosmo_distances import *
 from forecasting_pipeline import *
 import time
 
-redo_window_calc=False
+#################################################################################################################################################
+################################################ WHAT KIND OF TEST SURVEY ARE YOU INTERESTED IN? ################################################
+#################################################################################################################################################
+redo_window_calc=True
+
+mode="pathfinder" 
+# mode="full" # Nvox way too high to do a practical local run
+
+# # test 1: UAA, Airy beam
+# categ="UAA"
+uaa_beam_type="Airy"
+N_fid_b_types=1
+N_pert_types=1
+
+# # tests 2 and 3: PA, 100 perturbed beams
+categ="PA"
+N_pert_types=2
+PA_N_pbws_pert=100
+
+# test 2: random
+PA_dist="random"
+N_fid_b_types=3
+f_types_prefacs=np.linspace(0.85,1.15,N_fid_b_types) # trivial for now, but it will be less trivial later
+
+# # # test 3: corners
+# PA_dist="corner"
+# N_fid_b_types=4
+# f_types_prefacs=np.linspace(0.85,1.15,N_fid_b_types)
+
+# test 4: manual (if I end up needing more flexibility)
+
+#################################################################################################################################################
+#################################################################################################################################################
+#################################################################################################################################################
+
 
 ############################## cosmo params, constants, and conversion factors ########################################################################################################################
 Omegam_Planck18=0.3158
@@ -43,14 +77,6 @@ b_EW_CHORD=6.3 # m
 N_EW_CHORD=22
 bminCHORD=6.3
 
-mode="pathfinder" 
-# mode="full" # Nvox goes to 370
-uaa_beam_type="Airy"
-categ="UAA"
-# categ="PA"
-PA_N_pbws_pert=100
-# categ="manual"
-
 plot="P" 
 # plot="Delta2"
 if (mode=="pathfinder"):
@@ -62,10 +88,7 @@ elif mode=="full":
     N_ant=528
     bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2)
 
-# ceil=300 # necessary compromise when asking for 0.04 convergence
-ceil=275 # fine for 0.1 Poisson noise level but better to use 0 when avoiding extrap
-# ceil=230 # 485 s for the test to run (in the form it was in around 09:00 on the Thursday before Thanksgiving/reading week 2025.)
-ceil=0 # Nvox=668 for a 900 MHz pathfinder survey; Nvox=266 for a 363 MHz pathfinder survey
+ceil=25
 # frac_tol_conv=0.075
 frac_tol_conv=0.1
 
@@ -80,7 +103,7 @@ blues_here = plt.cm.Blues( np.linspace(1,0.2,N_systematic_cases))
 oranges_here = plt.cm.Oranges( np.linspace(1,0.2,N_systematic_cases))
 ptail="_"+categ+".npy"
 
-ioname=mode+"_"+str(int(nu_ctr))+"_MHz_"+categ+"_ceil_"+str(ceil)+"_Poisson_"+str(round(frac_tol_conv,1))
+ioname=mode+"_"+str(int(nu_ctr))+"_MHz_"+categ+"_ceil_"+str(ceil)+"_Poisson_"+str(round(frac_tol_conv,1))+"_PA_dist_"+PA_dist
 
 if plot=="P":
     qty_title="Power"
@@ -112,15 +135,21 @@ for i,epsilon_xy in enumerate(epsilons_xy):
             categ_title="primary beam widths perturbed uniformly across the array"
         elif categ=="PA":
             windowed_survey=beam_effects(bminCHORD,bmaxCHORD,ceil,
-                                         categ,"Gaussian",bundled_non_manual_primary_aux,bundled_non_manual_primary_uncs, # right now, the beam type argument isn't actually doing anything (both in the sense that I've only implemented a Gaussian beam and I'm not filtering by this argument)
+                                         categ,"Gaussian",bundled_non_manual_primary_aux,bundled_non_manual_primary_uncs, 
                                          pars_Planck18,pars_Planck18,
                                          N_sph,dpar,
                                          nu_ctr,channel_width,
                                          frac_tol_conv=frac_tol_conv,
                                          pars_forecast_names=parnames, no_monopole=False,
-                                         PA_N_pert_types=2,PA_N_pbws_pert=PA_N_pbws_pert,PA_pbw_pert_frac=epsxy,
-                                         PA_ioname=ioname,PA_recalc=False) # GET RID OF THE PA_PBW_PERT_FRAC ARGUMENT BC OF OVERLAP WITH PRIMARY_BEAM_UNCS (ONCE THIS QUASI-SPAGHETTI RUNS)
-            categ_title=str(PA_N_pbws_pert)+" antennas' primary beam widths perturbed randomly throughout the array"
+                                         PA_N_pert_types=N_pert_types,PA_N_pbws_pert=PA_N_pbws_pert,PA_pbw_pert_frac=epsxy,
+                                         PA_ioname=ioname,PA_recalc=redo_window_calc,PA_distribution=PA_dist,
+                                         PA_N_fiducial_beam_types=N_fid_b_types,PA_fidu_types_prefactors=f_types_prefacs) # GET RID OF THE PA_PBW_PERT_FRAC ARGUMENT BC OF OVERLAP WITH PRIMARY_BEAM_UNCS (ONCE THIS QUASI-SPAGHETTI RUNS)
+            if PA_dist=="random":
+                PA_title=" antennas' primary beam widths perturbed randomly throughout the array"
+            elif PA_dist=="corner":
+                PA_title="primary beam width categories in separate corners"
+            PA_title
+            categ_title=str(PA_N_pbws_pert)+PA_title
     else:
         head="placeholder_fname_manual_"
         xy_vec=np.load(head+"_xy_vec.npy")
@@ -210,7 +239,18 @@ for i,epsilon_xy in enumerate(epsilons_xy):
 frac_dif_lim=1.05*np.max(np.abs(frac_dif[:3*N_sph//4]))
 axs[1].set_ylim(-frac_dif_lim,frac_dif_lim)
 axs[0].legend()
-plt.suptitle("{:5} MHz CHORD {} survey \n{}\n{} HPBW {:5.3} (x) and {:5.3} (y)\nsystematic-laden and fiducially beamed {}".format(nu_ctr,mode,categ_title,uaa_beam_type,hpbw_x,hpbw_y,qty_title))
+plt.suptitle("{:5} MHz CHORD {} survey \n" \
+             "{}\n" \
+             "{} HPBW {:5.3} (x) and {:5.3} (y)\n" \
+             "systematic-laden and fiducially beamed {}\n" \
+             "{} fiducial beam types; {} beam perturbation types\n" \
+             "numerical convenience factors: {} high k-parallel channels truncated and Poisson noise averaged to {} pct" \
+             "".format(nu_ctr,mode,
+                       categ_title,
+                       uaa_beam_type,hpbw_x,hpbw_y,
+                       qty_title,
+                       N_fid_b_types,N_pert_types,
+                       ceil, int(frac_tol_conv*100)))
 plt.tight_layout()
-plt.savefig("Pcont_refactored_"+str(plot)+"_"+str(int(nu_ctr))+"_"+str(categ)+".png",dpi=200)
+plt.savefig("Pcont_"+str(plot)+"_"+str(int(nu_ctr))+"_"+str(categ)+"_"+str(N_fid_b_types)+"_fid_b_types_"+str(N_pert_types)+"_pert_types"+str(ceil)+"_ceil_"+str(round(frac_tol_conv,1))+"_Poisson.png",dpi=200)
 plt.show()

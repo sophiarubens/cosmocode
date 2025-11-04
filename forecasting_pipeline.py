@@ -43,6 +43,8 @@ huge=np.sqrt(maxfloat)
 maxfloat= np.finfo(np.float64).max
 maxint=   np.iinfo(np.int64  ).max
 nearly_zero=(1./maxfloat)**2
+symbols=["o","v","H","*","1","8","s","p","P","h","+","X","D",".","^","<","x",">","2","d","3","_","4"]
+# symbols=[".","o","v","^","<",">","1","2","3","4","8","s","p","P","*","h","H","+","x","X","D","d"] # all the normal ones, permuted from the docs to maximize eyeballed distinctiveness between successive elements
 
 # numerical
 scale=1e-9
@@ -64,6 +66,7 @@ def_evol_restriction_threshold=1./15.
 img_bin_tol=1.75
 def_PA_N_timesteps=15
 def_PA_N_grid_pix=256
+N_fid_beam_types=1
 
 # warnings 
 class NotYetImplementedError(Exception):
@@ -164,7 +167,9 @@ class beam_effects(object):
                  no_monopole=True,                                                      # subtract off monopole moment to give zero-mean box?
                  PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac, # numbers of perturbation types, primary beam widths to perturb, and fraction governing the amplitude of the PDF from which perturbed primary beam widths are drawn
                  PA_N_timesteps=def_PA_N_timesteps,PA_N_grid_pix=def_PA_N_grid_pix,     # numbers of timesteps to put in rotation synthesis and pixels per side of gridded uv plane
-                 PA_img_bin_tol=img_bin_tol,PA_ioname="placeholder",PA_recalc=False):   # 
+                 PA_img_bin_tol=img_bin_tol,PA_ioname="placeholder",PA_recalc=False,    # uv binning chunk snapshot tightness, file name, recalculate box
+                 PA_distribution="random",PA_N_fiducial_beam_types=N_fid_beam_types,
+                 PA_fidu_types_prefactors=None):   # how to distribute per-antenna primary beam perturbations
         """
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
@@ -218,6 +223,7 @@ class beam_effects(object):
                                                                       put in uv-plane gridding (per-ant only)
         PA_ioname                  :: str                          :: fname to save/load stacked per-ant boxes :: ---
         PA_recalc                  :: bool                         :: recalculate per-antenna beamed boxes?    :: ---
+        PA_distribution            :: str                          :: how to distribute perturbation types     :: ---
         """
         # primary beam considerations
         if (primary_beam_categ.lower()!="manual"):
@@ -231,26 +237,37 @@ class beam_effects(object):
         elif (primary_beam_categ.lower()=="pa" or primary_beam_categ.lower()=="manual"):
             if (primary_beam_categ.lower()=="pa"):
                 if PA_recalc:
-                    self.PA_N_pert_types=  PA_N_pert_types
-                    self.PA_N_pbws_pert=   PA_N_pbws_pert
-                    self.PA_pbw_pert_frac= PA_pbw_pert_frac
-                    self.PA_N_timesteps=   PA_N_timesteps
-                    self.PA_N_grid_pix=    PA_N_grid_pix
-                    self.img_bin_tol=      PA_img_bin_tol
+                    self.PA_N_pert_types=          PA_N_pert_types
+                    self.PA_N_pbws_pert=           PA_N_pbws_pert
+                    self.PA_pbw_pert_frac=         PA_pbw_pert_frac
+                    self.PA_N_timesteps=           PA_N_timesteps
+                    self.PA_N_grid_pix=            PA_N_grid_pix
+                    self.img_bin_tol=              PA_img_bin_tol
+                    self.PA_distribution=          PA_distribution
+                    self.PA_N_fiducial_beam_types= PA_N_fiducial_beam_types
+                    self.PA_fidu_types_prefactors= PA_fidu_types_prefactors
                     fwhm=primary_beam_aux # eventually generalize to have two polarizations
                     self.eps=primary_beam_uncs # also eventually generalize
 
-                    fidu=per_antenna(pbw_fidu=fwhm,PA_N_pert_types=0,
-                                    PA_pbw_pert_frac=0,N_timesteps=self.PA_N_timesteps,
-                                    PA_N_pbws_pert=0,nu_ctr=nu_ctr,PA_N_grid_pix=PA_N_grid_pix)
+                    fidu=per_antenna(pbw_fidu=fwhm,N_pert_types=0,
+                                    pbw_pert_frac=0,N_timesteps=self.PA_N_timesteps,
+                                    N_pbws_pert=0,nu_ctr=nu_ctr,N_grid_pix=PA_N_grid_pix,
+                                    distribution=self.PA_distribution,
+                                    N_fiducial_beam_types=PA_N_fiducial_beam_types,fidu_types_prefactors=PA_fidu_types_prefactors,
+                                    outname=PA_ioname)
                     fidu.stack_to_box()
+                    print("constructed fiducially-beamed box")
                     fidu_box=fidu.box
                     xy_vec=fidu.xy_vec
                     z_vec=fidu.z_vec
-                    pert=per_antenna(pbw_fidu=fwhm,PA_N_pert_types=self.PA_N_pert_types,
-                                    PA_pbw_pert_frac=self.PA_pbw_pert_frac,N_timesteps=self.PA_N_timesteps,
-                                    PA_N_pbws_pert=PA_N_pbws_pert,nu_ctr=nu_ctr,PA_N_grid_pix=PA_N_grid_pix)
+                    pert=per_antenna(pbw_fidu=fwhm,N_pert_types=self.PA_N_pert_types,
+                                    pbw_pert_frac=self.PA_pbw_pert_frac,N_timesteps=self.PA_N_timesteps,
+                                    N_pbws_pert=PA_N_pbws_pert,nu_ctr=nu_ctr,N_grid_pix=PA_N_grid_pix,
+                                    distribution=self.PA_distribution,
+                                    N_fiducial_beam_types=PA_N_fiducial_beam_types,fidu_types_prefactors=PA_fidu_types_prefactors,
+                                    outname=PA_ioname)
                     pert.stack_to_box()
+                    print("constructed perturbed-beamed box")
                     pert_box=pert.box
 
                     np.save("fidu_box_"+PA_ioname+".npy",fidu_box)
@@ -921,8 +938,8 @@ class cosmo_stats(object):
             T_use=self.T_primary
         if (self.T_pristine is None):    # power spec has to come from a box
             self.generate_box() # populates/overwrites self.T_pristine and self.T_primary
-        T_tilde=            fftshift(fftn((ifftshift(T_use)*self.d3r)))
-        modsq_T_tilde=     (T_tilde*np.conjugate(T_tilde)).real
+        T_tilde=fftshift(fftn((ifftshift(T_use)*self.d3r)))
+        modsq_T_tilde=(T_tilde*np.conjugate(T_tilde)).real
         modsq_T_tilde[:,:,self.Nvoxz//2]*=2 # fix pos/neg duplication issue at the origin
         modsq_T_tilde/=self.beamtildesq
         if (self.Nk1==0):   # bin to sph
@@ -1095,18 +1112,21 @@ antenna basis. (beam chromaticity built in).
 class per_antenna(beam_effects):
     def __init__(self,
                  mode="full",b_NS=b_NS,b_EW=b_EW,observing_dec=def_observing_dec,offset_deg=def_offset_deg,
-                 PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac,
+                 N_fiducial_beam_types=N_fid_beam_types,N_pert_types=0,N_pbws_pert=0,pbw_pert_frac=def_pbw_pert_frac,
                  N_timesteps=def_N_timesteps,nu_ctr=nu_HI_z0,
-                 pbw_fidu=None,PA_N_grid_pix=def_PA_N_grid_pix,Delta_nu=0.183,
-                 PA_distribution="random"
+                 pbw_fidu=None,N_grid_pix=def_PA_N_grid_pix,Delta_nu=0.183,
+                 distribution="random",fidu_types_prefactors=None,
+                 outname=None
                  ):
         # array and observation geometry
-        self.PA_N_pert_types=PA_N_pert_types
-        self.PA_N_pbws_pert=PA_N_pbws_pert
-        self.PA_pbw_pert_frac=PA_pbw_pert_frac
-        self.PA_N_timesteps=N_timesteps
-        self.PA_N_grid_pix=PA_N_grid_pix
-        self.PA_distribution=PA_distribution
+        self.N_fiducial_beam_types=N_fiducial_beam_types
+        self.N_pert_types=N_pert_types
+        self.N_pbws_pert=N_pbws_pert
+        self.pbw_pert_frac=pbw_pert_frac
+        self.N_timesteps=N_timesteps
+        self.N_grid_pix=N_grid_pix
+        self.distribution=distribution
+        self.fidu_types_prefactors=fidu_types_prefactors
         self.Delta_nu=Delta_nu
         self.N_NS=N_NS_full
         self.N_EW=N_EW_full
@@ -1147,109 +1167,119 @@ class per_antenna(beam_effects):
         antennas_xyz=antennas_ENU@lat_mat.T
         self.antennas_xyz=antennas_xyz
 
-        pbw_types=np.zeros((self.N_ant,))
-        N_beam_types=self.PA_N_pert_types+1
+        N_beam_types=(self.N_pert_types+1)*self.N_fiducial_beam_types 
         self.N_beam_types=N_beam_types
-        epsilons=np.zeros(N_beam_types)
-        
-        if (self.PA_N_pbws_pert>0):
-            epsilons[1:]=self.PA_pbw_pert_frac*np.random.uniform(size=np.insert(self.PA_N_pert_types,0,1))
 
-            if self.PA_distribution=="random":
-                indices_of_ants_w_pert_pbws=np.random.randint(0,self.N_ant,size=self.PA_N_pbws_pert) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
-                pbw_types[indices_of_ants_w_pert_pbws]=np.random.randint(1,high=N_beam_types,size=np.insert(self.PA_N_pbws_pert,0,1)) # leaves as zero the indices associated with unperturbed antennas
-            else:
-                antenna_numbers=np.reshape(np.arange(self.N_ant),(self.N_NS,self.N_EW)) # row-major. perturb chunks in turn
-                if self.PA_ditribution=="corner":
-                    if self.N_beam_types!=4:
-                        raise ConflictingInfoError
-                    half_NS=self.N_NS//2
-                    half_EW=self.N_EW//2
-                    NW_corner=antenna_numbers[:half_NS,:half_EW]
-                    NE_corner=antenna_numbers[:half_NS,half_EW:]
-                    SE_corner=antenna_numbers[half_NS:,half_EW:]
-                    SW_corner=antenna_numbers[half_NS:,:half_EW]
-                    raise NotYetImplementedError
-                elif self.PA_distribution=="diagonal":
-                    raise NotYetImplementedError
-                elif self.PA_distribution=="rowcol":
-                    raise NotYetImplementedError
-                elif self.PA_distribution=="ring":
-                    raise NotYetImplementedError
-                else:
-                    raise NotYetImplementedError
-            # # the segmented-across-the-array way (hypothesized example of a case that should give k-dependent results)
-            ### THIS HAS 100 PERTURBED ANTENNAS AND TWO PERTURBATION TYPES BAKED IN... SHOULD GENERALIZE IF I REALLY WANT TO ROLL WITH THIS!!
-            ### + BAKE IN OTHER OPTIONS BEYOND JUST THE CORNERS
-            # antenna_numbers= np.reshape(np.arange(self.N_ant),(self.N_NS,self.N_EW))# row-major array to take chunks of for the chunks to perturb
-            # print("self.N_NS,self.N_EW=",self.N_NS,self.N_EW)
-            # nw_corner_indices=np.reshape(antenna_numbers[:7,:7],(N_pbws_to_pert//2-1,)) # hackily hard-coding the two-class case I'm contrasting with on the 22 Oct 2025 beam meeting
-            # se_corner_indices=np.reshape(antenna_numbers[self.N_NS-7:,self.N_EW-7:],(N_pbws_to_pert//2-1,))
-            # nw_corner_indices=np.append(nw_corner_indices,7)
-            # se_corner_indices=np.append(se_corner_indices,520)
-            # np.savetxt("nw_corner_indices.txt",nw_corner_indices)
-            # np.savetxt("se_corner_indices.txt",se_corner_indices)
-            # pbw_types[nw_corner_indices]=1
-            # pbw_types[se_corner_indices]=2
-            # indices_of_ants_w_pert_pbws=np.concatenate((nw_corner_indices,se_corner_indices))
+        # now, generalize the array layout control to be by fiducial beam type, not the layout of the systematics
+        if fidu_types_prefactors is None:
+            fidu_types_prefactors=np.ones(N_fiducial_beam_types)
+        self.fidu_types_prefactors=fidu_types_prefactors
+        pbw_fidu_types=np.zeros((self.N_ant,))
+        if self.distribution=="random":
+            pbw_fidu_types=np.random.randint(0,self.N_fiducial_beam_types,size=(self.N_ant,))
+            np.savetxt("pbw_fidu_types.txt",pbw_fidu_types)
+        elif self.distribution=="corner":
+            if self.N_fiducial_beam_types!=4:
+                raise ConflictingInfoError
+            pbw_fidu_types=np.zeros((self.N_NS,self.N_EW))
+            half_NS=self.N_NS//2
+            half_EW=self.N_EW//2
+            pbw_fidu_types[:half_NS,:half_EW]=1
+            pbw_fidu_types[:half_NS,half_EW:]=2
+            pbw_fidu_types[half_NS:,:half_EW]=3
+            pbw_fidu_types[half_NS:,half_EW:]=4
+            pbw_fidu_types=np.reshape(pbw_fidu_types,(self.N_ant,))
+        elif self.distribution=="diagonal":
+            raise NotYetImplementedError
+        elif self.distribution=="rowcol":
+            raise NotYetImplementedError
+        elif self.distribution=="ring":
+            raise NotYetImplementedError
+        else:
+            raise NotYetImplementedError
+        
+        # for now, seed the systematics randomly throughout the array
+        pbw_pert_types=np.zeros((self.N_ant,))
+        epsilons=np.zeros(N_pert_types+1)
+        if (self.N_pbws_pert>0):
+            epsilons[1:]=self.pbw_pert_frac*np.random.uniform(size=np.insert(self.N_pert_types,0,1))
+            indices_of_ants_w_pert_pbws=np.random.randint(0,self.N_ant,size=self.N_pbws_pert) # indices of antenna pbs to perturb (independent of the indices of antenna positions to perturb, by design)
+            pbw_pert_types[indices_of_ants_w_pert_pbws]=np.random.randint(1,high=(self.N_pert_types+1),size=np.insert(self.N_pbws_pert,0,1)) # leaves as zero the indices associated with unperturbed antennas
+            np.savetxt("pbw_pert_types.txt",pbw_pert_types)
         else:
             indices_of_ants_w_pert_pbws=None
-        self.pbw_types=pbw_types
+        self.pbw_pert_types=pbw_pert_types
         self.indices_of_ants_w_pert_pbws=indices_of_ants_w_pert_pbws
         self.epsilons=epsilons
         
         # ungridded instantaneous uv-coverage (baselines in xyz)        
         uvw_inst=np.zeros((self.N_bl,3))
-        indices_of_constituent_ant_pb_types=np.zeros((self.N_bl,2))
+        indices_of_constituent_ant_pb_fidu_types=np.zeros((self.N_bl,2))
+        indices_of_constituent_ant_pb_pert_types=np.zeros((self.N_bl,2))
         k=0
         for i in range(self.N_ant):
             for j in range(i+1,self.N_ant):
                 uvw_inst[k,:]=antennas_xyz[i,:]-antennas_xyz[j,:]
-                indices_of_constituent_ant_pb_types[k]=[pbw_types[i],pbw_types[j]] # 1/np.sqrt( ( (1/antenna_pbs[i]**2)+(1/antenna_pbs[j]**2) )/2. ) # this is for a simple Gaussian beam where the x- and y- FWHMs are the same. Once I get this version working, it should be straightforward to bump up the dimensions and add separate widths
+                indices_of_constituent_ant_pb_fidu_types[k]=[pbw_fidu_types[i],pbw_fidu_types[j]]
+                indices_of_constituent_ant_pb_pert_types[k]=[pbw_pert_types[i],pbw_pert_types[j]]
                 k+=1
         uvw_inst=np.vstack((uvw_inst,-uvw_inst))
-        indices_of_constituent_ant_pb_types=np.vstack((indices_of_constituent_ant_pb_types,indices_of_constituent_ant_pb_types))
+        indices_of_constituent_ant_pb_fidu_types=np.vstack((indices_of_constituent_ant_pb_fidu_types,indices_of_constituent_ant_pb_fidu_types))
+        indices_of_constituent_ant_pb_pert_types=np.vstack((indices_of_constituent_ant_pb_pert_types,indices_of_constituent_ant_pb_pert_types))
         self.uvw_inst=uvw_inst
-        self.indices_of_constituent_ant_pb_types=indices_of_constituent_ant_pb_types
-        
-        # internal plotting suitable for two perturbation types
-        # u_inst=uvw_inst[:,0]
-        # v_inst=uvw_inst[:,1]
-        # ad_hoc_antenna_colours=["r","y","b"]
-        # plt.figure()
-        # for i in range(N_beam_types):
-        #     keep=np.nonzero(pbw_types==i)
-        #     plt.scatter(antennas_xyz[keep,0],antennas_xyz[keep,1],c=ad_hoc_antenna_colours[i],label="antenna status "+str(i),edgecolors="k",lw=0.3,s=20)
-        # plt.xlabel("x (m)")
-        # plt.ylabel("y (m)")
-        # plt.title("CHORD "+str(self.nu_ctr_MHz)+" MHz antenna positions by primary beam status")
-        # plt.legend()
-        # plt.savefig("ant_positions_colour_coded_by_ant_pert_status.png",dpi=350)
-        
-        # ant_a_type,ant_b_type=indices_of_constituent_ant_pb_types.T
-        # print("len(ant_a_type)=",len(ant_a_type))
-        # fig,axs=plt.subplots(2,3,figsize=(9,8))
-        # num=0
-        # ad_hoc_colours=["r","tab:orange","tab:purple","y","tab:green","b"] # still only valid for a two-perturbation test
-        # for a in range(N_beam_types):
-        #     for b in range(a,N_beam_types):
-        #         keep=np.nonzero(np.logical_and(ant_a_type==a,ant_b_type==b))
-        #         u_inst_ab=u_inst[keep]
-        #         v_inst_ab=v_inst[keep]
-        #         axs[num%2,num%3].scatter(u_inst_ab,v_inst_ab,c=ad_hoc_colours[num],label="antenna status "+str(a)+str(b),edgecolors="k",lw=0.15,s=4)
-        #         axs[num%2,num%3].set_xlabel("u (λ)")
-        #         axs[num%2,num%3].set_ylabel("v (λ)")
-        #         axs[num%2,num%3].set_title("antenna status "+str(a)+str(b))
-        #         axs[num%2,num%3].axis("equal")                
-        #         num+=1
-        # plt.suptitle("CHORD "+str(self.nu_ctr_MHz)+" MHz instantaneous uv coverage ")
-        # plt.tight_layout()
-        # plt.savefig("inst_uv_colour_coded_by_ant_pert_status.png",dpi=250)
+        self.indices_of_constituent_ant_pb_fidu_types=indices_of_constituent_ant_pb_fidu_types
+        self.indices_of_constituent_ant_pb_pert_types=indices_of_constituent_ant_pb_pert_types
         print("computed ungridded instantaneous uv-coverage")
+        
+        # enough nonredundant symbols and colours available for <~O(10) classes (each) of perturbation and fiducial beam 
+        if (outname is not None and self.N_pert_types>0):
+            print("perturbed-beam per-antenna computation underway. plotting...")
+            fig=plt.figure(figsize=(12,8))
+            for i in range(N_pert_types+1):
+                for j in range(N_fiducial_beam_types):
+                    keep=np.nonzero(np.logical_and(pbw_pert_types==i, pbw_fidu_types==j))
+                    plt.scatter(antennas_xyz[keep,0],antennas_xyz[keep,1],c="C"+str(i),marker=symbols[j],label=str(i)+str(j),edgecolors="k",lw=0.3,s=20)
+            plt.xlabel("x (m)")
+            plt.ylabel("y (m)")
+            plt.title("CHORD "+str(self.nu_ctr_MHz)+" MHz pointing dec="+str(round(self.observing_dec,5))+" rad \n"
+                      "projected antenna positions by primary beam status\n"
+                      "[antenna fiducial status][antenna perturbation status]=")
+            fig.legend(loc="outside right upper")
+            plt.savefig("layout_"+outname+".png",dpi=350)
+        
+            ant_a_pert_type,ant_b_pert_type=indices_of_constituent_ant_pb_pert_types.T
+            ant_a_fidu_type,ant_b_fidu_type=indices_of_constituent_ant_pb_fidu_types.T
+            Nrow=9 # make this less hard-coded
+            Ncol=int(np.ceil(N_beam_types**2/Nrow))
+            fig,axs=plt.subplots(Nrow,Ncol,figsize=(self.N_beam_types*2.25,self.N_beam_types*2.25))
+            num=0
+            u_inst=uvw_inst[:,0]
+            v_inst=uvw_inst[:,1]
+            for i in range(self.N_pert_types+1):
+                for j in range(self.N_pert_types+1):
+                    pert_class_condition=np.logical_and(ant_a_pert_type==i, ant_b_pert_type==j)
+                    for k in range(self.N_fiducial_beam_types):
+                        for l in range(self.N_fiducial_beam_types):
+                            fidu_class_condition=np.logical_and(ant_a_fidu_type==k, ant_b_fidu_type==l)
+                            current_row=num//Ncol
+                            current_col=num%Ncol
+
+                            keep=np.nonzero(np.logical_and(pert_class_condition,fidu_class_condition))
+                            u_inst_ab=u_inst[keep]
+                            v_inst_ab=v_inst[keep]
+                            axs[current_row,current_col].scatter(u_inst_ab,v_inst_ab,edgecolors="k",lw=0.15,s=4)
+                            axs[current_row,current_col].set_xlabel("u (λ)")
+                            axs[current_row,current_col].set_ylabel("v (λ)")
+                            axs[current_row,current_col].set_title(str(i)+str(j)+str(k)+str(l))
+                            axs[current_row,current_col].axis("equal")                
+                            num+=1
+            plt.suptitle("CHORD "+str(self.nu_ctr_MHz)+" MHz instantaneous uv coverage; antenna status [Apert][Bpert][Afidu][Bfidu]=")
+            plt.tight_layout()
+            plt.savefig("inst_uv_"+outname+".png",dpi=250)
 
         # rotation-synthesized uv-coverage *******(N_bl,3,N_timesteps), accumulating xyz->uvw transformations at each timestep
         hour_angle_ceiling=np.pi*self.N_hrs/12
-        hour_angles=np.linspace(0,hour_angle_ceiling,self.PA_N_timesteps)
+        hour_angles=np.linspace(0,hour_angle_ceiling,self.N_timesteps)
         thetas=hour_angles*15*np.pi/180
         
         zenith=np.array([np.cos(self.observing_dec),0,np.sin(self.observing_dec)]) # Jon math redux
@@ -1257,7 +1287,7 @@ class per_antenna(beam_effects):
         north=np.cross(zenith,east)
         project_to_dec=np.vstack([east,north])
 
-        uv_synth=np.zeros((2*self.N_bl,2,self.PA_N_timesteps))
+        uv_synth=np.zeros((2*self.N_bl,2,self.N_timesteps))
         for i,theta in enumerate(thetas): # thetas are the rotation synthesis angles (converted from hr. angles using 15 deg/hr rotation rate)
             accumulate_rotation=np.array([[ np.cos(theta),np.sin(theta),0],
                                         [-np.sin(theta),np.cos(theta),0],
@@ -1286,24 +1316,35 @@ class per_antenna(beam_effects):
         uvplane=0.*uubins
         uvbins_use=np.append(uvbins,uvbins[-1]+uvbins[1]-uvbins[0])
         pad_lo,pad_hi=get_padding(Npix)
-        for i in range(self.N_beam_types):
+        # print("self.fidu_types_prefactors=",self.fidu_types_prefactors)
+        # print("self.N_fiducial_beam_types=",self.N_fiducial_beam_types)
+        for i in range(self.N_pert_types+1):
             eps_i=self.epsilons[i]
             for j in range(i+1):
                 eps_j=self.epsilons[j]
-                here=(self.indices_of_constituent_ant_pb_types[:,0]==i)&(self.indices_of_constituent_ant_pb_types[:,1]==j) # which baselines to treat during this loop trip... pbws has shape (N_bl,2) ... one column for antenna a and the other for antenna b
-                u_here=self.uv_synth[here,0,:] # [N_bl,3,N_hr_angles]
-                v_here=self.uv_synth[here,1,:]
-                N_bl_here,N_hr_angles_here=u_here.shape # (N_bl,N_hr_angles)
-                N_here=N_bl_here*N_hr_angles_here
-                reshaped_u=np.reshape(u_here,N_here)
-                reshaped_v=np.reshape(v_here,N_here)
-                gridded,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use)
-                width_here=pbw_fidu_use*np.sqrt((1-eps_i)*(1-eps_j))
-                kernel=PA_Gaussian(uubins,vvbins,[0.,0.],width_here)
-                kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge") # version that worked in pipeline branch 2
-                convolution_here=convolve(kernel_padded,gridded,mode="valid") # beam-smeared version of the uv-plane for this perturbation permutation
-                uvplane+=convolution_here
-        
+                for k in range(self.N_fiducial_beam_types):
+                    fidu_type_k=self.fidu_types_prefactors[k]
+                    for l in range(k+1):
+                        fidu_type_l=self.fidu_types_prefactors[l]
+
+                        here=(self.indices_of_constituent_ant_pb_pert_types[:,0]==i
+                              )&(self.indices_of_constituent_ant_pb_pert_types[:,1]==j
+                                 )&(self.indices_of_constituent_ant_pb_fidu_types[:,0]==k
+                                    )&(self.indices_of_constituent_ant_pb_fidu_types[:,1]==l) # which baselines to treat during this loop trip... pbws has shape (N_bl,2) ... one column for antenna a and the other for antenna b
+                        # print("ijkl= ",i,j,k,l,"; here=",here)
+                        u_here=self.uv_synth[here,0,:] # [N_bl,3,N_hr_angles]
+                        v_here=self.uv_synth[here,1,:]
+                        N_bl_here,N_hr_angles_here=u_here.shape # (N_bl,N_hr_angles)
+                        N_here=N_bl_here*N_hr_angles_here
+                        reshaped_u=np.reshape(u_here,N_here)
+                        reshaped_v=np.reshape(v_here,N_here)
+                        gridded,_,_=np.histogram2d(reshaped_u,reshaped_v,bins=uvbins_use)
+                        width_here=np.sqrt((1-eps_i)*(1-eps_j)*fidu_type_k*fidu_type_l)*pbw_fidu_use
+                        kernel=PA_Gaussian(uubins,vvbins,[0.,0.],width_here)
+                        kernel_padded=np.pad(kernel,((pad_lo,pad_hi),(pad_lo,pad_hi)),"edge") # version that worked in pipeline branch 2
+                        convolution_here=convolve(kernel_padded,gridded,mode="valid") # beam-smeared version of the uv-plane for this perturbation permutation
+                        uvplane+=convolution_here
+
         uvplane/=(self.N_beam_types**2*np.sum(uvplane)) # divide out the artifact of there having been multiple convolutions
         self.uvplane=uvplane
         dirty_image=np.abs(fftshift(ifft2(ifftshift(uvplane)*d2u,norm="forward")))
@@ -1317,7 +1358,7 @@ class per_antenna(beam_effects):
         if (self.nu_ctr_MHz<(350/(1-evol_restriction_threshold/2)) or self.nu_ctr_MHz>(nu_HI_z0/(1+evol_restriction_threshold/2))):
             raise SurveyOutOfBoundsError
         self.img_bin_tol=tol
-        N_grid_pix=self.PA_N_grid_pix
+        N_grid_pix=self.N_grid_pix
         bw_MHz=self.nu_ctr_MHz*evol_restriction_threshold
         N_chan=int(bw_MHz/self.Delta_nu)
         self.nu_lo=self.nu_ctr_MHz-bw_MHz/2.
@@ -1361,7 +1402,7 @@ class per_antenna(beam_effects):
                                            bounds_error=False, fill_value=None) # extrap necessary because the smallest u and v you have at a given slice-needing-extrapolation will be larger than the min u and v mags to extrapolate to
             box[:,:,i]=interpolated_slice
             if ((i%(N_chan//10))==0):
-                print("{:5}%% complete".format(i/N_chan*100))
+                print("{:7.1f} pct complete".format(i/N_chan*100))
         self.box=box 
         self.theta_max_box=theta_max_box
 
