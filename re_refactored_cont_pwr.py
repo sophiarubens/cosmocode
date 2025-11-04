@@ -9,7 +9,7 @@ import time
 #################################################################################################################################################
 ################################################ WHAT KIND OF TEST SURVEY ARE YOU INTERESTED IN? ################################################
 #################################################################################################################################################
-redo_window_calc=True
+redo_window_calc=False
 
 mode="pathfinder" 
 # mode="full" # Nvox way too high to do a practical local run with ceil~0
@@ -248,5 +248,5 @@ fig.suptitle("{:5} MHz CHORD {} survey \n" \
                        per_channel_systematic,
                        ceil, int(frac_tol_conv*100)))
 fig.tight_layout()
-fig.savefig("Pcont_"+str(plot)+"_"+str(int(nu_ctr))+"_"+str(categ)+"_"+str(N_fid_b_types)+"_fid_b_types_"+str(N_pert_types)+"_pert_types_"+str(ceil)+"_ceil_"+str(round(frac_tol_conv,1))+"_Poisson.png",dpi=200)
+fig.savefig("Pcont_"+ioname+".png",dpi=200)
 fig.show()

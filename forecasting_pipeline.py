@@ -550,6 +550,8 @@ class beam_effects(object):
             self.Pthought_cyl_surv=self.Pthought_cyl
             self.Ptrue_cyl_surv=self.Ptrue_cyl
 
+        # ERROR BARS
+
     def cyl_partial(self,n):  
         """        
         cylindrically binned matter power spectrum partial WRT one cosmo parameter (nkpar x nkperp)
