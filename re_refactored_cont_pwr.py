@@ -12,7 +12,11 @@ import time
 redo_window_calc=True
 
 mode="pathfinder" 
-# mode="full" # Nvox way too high to do a practical local run
+# mode="full" # Nvox way too high to do a practical local run with ceil~0
+nu_ctr=363. # centre frequency of survey in MHz
+ceil=100
+frac_tol_conv=0.1
+N_sph=256 # how many spherical modes to put in your theory power spectrum or bin final power spectra down to
 
 # # test 1: UAA, Airy beam
 # categ="UAA"
@@ -26,14 +30,14 @@ N_pert_types=2
 PA_N_pbws_pert=100
 
 # test 2: random
-PA_dist="random"
-N_fid_b_types=3
-f_types_prefacs=np.linspace(0.85,1.15,N_fid_b_types) # trivial for now, but it will be less trivial later
+# PA_dist="random"
+# N_fid_b_types=3
+# f_types_prefacs=np.linspace(0.85,1.15,N_fid_b_types) # trivial for now, but it will be less trivial later
 
-# # # test 3: corners
-# PA_dist="corner"
-# N_fid_b_types=4
-# f_types_prefacs=np.linspace(0.85,1.15,N_fid_b_types)
+# # test 3: corners
+PA_dist="corner"
+N_fid_b_types=4
+f_types_prefacs=np.linspace(0.85,1.15,N_fid_b_types)
 
 # test 4: manual (if I end up needing more flexibility)
 
@@ -59,50 +63,39 @@ nu_rest_21=1420.405751768 # MHz
 scale=1e-9
 pars_Planck18=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  AS_Planck18,           ns_Planck18])
 parnames=                ['H_0',       'Omega_b h**2',      'Omega_c h**2',      '10**9 * A_S',        'n_s'       ]
-pars_Planck18[3]/=scale
+pars_Planck18[3]/=scale # A_s management (avoid numerical conditioning–related issues)
 nprm=len(pars_Planck18)
-dpar=1e-3*np.ones(nprm) # gets overwritten by the adaptive stepper in my numerical differentiator if ill-suited to any case I care to test (although it seems to do okay for my tests so far!)
+dpar=1e-3*np.ones(nprm) # starting point (numerical derivatives have adaptive step size)
 dpar[3]*=scale
 
-############################## details of a hypothetical survey cooked up for testing purposes ########################################################################################################################
-nu_ctr=363. # centre frequency of survey in MHz
+############################## other survey management factors ########################################################################################################################
 nu_ctr_Hz=nu_ctr*1e6
 wl_ctr_m=c/nu_ctr_Hz
-channel_width=0.183 # 183 kHz from CHORD Wiki -> SWGs -> Galaxies -> CHORD Pathfinder specs -> Spectral resolution
+channel_width=0.183 # 183 kHz from CHORD Wiki -> SWGs -> Galaxies -> CHORD Pathfinder specs -> Spectral resolution (there's no more recent estimate, even from telecon slides, as far as I can tell, although a lot of the info on that page is out of date, e.g. f/D ratio reads 0.21 and not 0.25; pathfinder quotes as 11x6 instead of 10x7...)
 
-############################## initializations related to cylindrically binned k-modes ########################################################################################################################
+############################## baselines and beams ########################################################################################################################
 b_NS_CHORD=8.5 # m
 N_NS_CHORD=24
 b_EW_CHORD=6.3 # m
 N_EW_CHORD=22
 bminCHORD=6.3
 
-plot="P" 
-# plot="Delta2"
-if (mode=="pathfinder"):
-    N_CHORDbaselines=123
-    N_ant=64
+if (mode=="pathfinder"): # 10x7=70 antennas (64 w/ receiver hut gaps), 123 baselines
     bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2) # pathfinder (as per the CHORD-all telecon on May 26th, but without holes)
-elif mode=="full": 
-    N_CHORDbaselines=1010
-    N_ant=528
+elif mode=="full": # 24x22=528 antennas (512 w/ receiver hut gaps), 1010 baselines
     bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2)
 
-ceil=25
-# frac_tol_conv=0.075
-frac_tol_conv=0.1
-
-N_sph=256
-
 hpbw_x= wl_ctr_m/D *  pi/180. # rad; lambda/D estimate (actually physically realistic)
-hpbw_y= 0.75 * hpbw_x         # we know this tends to be a little narrower, based on measurements
+hpbw_y= 0.75 * hpbw_x         # we know this tends to be a little narrower, based on measurements (...from D3A ...so far)
 
-epsilons_xy=np.arange(0.0,0.3,0.05) 
+############################## pipeline administration ########################################################################################################################
+epsilons_xy=np.arange(0.0,0.25,0.05) 
 N_systematic_cases=len(epsilons_xy)
 blues_here = plt.cm.Blues( np.linspace(1,0.2,N_systematic_cases))
 oranges_here = plt.cm.Oranges( np.linspace(1,0.2,N_systematic_cases))
 ptail="_"+categ+".npy"
 
+plot="P" # "Delta2"
 ioname=mode+"_"+str(int(nu_ctr))+"_MHz_"+categ+"_ceil_"+str(ceil)+"_Poisson_"+str(round(frac_tol_conv,1))+"_PA_dist_"+PA_dist
 
 if plot=="P":
@@ -239,7 +232,7 @@ for i,epsilon_xy in enumerate(epsilons_xy):
 frac_dif_lim=1.05*np.max(np.abs(frac_dif[:3*N_sph//4]))
 axs[1].set_ylim(-frac_dif_lim,frac_dif_lim)
 axs[0].legend()
-plt.suptitle("{:5} MHz CHORD {} survey \n" \
+fig.suptitle("{:5} MHz CHORD {} survey \n" \
              "{}\n" \
              "{} HPBW {:5.3} (x) and {:5.3} (y)\n" \
              "systematic-laden and fiducially beamed {}\n" \
@@ -251,6 +244,6 @@ plt.suptitle("{:5} MHz CHORD {} survey \n" \
                        qty_title,
                        N_fid_b_types,N_pert_types,
                        ceil, int(frac_tol_conv*100)))
-plt.tight_layout()
-plt.savefig("Pcont_"+str(plot)+"_"+str(int(nu_ctr))+"_"+str(categ)+"_"+str(N_fid_b_types)+"_fid_b_types_"+str(N_pert_types)+"_pert_types"+str(ceil)+"_ceil_"+str(round(frac_tol_conv,1))+"_Poisson.png",dpi=200)
-plt.show()
+fig.tight_layout()
+fig.savefig("Pcont_"+str(plot)+"_"+str(int(nu_ctr))+"_"+str(categ)+"_"+str(N_fid_b_types)+"_fid_b_types_"+str(N_pert_types)+"_pert_types_"+str(ceil)+"_ceil_"+str(round(frac_tol_conv,1))+"_Poisson.png",dpi=200)
+fig.show()
