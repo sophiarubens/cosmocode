@@ -189,7 +189,7 @@ class beam_effects(object):
                  PA_N_timesteps=def_PA_N_timesteps,PA_N_grid_pix=def_PA_N_grid_pix,     # numbers of timesteps to put in rotation synthesis and pixels per side of gridded uv plane
                  PA_img_bin_tol=img_bin_tol,PA_ioname="placeholder",PA_recalc=False,    # uv binning chunk snapshot tightness, file name, recalculate box
                  PA_distribution="random",PA_N_fiducial_beam_types=N_fid_beam_types,
-                 PA_fidu_types_prefactors=None,mode="full"):   # how to distribute per-antenna primary beam perturbations
+                 PA_fidu_types_prefactors=None,mode="full",per_channel_systematic=None): # how to distribute per-antenna primary beam perturbations
         """
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
@@ -293,7 +293,7 @@ class beam_effects(object):
                                     N_pbws_pert=PA_N_pbws_pert,nu_ctr=nu_ctr,N_grid_pix=PA_N_grid_pix,
                                     distribution=self.PA_distribution,
                                     N_fiducial_beam_types=PA_N_fiducial_beam_types,fidu_types_prefactors=PA_fidu_types_prefactors,
-                                    outname=PA_ioname)
+                                    outname=PA_ioname,per_channel_systematic=per_channel_systematic)
                     pert.stack_to_box()
                     print("constructed perturbed-beamed box")
                     pert_box=pert.box
@@ -371,10 +371,6 @@ class beam_effects(object):
 
         self.kmin_surv=np.min((self.kpar_surv[ 0],self.kperp_surv[ 0]))
         self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2)
-        # ### WORKING VERSION UNTIL ~14:30 04 NOV
-        # self.Lsurvbox= twopi/self.kmin_surv
-        # self.Nvoxbox=  int(self.Lsurvbox*self.kmax_surv/pi)
-        # print("Nvoxbox=",self.Nvoxbox)
 
         ### EXPERIMENT STARTING ~14:30 04 NOV (tailor the realization boxes a bit more to the survey box)
         self.Lsurv_box_xy=twopi/self.kperp_surv[0]
@@ -1147,13 +1143,14 @@ class per_antenna(beam_effects):
                  N_timesteps=def_N_timesteps,nu_ctr=nu_HI_z0,
                  pbw_fidu=None,N_grid_pix=def_PA_N_grid_pix,Delta_nu=0.183,
                  distribution="random",fidu_types_prefactors=None,
-                 outname=None
+                 outname=None,per_channel_systematic=None
                  ):
         # array and observation geometry
         self.N_fiducial_beam_types=N_fiducial_beam_types
         self.N_pert_types=N_pert_types
         self.N_pbws_pert=N_pbws_pert
         self.pbw_pert_frac=pbw_pert_frac
+        self.per_channel_systematic=per_channel_systematic
         self.N_timesteps=N_timesteps
         self.N_grid_pix=N_grid_pix
         self.distribution=distribution
@@ -1394,11 +1391,20 @@ class per_antenna(beam_effects):
         surv_channels_MHz=np.linspace(self.nu_hi,self.nu_lo,N_chan) # decr.
         surv_channels_Hz=1e6*surv_channels_MHz
         surv_wavelengths=c/surv_channels_Hz # incr.
-        surv_beam_widths=surv_wavelengths/D # incr.
         self.surv_channels=surv_channels_Hz
         self.z_channels=nu_HI_z0/surv_channels_MHz-1.
         self.comoving_distances_channels=np.asarray([comoving_distance(chan) for chan in self.z_channels]) # incr.
         self.ctr_chan_comov_dist=self.comoving_distances_channels[N_chan//2]
+        if self.per_channel_systematic is None:
+            surv_beam_widths=surv_wavelengths/D # incr.
+        elif self.per_channel_systematic=="D3A_like":
+            surv_beam_widths=(surv_wavelengths/D)**1.2 # keep things dimensionless, but use a steeper decay
+            noise_bound_lo=0.75
+            noise_bound_hi=1.25
+            noise_frac=(noise_bound_hi-noise_bound_lo)*np.random.random_sample(size=(N_chan,))+noise_bound_lo # random_sample draws fall within [0,1) but I want values between [0.75,1.25)*(that channel's beam width)
+            surv_beam_widths*=noise_frac
+        else:
+            raise NotYetImplementedError
 
         # rescale chromatic beam widths by whatever was passed
         xy_beam_widths=np.array((surv_beam_widths,surv_beam_widths)).T

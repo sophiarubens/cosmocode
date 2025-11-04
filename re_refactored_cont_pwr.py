@@ -28,6 +28,7 @@ N_pert_types=1
 categ="PA"
 N_pert_types=2
 PA_N_pbws_pert=100
+per_channel_systematic="D3A_like" # None
 
 # test 2: random
 # PA_dist="random"
@@ -96,7 +97,7 @@ oranges_here = plt.cm.Oranges( np.linspace(1,0.2,N_systematic_cases))
 ptail="_"+categ+".npy"
 
 plot="P" # "Delta2"
-ioname=mode+"_"+str(int(nu_ctr))+"_MHz_"+categ+"_ceil_"+str(ceil)+"_Poisson_"+str(round(frac_tol_conv,1))+"_PA_dist_"+PA_dist
+ioname=mode+"_"+str(int(nu_ctr))+"_MHz_"+categ+"_ceil_"+str(ceil)+"_Poisson_"+str(round(frac_tol_conv,1))+"_PA_dist_"+PA_dist+"per_channel_systematic_"+str(per_channel_systematic)
 
 if plot=="P":
     qty_title="Power"
@@ -237,12 +238,14 @@ fig.suptitle("{:5} MHz CHORD {} survey \n" \
              "{} HPBW {:5.3} (x) and {:5.3} (y)\n" \
              "systematic-laden and fiducially beamed {}\n" \
              "{} fiducial beam types; {} beam perturbation types\n" \
+             "per-channel systematics status {}"
              "numerical convenience factors: {} high k-parallel channels truncated and Poisson noise averaged to {} pct" \
              "".format(nu_ctr,mode,
                        categ_title,
                        uaa_beam_type,hpbw_x,hpbw_y,
                        qty_title,
                        N_fid_b_types,N_pert_types,
+                       per_channel_systematic,
                        ceil, int(frac_tol_conv*100)))
 fig.tight_layout()
 fig.savefig("Pcont_"+str(plot)+"_"+str(int(nu_ctr))+"_"+str(categ)+"_"+str(N_fid_b_types)+"_fid_b_types_"+str(N_pert_types)+"_pert_types_"+str(ceil)+"_ceil_"+str(round(frac_tol_conv,1))+"_Poisson.png",dpi=200)
