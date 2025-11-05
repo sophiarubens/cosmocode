@@ -25,7 +25,7 @@ ns_Planck18=0.96605
 H0_Planck18=67.32
 h_Planck18=H0_Planck18/100.
 Omegamh2_Planck18=Omegam_Planck18*h_Planck18**2
-pars_set_cosmo_Planck18=[H0_Planck18,Omegabh2_Planck18,Omegamh2_Planck18,AS_Planck18,ns_Planck18] # suitable for get_mps
+pars_Planck18=[H0_Planck18,Omegabh2_Planck18,Omegamh2_Planck18,AS_Planck18,ns_Planck18] # suitable for get_mps
 
 # physical
 nu_HI_z0=1420.405751768 # MHz
@@ -170,26 +170,42 @@ x- and y-pol widths
 
 class beam_effects(object):
     def __init__(self,
+                 # SCIENCE
+                 # the observation
                  bmin,bmax,                                                             # extreme baselines of the array
-                 ceil,                                                                  # avoid any high kpars to speed eval? (deprecate this soon; it was for testing, not science)
-                 primary_beam_categ,primary_beam_type,                                  # primary beam considerations
-                 primary_beam_aux,primary_beam_uncs,                                    # primary beam details
-                 pars_set_cosmo,pars_forecast,                                          # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
-                 n_sph_modes,dpar,                                                      # conditioning the CAMB/etc. call
                  nu_ctr,delta_nu,                                                       # for the survey of interest
-                 evol_restriction_threshold=def_evol_restriction_threshold,             # misc. numerical considerations
-                 init_and_box_tol=0.05,CAMB_tol=0.05,                                   # considerations for k-modes at different steps
-                 ftol_deriv=1e-6,eps=1e-16,maxiter=5,                                   # precision control for numerical derivatives
-                 uncs=None,frac_unc=0.1,                                                # for Fisher-type calcs
-                 Nkpar_box=15,Nkperp_box=18,frac_tol_conv=0.1,                          # considerations for cyl binned power spectra from boxes
-                 pars_forecast_names=None,                                              # for verbose output
+                 evol_restriction_threshold=def_evol_restriction_threshold,             # how close to coeval is close enough?
+                 
+                 # beam generalities
+                 primary_beam_categ="UAA",primary_beam_type="Gaussian",                 # modelling choices
+                 primary_beam_aux=None,primary_beam_uncs=None,                          # helper arguments
                  manual_primary_beam_modes=None,                                        # config space pts at which a pre–discretely sampled primary beam is known
-                 no_monopole=True,                                                      # subtract off monopole moment to give zero-mean box?
+
+                 # additional considerations for per-antenna systematics
                  PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac, # numbers of perturbation types, primary beam widths to perturb, and fraction governing the amplitude of the PDF from which perturbed primary beam widths are drawn
                  PA_N_timesteps=def_PA_N_timesteps,PA_N_grid_pix=def_PA_N_grid_pix,     # numbers of timesteps to put in rotation synthesis and pixels per side of gridded uv plane
-                 PA_img_bin_tol=img_bin_tol,PA_ioname="placeholder",PA_recalc=False,    # uv binning chunk snapshot tightness, file name, recalculate box
+                 PA_img_bin_tol=img_bin_tol,PA_ioname="placeholder",                    # uv binning chunk snapshot tightness, file name, recalculate box
                  PA_distribution="random",PA_N_fiducial_beam_types=N_fid_beam_types,
-                 PA_fidu_types_prefactors=None,mode="full",per_channel_systematic=None): # how to distribute per-antenna primary beam perturbations
+                 PA_fidu_types_prefactors=None,mode="full",per_channel_systematic=None,
+
+                 # FORECASTING
+                 pars_set_cosmo=pars_Planck18,pars_forecast=pars_Planck18,              # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
+                 uncs=None,frac_unc=0.1,                                                # for Fisher-type calcs
+                 pars_forecast_names=None,                                              # for verbose output
+
+                 # NUMERICAL 
+                 n_sph_modes=256,dpar=None,                                             # conditioning the CAMB/etc. call
+                 init_and_box_tol=0.05,CAMB_tol=0.05,                                   # considerations for k-modes at different steps
+                 Nkpar_box=15,Nkperp_box=18,frac_tol_conv=0.1,                          # considerations for cyl binned power spectra from boxes
+                 no_monopole=True,
+                 ftol_deriv=1e-16,maxiter=5,                                             # subtract off monopole moment to give zero-mean box?
+
+                 # CONVENIENCE
+                 ceil=0,                                                                # avoid any high kpars to speed eval? (for speedy testing, not science) 
+                 PA_recalc=False                                                        # save time by not repeating per-antenna calculations? 
+                 
+                 ):                                                                                                                                                     
+                
         """
         bmin,bmax                  :: floats                       :: max and min baselines of the array       :: m
         ceil                       :: int                          :: # high-kpar channels to ignore           :: ---
