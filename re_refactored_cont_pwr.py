@@ -9,13 +9,13 @@ import time
 #################################################################################################################################################
 ################################################ WHAT KIND OF TEST SURVEY ARE YOU INTERESTED IN? ################################################
 #################################################################################################################################################
-redo_window_calc=False
+redo_window_calc=True
 
 mode="pathfinder" 
 # mode="full" # Nvox way too high to do a practical local run with ceil~0
 nu_ctr=363. # centre frequency of survey in MHz
 ceil=100
-frac_tol_conv=0.1
+frac_tol_conv=0.01
 N_sph=256 # how many spherical modes to put in your theory power spectrum or bin final power spectra down to
 
 # # test 1: UAA, Airy beam
@@ -90,14 +90,15 @@ hpbw_x= wl_ctr_m/D *  pi/180. # rad; lambda/D estimate (actually physically real
 hpbw_y= 0.75 * hpbw_x         # we know this tends to be a little narrower, based on measurements (...from D3A ...so far)
 
 ############################## pipeline administration ########################################################################################################################
-epsilons_xy=np.arange(0.0,0.25,0.05) 
+# epsilons_xy=np.arange(0.0,0.25,0.05) 
+epsilons_xy=[0.02,0.04]
 N_systematic_cases=len(epsilons_xy)
 blues_here = plt.cm.Blues( np.linspace(1,0.2,N_systematic_cases))
 oranges_here = plt.cm.Oranges( np.linspace(1,0.2,N_systematic_cases))
 ptail="_"+categ+".npy"
 
 plot="P" # "Delta2"
-ioname=mode+"_"+str(int(nu_ctr))+"_MHz_"+categ+"_ceil_"+str(ceil)+"_Poisson_"+str(round(frac_tol_conv,1))+"_PA_dist_"+PA_dist+"per_channel_systematic_"+str(per_channel_systematic)
+ioname=mode+"_"+str(int(nu_ctr))+"_MHz_"+categ+"_ceil_"+str(ceil)+"_Poisson_"+str(round(frac_tol_conv,2))+"_PA_dist_"+PA_dist+"per_channel_systematic_"+str(per_channel_systematic)
 
 if plot=="P":
     qty_title="Power"
@@ -119,25 +120,75 @@ for i,epsilon_xy in enumerate(epsilons_xy):
         bundled_non_manual_primary_aux=np.array([hpbw_x,hpbw_y])
         bundled_non_manual_primary_uncs=np.array([epsxy,epsxy])
         if categ=="UAA":
-            windowed_survey=beam_effects( bminCHORD,bmaxCHORD,ceil,
-                                          categ,uaa_beam_type,bundled_non_manual_primary_aux,bundled_non_manual_primary_uncs,
-                                          pars_Planck18,pars_Planck18,
-                                          N_sph,dpar,
-                                          nu_ctr,channel_width,
-                                          frac_tol_conv=frac_tol_conv,
-                                          pars_forecast_names=parnames, no_monopole=False)
+            windowed_survey=beam_effects(
+                                            # SCIENCE
+                                            # the observation
+                                            bminCHORD,bmaxCHORD,                                
+                                            nu_ctr,channel_width,                             
+                                            evol_restriction_threshold=def_evol_restriction_threshold,    
+                                                
+                                            # beam generalities
+                                            primary_beam_categ=categ,primary_beam_type=uaa_beam_type,       
+                                            primary_beam_aux=bundled_non_manual_primary_aux,
+                                            primary_beam_uncs=bundled_non_manual_primary_uncs,
+
+                                            # FORECASTING
+                                            pars_set_cosmo=pars_Planck18,pars_forecast=pars_Planck18,        
+                                            pars_forecast_names=parnames,                           
+
+                                            # NUMERICAL 
+                                            n_sph_modes=N_sph,dpar=dpar,                                   
+                                            init_and_box_tol=0.05,CAMB_tol=0.05,                           
+                                            Nkpar_box=15,Nkperp_box=18,frac_tol_conv=frac_tol_conv,                      
+                                            no_monopole=False,                                                    
+                                            ftol_deriv=1e-16,maxiter=5,                                      
+                                            PA_N_grid_pix=def_PA_N_grid_pix,PA_img_bin_tol=img_bin_tol,        
+                                                
+                                            # CONVENIENCE
+                                            ceil=ceil                                                                                                       
+                                            )
+
             categ_title="primary beam widths perturbed uniformly across the array"
         elif categ=="PA":
-            windowed_survey=beam_effects(bminCHORD,bmaxCHORD,ceil,
-                                         categ,"Gaussian",bundled_non_manual_primary_aux,bundled_non_manual_primary_uncs, 
-                                         pars_Planck18,pars_Planck18,
-                                         N_sph,dpar,
-                                         nu_ctr,channel_width,
-                                         frac_tol_conv=frac_tol_conv,
-                                         pars_forecast_names=parnames, no_monopole=False,
-                                         PA_N_pert_types=N_pert_types,PA_N_pbws_pert=PA_N_pbws_pert,PA_pbw_pert_frac=epsxy,
-                                         PA_ioname=ioname,PA_recalc=redo_window_calc,PA_distribution=PA_dist,
-                                         PA_N_fiducial_beam_types=N_fid_b_types,PA_fidu_types_prefactors=f_types_prefacs) # GET RID OF THE PA_PBW_PERT_FRAC ARGUMENT BC OF OVERLAP WITH PRIMARY_BEAM_UNCS (ONCE THIS QUASI-SPAGHETTI RUNS)
+            windowed_survey=beam_effects(# SCIENCE
+                                         # the observation
+                                         bminCHORD,bmaxCHORD,                                                             # extreme baselines of the array
+                                         nu_ctr,channel_width,                                                       # for the survey of interest
+                                         evol_restriction_threshold=def_evol_restriction_threshold,             # how close to coeval is close enough?
+                                             
+                                         # beam generalities
+                                         primary_beam_categ=categ,primary_beam_type="Gaussian",                 # modelling choices
+                                         primary_beam_aux=bundled_non_manual_primary_aux,
+                                         primary_beam_uncs=bundled_non_manual_primary_uncs,                          # helper arguments
+                                         manual_primary_beam_modes=None,                                        # config space pts at which a pre–discretely sampled primary beam is known
+
+                                         # additional considerations for per-antenna systematics
+                                         PA_N_pert_types=N_pert_types,PA_N_pbws_pert=PA_N_pbws_pert,
+                                         PA_pbw_pert_frac=epsxy,PA_N_fidu_types=N_fid_b_types,
+                                         PA_fidu_types_prefactors=f_types_prefacs,
+                                         PA_N_timesteps=def_PA_N_timesteps,PA_ioname=ioname,             # numbers of timesteps to put in rotation synthesis, in/output file name
+                                         PA_distribution=PA_dist,mode=mode,
+                                         per_channel_systematic=per_channel_systematic,
+
+                                         # FORECASTING
+                                         pars_set_cosmo=pars_Planck18,pars_forecast=pars_Planck18,              # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
+                                         uncs=None,frac_unc=0.1,                                                # for Fisher-type calcs
+                                         pars_forecast_names=parnames,                                              # for verbose output
+
+                                         # NUMERICAL 
+                                         n_sph_modes=N_sph,dpar=dpar,                                             # conditioning the CAMB/etc. call
+                                         init_and_box_tol=0.05,CAMB_tol=0.05,                                   # considerations for k-modes at different steps
+                                         Nkpar_box=15,Nkperp_box=18,frac_tol_conv=frac_tol_conv,                          # considerations for cyl binned power spectra from boxes
+                                         no_monopole=False,                                                      # enforce zero-mean in realization boxes?
+                                         ftol_deriv=1e-16,maxiter=5,                                            # subtract off monopole moment to give zero-mean box?
+                                         PA_N_grid_pix=def_PA_N_grid_pix,PA_img_bin_tol=img_bin_tol,            # pixels per side of gridded uv plane, uv binning chunk snapshot tightness
+                                            
+                                         # CONVENIENCE
+                                         ceil=ceil,                                                                # avoid any high kpars to speed eval? (for speedy testing, not science) 
+                                         PA_recalc=redo_window_calc                                                        # save time by not repeating per-antenna calculations? 
+                                            
+                                         )
+
             if PA_dist=="random":
                 PA_title=" antennas' primary beam widths perturbed randomly throughout the array"
             elif PA_dist=="corner":

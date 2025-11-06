@@ -163,9 +163,9 @@ def sparse_PA_Gaussian(u,v,ctr,fwhm,nsigma_npix):
 
 # the actual pipeline!!
 """
-this class helps compute contaminant power and cosmological parameter biases using
-a Fisher-based formalism numerical windowing for a Gaussian beam with different 
-x- and y-pol widths
+this class helps compute contaminant power and cosmological parameter biases
+using a Fisher-based formalism and numerical windowing for power beams with  
+assorted properties and systematics.
 """
 
 class beam_effects(object):
@@ -183,10 +183,9 @@ class beam_effects(object):
 
                  # additional considerations for per-antenna systematics
                  PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac, # numbers of perturbation types, primary beam widths to perturb, and fraction governing the amplitude of the PDF from which perturbed primary beam widths are drawn
-                 PA_N_timesteps=def_PA_N_timesteps,PA_N_grid_pix=def_PA_N_grid_pix,     # numbers of timesteps to put in rotation synthesis and pixels per side of gridded uv plane
-                 PA_img_bin_tol=img_bin_tol,PA_ioname="placeholder",                    # uv binning chunk snapshot tightness, file name, recalculate box
-                 PA_distribution="random",PA_N_fiducial_beam_types=N_fid_beam_types,
-                 PA_fidu_types_prefactors=None,mode="full",per_channel_systematic=None,
+                 PA_N_fidu_types=N_fid_beam_types,PA_fidu_types_prefactors=None,        # how many kinds of fiducial beams and how to set them apart
+                 PA_N_timesteps=def_PA_N_timesteps,PA_ioname="placeholder",             # numbers of timesteps to put in rotation synthesis, in/output file name
+                 PA_distribution="random",mode="full",per_channel_systematic=None,
 
                  # FORECASTING
                  pars_set_cosmo=pars_Planck18,pars_forecast=pars_Planck18,              # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
@@ -197,9 +196,10 @@ class beam_effects(object):
                  n_sph_modes=256,dpar=None,                                             # conditioning the CAMB/etc. call
                  init_and_box_tol=0.05,CAMB_tol=0.05,                                   # considerations for k-modes at different steps
                  Nkpar_box=15,Nkperp_box=18,frac_tol_conv=0.1,                          # considerations for cyl binned power spectra from boxes
-                 no_monopole=True,
-                 ftol_deriv=1e-16,maxiter=5,                                             # subtract off monopole moment to give zero-mean box?
-
+                 no_monopole=True,                                                      # enforce zero-mean in realization boxes?
+                 ftol_deriv=1e-16,maxiter=5,                                            # subtract off monopole moment to give zero-mean box?
+                 PA_N_grid_pix=def_PA_N_grid_pix,PA_img_bin_tol=img_bin_tol,            # pixels per side of gridded uv plane, uv binning chunk snapshot tightness
+                
                  # CONVENIENCE
                  ceil=0,                                                                # avoid any high kpars to speed eval? (for speedy testing, not science) 
                  PA_recalc=False                                                        # save time by not repeating per-antenna calculations? 
@@ -260,8 +260,8 @@ class beam_effects(object):
         PA_ioname                  :: str                          :: fname to save/load stacked per-ant boxes :: ---
         PA_recalc                  :: bool                         :: recalculate per-antenna beamed boxes?    :: ---
         PA_distribution            :: str                          :: how to distribute perturbation types     :: ---
-        PA_N_fiducial_beam_types   :: int
-        PA_fidu_types_prefactors   :: (PA_N_fiducial_beam_types,)  :: initial inroads into making the dif fidu :: ---
+        PA_N_fidu_types   :: int
+        PA_fidu_types_prefactors   :: (PA_N_fidu_types,)  :: initial inroads into making the dif fidu :: ---
                                       of floats                       beam classes actually dif (multiplic.
                                                                       prefactor compared to lambda/D)
         mode                       :: str                          :: full, PF, or intermed states tbd later   :: ---
@@ -288,16 +288,16 @@ class beam_effects(object):
                     self.PA_N_grid_pix=            PA_N_grid_pix
                     self.img_bin_tol=              PA_img_bin_tol
                     self.PA_distribution=          PA_distribution
-                    self.PA_N_fiducial_beam_types= PA_N_fiducial_beam_types
+                    self.PA_N_fidu_types= PA_N_fidu_types
                     self.PA_fidu_types_prefactors= PA_fidu_types_prefactors
-                    fwhm=primary_beam_aux # eventually generalize to have two polarizations
-                    self.eps=primary_beam_uncs # also eventually generalize
+                    fwhm=primary_beam_aux # now with two polarizations!
+                    self.eps=primary_beam_uncs 
 
                     fidu=per_antenna(mode=mode,pbw_fidu=fwhm,N_pert_types=0,
                                     pbw_pert_frac=0,N_timesteps=self.PA_N_timesteps,
                                     N_pbws_pert=0,nu_ctr=nu_ctr,N_grid_pix=PA_N_grid_pix,
                                     distribution=self.PA_distribution,
-                                    N_fiducial_beam_types=PA_N_fiducial_beam_types,fidu_types_prefactors=PA_fidu_types_prefactors,
+                                    N_fiducial_beam_types=PA_N_fidu_types,fidu_types_prefactors=PA_fidu_types_prefactors,
                                     outname=PA_ioname)
                     fidu.stack_to_box()
                     print("constructed fiducially-beamed box")
@@ -308,7 +308,7 @@ class beam_effects(object):
                                     pbw_pert_frac=self.PA_pbw_pert_frac,N_timesteps=self.PA_N_timesteps,
                                     N_pbws_pert=PA_N_pbws_pert,nu_ctr=nu_ctr,N_grid_pix=PA_N_grid_pix,
                                     distribution=self.PA_distribution,
-                                    N_fiducial_beam_types=PA_N_fiducial_beam_types,fidu_types_prefactors=PA_fidu_types_prefactors,
+                                    N_fiducial_beam_types=PA_N_fidu_types,fidu_types_prefactors=PA_fidu_types_prefactors,
                                     outname=PA_ioname,per_channel_systematic=per_channel_systematic)
                     pert.stack_to_box()
                     print("constructed perturbed-beamed box")
@@ -388,7 +388,6 @@ class beam_effects(object):
         self.kmin_surv=np.min((self.kpar_surv[ 0],self.kperp_surv[ 0]))
         self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2)
 
-        ### EXPERIMENT STARTING ~14:30 04 NOV (tailor the realization boxes a bit more to the survey box)
         self.Lsurv_box_xy=twopi/self.kperp_surv[0]
         self.Nvox_box_xy=int(self.Lsurv_box_xy*self.kperp_surv[-1])
         self.Lsurv_box_z=twopi/self.kpar_surv[0]
@@ -673,7 +672,7 @@ class cosmo_stats(object):
     def __init__(self,
                  Lxy,Lz=None,                                                            # one scaling is nonnegotiable for box->spec and spec->box calcs; the other would be useful for rectangular prism box considerations (sky plane slice is square, but LoS extent can differ)
                  T_pristine=None,T_primary=None,P_fid=None,Nvox=None,Nvoxz=None,         # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
-                 primary_beam=None,primary_beam_aux=None,primary_beam_type="Gaussian",  # primary beam considerations
+                 primary_beam=None,primary_beam_aux=None,primary_beam_type="Gaussian",   # primary beam considerations
                  Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
                  frac_tol=0.1,                                                           # max number of realizations
                  k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
