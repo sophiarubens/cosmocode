@@ -182,7 +182,7 @@ class beam_effects(object):
                  manual_primary_beam_modes=None,                                        # config space pts at which a pre–discretely sampled primary beam is known
 
                  # additional considerations for per-antenna systematics
-                 PA_N_pert_types=0,PA_N_pbws_pert=0,PA_pbw_pert_frac=def_pbw_pert_frac, # numbers of perturbation types, primary beam widths to perturb, and fraction governing the amplitude of the PDF from which perturbed primary beam widths are drawn
+                 PA_N_pert_types=0,PA_N_pbws_pert=0,                                    # numbers of perturbation types, primary beam widths to perturb
                  PA_N_fidu_types=N_fid_beam_types,PA_fidu_types_prefactors=None,        # how many kinds of fiducial beams and how to set them apart
                  PA_N_timesteps=def_PA_N_timesteps,PA_ioname="placeholder",             # numbers of timesteps to put in rotation synthesis, in/output file name
                  PA_distribution="random",mode="full",per_channel_systematic=None,
@@ -249,8 +249,6 @@ class beam_effects(object):
         no_monopole                :: bool                         :: y/n enforce mean-0 in box realizations   :: ---
         PA_N_pert_types            :: int                          :: # classes of PB (per-antenna only)       :: ---
         PA_N_pbws_pert             :: int                          :: # antennas w/ pertn PBs (per-ant only)   :: ---
-        PA_pbw_pert_frac           :: float                        :: frac of fidu PBW governing PDF draw 
-                                                                      (per-antenna only)
         PA_N_timesteps             :: int                          :: # time steps in rotation synthesis (per- :: ---
                                                                       antenna only)
         PA_N_grid_pix              :: int                          :: # bins per side for uv plane gridding    :: ---
@@ -283,7 +281,6 @@ class beam_effects(object):
                 if PA_recalc:
                     self.PA_N_pert_types=          PA_N_pert_types
                     self.PA_N_pbws_pert=           PA_N_pbws_pert
-                    self.PA_pbw_pert_frac=         PA_pbw_pert_frac
                     self.PA_N_timesteps=           PA_N_timesteps
                     self.PA_N_grid_pix=            PA_N_grid_pix
                     self.img_bin_tol=              PA_img_bin_tol
@@ -305,7 +302,8 @@ class beam_effects(object):
                     xy_vec=fidu.xy_vec
                     z_vec=fidu.z_vec
                     pert=per_antenna(mode=mode,pbw_fidu=fwhm,N_pert_types=self.PA_N_pert_types,
-                                    pbw_pert_frac=self.PA_pbw_pert_frac,N_timesteps=self.PA_N_timesteps,
+                                    pbw_pert_frac=self.primary_beam_uncs, # does the drop-in substitution work the way I hope?
+                                    N_timesteps=self.PA_N_timesteps,
                                     N_pbws_pert=PA_N_pbws_pert,nu_ctr=nu_ctr,N_grid_pix=PA_N_grid_pix,
                                     distribution=self.PA_distribution,
                                     N_fiducial_beam_types=PA_N_fidu_types,fidu_types_prefactors=PA_fidu_types_prefactors,
@@ -502,14 +500,16 @@ class beam_effects(object):
                 raise NotYetImplementedError
             tr=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=self.Ptruesph,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                           primary_beam=pb_here,primary_beam_aux=self.primary_beam_aux,
+                           primary_beam_1=pb_here,primary_beam_aux_1=self.primary_beam_aux,primary_beam_type_1=self.primary_beam_type,
+                           primary_beam_2=pb_here,primary_beam_aux_2=self.primary_beam_aux,primary_beam_type_2=self.primary_beam_type,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=self.Ptruesph,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                           primary_beam=pb_here,primary_beam_aux=self.perturbed_primary_beam_aux,
+                           primary_beam_1=pb_here,primary_beam_aux_1=          self.primary_beam_aux,primary_beam_type_1=self.primary_beam_type,
+                           primary_beam_2=pb_here,primary_beam_aux_2=self.perturbed_primary_beam_aux,primary_beam_type_2=self.primary_beam_type,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
@@ -517,7 +517,8 @@ class beam_effects(object):
         else:
             tr=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=self.Ptruesph,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                           primary_beam=self.manual_primary_fid,primary_beam_type="manual",
+                           primary_beam_1=self.manual_primary_fid,primary_beam_type_1="manual",
+                           primary_beam_2=self.manual_primary_fid,primary_beam_type_2="manual",
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
@@ -525,7 +526,8 @@ class beam_effects(object):
                            manual_primary_beam_modes=self.manual_primary_beam_modes, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=self.Ptruesph,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                           primary_beam=self.manual_primary_mis,primary_beam_type="manual",
+                           primary_beam_1=self.manual_primary_mis,primary_beam_type_1="manual",
+                           primary_beam_2=self.manual_primary_mis,primary_beam_type_2="manual",
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
@@ -670,18 +672,19 @@ cosmological brighness temperature boxes for assorted interconnected use cases:
 
 class cosmo_stats(object):
     def __init__(self,
-                 Lxy,Lz=None,                                                            # one scaling is nonnegotiable for box->spec and spec->box calcs; the other would be useful for rectangular prism box considerations (sky plane slice is square, but LoS extent can differ)
-                 T_pristine=None,T_primary=None,P_fid=None,Nvox=None,Nvoxz=None,         # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
-                 primary_beam=None,primary_beam_aux=None,primary_beam_type="Gaussian",   # primary beam considerations
-                 Nk0=10,Nk1=0,binning_mode="lin",                                        # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
-                 frac_tol=0.1,                                                           # max number of realizations
-                 k0bins_interp=None,k1bins_interp=None,                                  # bins where it would be nice to know about P_converged
-                 P_realizations=None,P_converged=None,                                   # power spectra related to averaging over those from dif box realizations
-                 verbose=False,                                                          # status updates for averaging over realizations
-                 k_fid=None,kind="cubic",avoid_extrapolation=False,                      # helper vars for converting a 1d fid power spec to a box sampling
-                 no_monopole=True,                                                       # consideration when generating boxes
-                 manual_primary_beam_modes=None,                                         # when using a discretely sampled primary beam not sampled internally using a callable, it is necessary to provide knowledge of the modes at which it was sampled
-                 ):                                                                      # implement soon: synthesized beam considerations, other primary beam types, and more
+                 Lxy,Lz=None,                                                                 # one scaling is nonnegotiable for box->spec and spec->box calcs; the other would be useful for rectangular prism box considerations (sky plane slice is square, but LoS extent can differ)
+                 T_pristine=None,T_primary=None,P_fid=None,Nvox=None,Nvoxz=None,              # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
+                 primary_beam_1=None,primary_beam_aux_1=None, primary_beam_type_1="Gaussian",    # primary beam considerations
+                 primary_beam_2=None,primary_beam_aux_2=None, primary_beam_type_2="Gaussian", # systematic-y beam (optional)
+                 Nk0=10,Nk1=0,binning_mode="lin",                                             # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
+                 frac_tol=0.1,                                                                # max number of realizations
+                 k0bins_interp=None,k1bins_interp=None,                                       # bins where it would be nice to know about P_converged
+                 P_realizations=None,P_converged=None,                                        # power spectra related to averaging over those from dif box realizations
+                 verbose=False,                                                               # status updates for averaging over realizations
+                 k_fid=None,kind="cubic",avoid_extrapolation=False,                           # helper vars for converting a 1d fid power spec to a box sampling
+                 no_monopole=True,                                                            # consideration when generating boxes
+                 manual_primary_beam_modes=None,                                              # when using a discretely sampled primary beam not sampled internally using a callable, it is necessary to provide knowledge of the modes at which it was sampled
+                 ):                                                                           # implement soon: synthesized beam considerations, other primary beam types, and more
         """
         Lxy,Lz                    :: float                       :: side length of cosmo box          :: Mpc
         T_pristine                :: (Nvox,Nvox,Nvox) of floats  :: cosmo box (just physics/no beam)  :: K
@@ -691,8 +694,8 @@ class cosmo_stats(object):
         primary_beam              :: callable (or, if            :: power beam in Cartesian coords    :: ---
                                      primary_beam_type=="manual" 
                                      a 3D array)          
-        primary_beam_aux         :: tuple of floats             :: Gaussian, AiryGaussian: μ, σ      :: Gaussian: r0 in Mpc; fwhm_x, fwhm_y in rad
-        primary_beam_type         :: str                         :: for now: Gaussian / AiryGaussian  :: ---
+        primary_beam_aux         :: tuple of floats             :: Gaussian, Airy: μ, σ      :: Gaussian: r0 in Mpc; fwhm_x, fwhm_y in rad
+        primary_beam_type         :: str                         :: for now: Gaussian / Airy          :: ---
         Nk0, Nk1                  :: int                         :: # power spec bins for axis 0/1    :: ---
         binning_mode              :: str                         :: lin/log sp. P_realizations bins   :: ---
         frac_tol                  :: float                       :: max fractional amount by which    :: ---
@@ -757,8 +760,10 @@ class cosmo_stats(object):
                 Pfidshape=P_fid.shape
                 Pfiddims=len(Pfidshape)
                 if (Pfiddims==2):
-                    if primary_beam is None: # trying to do a minimalistic instantiation where I merely provide a fiducial power spectrum and interpolate it
+                    if primary_beam_1 is None: # trying to do a minimalistic instantiation where I merely provide a fiducial power spectrum and interpolate it
                         self.fid_Nk0,self.fid_Nk1=Pfidshape
+                        if primary_beam_2 is not None: 
+                            raise ConflictingInfoError # primary beam 1 needs to be the fiducial one; doesn't make sense to claim you have a perturbed but not fiducial pb
                     else:
                         try: # see if the power spec is a CAMB-esque (1,npts) array
                             self.P_fid=np.reshape(P_fid,(Pfidshape[-1],)) # make the CAMB MPS shape amenable to the calcs internal to this class
@@ -842,17 +847,17 @@ class cosmo_stats(object):
             self.parbin_indices_column_centre=    np.digitize(self.kpar_column_centre,self.k0bins)                     # cyl kpar bin that each voxel falls into
 
         # primary beam
-        self.primary_beam=primary_beam
-        self.primary_beam_aux=primary_beam_aux
-        self.primary_beam_type=primary_beam_type
-        self.manual_primary_beam_modes=manual_primary_beam_modes
-        if (self.primary_beam is not None): # non-identity primary beam
-            if (self.primary_beam_type=="Gaussian" or self.primary_beam_type=="AiryGaussian"):
-                self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_aux
-                evaled_primary=self.primary_beam(self.xx_grid,self.yy_grid,self.fwhm_x,self.fwhm_y,self.r0)
-            elif (self.primary_beam_type=="manual"):
+        self.primary_beam_1=primary_beam_1
+        self.primary_beam_aux_1=primary_beam_aux_1
+        self.primary_beam_type_1=primary_beam_type_1
+        self.manual_primary_beam_modes=manual_primary_beam_modes # _1 and _2 assumed to be sampled at the same modes, if this is the case
+        if (self.primary_beam_1 is not None): # non-identity FIDUCIAL primary beam
+            if (self.primary_beam_type_1=="Gaussian" or self.primary_beam_type_1=="Airy"):
+                self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_aux_1
+                evaled_primary_1=  self.primary_beam_1(self.xx_grid,self.yy_grid,self.fwhm_x,  self.fwhm_y,  self.r0)                
+            elif (self.primary_beam_type_1=="manual"):
                 try:    # to access this branch, the manual/ numerically sampled primary beam needs to be close enough to a numpy array that it has a shape and not, e.g. a callable
-                    primary_beam.shape
+                    primary_beam_1.shape
                 except: # primary beam is a callable (or something else without a shape method), which is not in line with how this part of the code is supposed to work
                     raise ConflictingInfoError 
                 if self.manual_primary_beam_modes is None:
@@ -883,46 +888,98 @@ class cosmo_stats(object):
                 if (z_want_hi>z_have_hi):
                     extrapolation_warning("high z",   z_want_hi,  z_have_hi)
                 print("end..... of manual primary beam extrapolation warning checks")
-                evaled_primary=interpn(manual_primary_beam_modes,
-                                       self.primary_beam,
-                                       (self.xx_grid,self.yy_grid,self.zz_grid),
-                                       method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
+                evaled_primary_1=interpn(manual_primary_beam_modes,
+                                         self.primary_beam_1,
+                                         (self.xx_grid,self.yy_grid,self.zz_grid),
+                                         method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
             else:
                 raise NotYetImplementedError
-            self.Veff=np.sum(evaled_primary*self.d3r)           # rectangular sum method
+            
+            
+            
+            
+            
+          
+            
+            
+        self.primary_beam_2=primary_beam_2
+        self.primary_beam_aux_2=primary_beam_aux_2
+        self.primary_beam_type_2=primary_beam_type_2
+        self.manual_primary_beam_modes=manual_primary_beam_modes # _2 and _2 assumed to be sampled at the same modes, if this is the case
+        if (self.primary_beam_2 is not None): # non-identity PERTURBED primary beam
+            if (self.primary_beam_type_2=="Gaussian" or self.primary_beam_type_2=="Airy"):
+                self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_aux_2
+                evaled_primary_2=  self.primary_beam_2(self.xx_grid,self.yy_grid,self.fwhm_x,  self.fwhm_y,  self.r0)                
+            elif (self.primary_beam_type_2=="manual"):
+                try:    # to access this branch, the manual/ numerically sampled primary beam needs to be close enough to a numpy array that it has a shape and not, e.g. a callable
+                    primary_beam_2.shape
+                except: # primary beam is a callable (or something else without a shape method), which is not in line with how this part of the code is supposed to work
+                    raise ConflictingInfoError 
+                if self.manual_primary_beam_modes is None:
+                    raise NotEnoughInfoError
 
-            fft_evaled_primary=fftshift(fftn(ifftshift(evaled_primary)*self.d3r))
-            beamtildesq_values=(fft_evaled_primary*np.conj(fft_evaled_primary)).real
-            beamtildesq=maxfloat*np.ones((self.Nvox,self.Nvox,self.Nvoxz))
-            use=np.nonzero(beamtildesq_values!=0.)
-            beamtildesq[use]=beamtildesq_values[use]
-            self.beamtildesq=beamtildesq
-            self.beamtildesq=1 # placeholder
+                print("start... of manual primary beam extrapolation warning checks")
+                x_manual_primary,y_manual_primary,z_manual_primary=manual_primary_beam_modes
+                x_have_lo=x_manual_primary[0]
+                x_have_hi=x_manual_primary[-1]
+                y_have_lo=y_manual_primary[0]
+                y_have_hi=y_manual_primary[-1]
+                z_have_lo=z_manual_primary[0]
+                z_have_hi=z_manual_primary[-1]
+                xy_want_lo=self.xy_vec_for_box[0]
+                xy_want_hi=self.xy_vec_for_box[-1]
+                z_want_lo=self.z_vec_for_box[0]
+                z_want_hi=self.z_vec_for_box[-1]
+                if (xy_want_lo<x_have_lo):
+                    extrapolation_warning("low x",   xy_want_lo,  x_have_lo)
+                if (xy_want_hi>x_have_hi):
+                    extrapolation_warning("high x",   xy_want_hi,  x_have_hi)
+                if (xy_want_lo<y_have_lo):
+                    extrapolation_warning("low y",   xy_want_lo,  y_have_lo)
+                if (xy_want_hi>y_have_hi):
+                    extrapolation_warning("high y",   xy_want_hi,  y_have_hi)
+                if (z_want_lo<z_have_lo):
+                    extrapolation_warning("low z",   z_want_lo,  z_have_lo)
+                if (z_want_hi>z_have_hi):
+                    extrapolation_warning("high z",   z_want_hi,  z_have_hi)
+                print("end..... of manual primary beam extrapolation warning checks")
+                evaled_primary_2=interpn(manual_primary_beam_modes,
+                                         self.primary_beam_2,
+                                         (self.xx_grid,self.yy_grid,self.zz_grid),
+                                         method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
+            else:
+                evaled_primary_2=None    
 
-            xidx=self.Nvox//2
-            yidx=self.Nvox//2
-            zidx=self.Nvoxz//2
-            beam_x_slice=evaled_primary[:,yidx,zidx]
-            beam_x_norm=np.sum(beam_x_slice**2)/self.Nvox # adds up to 1 if the evaled primary beam is 1 everywhere
-            beam_y_slice=evaled_primary[xidx,:,zidx]
-            beam_y_norm=np.sum(beam_y_slice**2)/self.Nvox
-            beam_z_slice=evaled_primary[xidx,yidx,:]
-            beam_z_norm=np.sum(beam_z_slice**2)/self.Nvoxz
-            self.beam_norm=beam_x_norm*beam_y_norm*beam_z_norm
+            if evaled_primary_2 is not None:
+                evaled_primary_use=evaled_primary_2
+            else:
+                evaled_primary_use=evaled_primary_1
+            #######MAKE THIS USE _2 IF IT IS PRESENT AND _1 IF IT IS NOT!!!
+            # xidx=self.Nvox//2
+            # yidx=self.Nvox//2
+            # zidx=self.Nvoxz//2
+            # beam_x_slice=evaled_primary_use[:,yidx,zidx]
+            # beam_x_norm=np.sum(beam_x_slice**2)/self.Nvox # adds up to 1 if the evaled primary beam is 1 everywhere
+            # beam_y_slice=evaled_primary_use[xidx,:,zidx]
+            # beam_y_norm=np.sum(beam_y_slice**2)/self.Nvox
+            # beam_z_slice=evaled_primary_use[xidx,yidx,:]
+            # beam_z_norm=np.sum(beam_z_slice**2)/self.Nvoxz
+            # self.beam_norm=beam_x_norm*beam_y_norm*beam_z_norm
+            self.beam_norm=1
 
-            evaled_primary_for_div=np.copy(evaled_primary)
-            evaled_primary_for_mul=np.copy(evaled_primary)
+            evaled_primary_for_div=np.copy(evaled_primary_2)
+            evaled_primary_for_mul=np.copy(evaled_primary_1)
             evaled_primary_for_div[evaled_primary_for_div<nearly_zero]=maxfloat # protect against division-by-zero errors
             self.evaled_primary_for_div=evaled_primary_for_div
             self.evaled_primary_for_mul=evaled_primary_for_mul
+            self.Veff=np.sum(evaled_primary_use*self.d3r)           # rectangular sum method
         else:                               # identity primary beam
             self.Veff=self.Lxy**2*self.Lz
             self.evaled_primary_for_div=np.ones((self.Nvox,self.Nvox,self.Nvoxz))
             self.evaled_primary_for_mul=np.copy(self.evaled_primary_for_div)
-            self.beamtildesq=np.ones((self.Nvox,self.Nvox,self.Nvoxz))
             self.beam_norm=1
         if (self.T_pristine is not None):
-            self.T_primary=self.T_pristine*self.evaled_primary
+            self.T_primary=self.T_pristine*self.evaled_primary_1 # APPLY THE FIDUCIAL BEAM
         ############
         
         # strictness control for realization averaging
@@ -985,7 +1042,7 @@ class cosmo_stats(object):
         T_tilde=fftshift(fftn((ifftshift(T_use)*self.d3r)))
         modsq_T_tilde=(T_tilde*np.conjugate(T_tilde)).real
         modsq_T_tilde[:,:,self.Nvoxz//2]*=2 # fix pos/neg duplication issue at the origin
-        modsq_T_tilde/=self.beamtildesq
+        # modsq_T_tilde/=self.beamtildesq
         if (self.Nk1==0):   # bin to sph
             modsq_T_tilde_1d= np.reshape(modsq_T_tilde,    (self.Nvox**2*self.Nvoxz,))
 
@@ -1420,6 +1477,13 @@ class per_antenna(beam_effects):
             noise_bound_hi=1.25
             noise_frac=(noise_bound_hi-noise_bound_lo)*np.random.random_sample(size=(N_chan,))+noise_bound_lo # random_sample draws fall within [0,1) but I want values between [0.75,1.25)*(that channel's beam width)
             surv_beam_widths*=noise_frac
+        elif self.per_channel_systematic=="sporadic":
+            surv_beam_widths=surv_wavelengths/D
+            bad=np.ones(N_chan)
+            bad[N_chan//5:N_chan//4+1]=1.25
+            bad[N_chan//2:7*N_chan//13+1]=0.6
+            bad[7*N_chan//9:10*N_chan//11]=1.8
+            surv_beam_widths*=bad
         else:
             raise NotYetImplementedError
 
