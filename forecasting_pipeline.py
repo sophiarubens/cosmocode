@@ -525,7 +525,8 @@ class beam_effects(object):
                            k_fid=self.ksph, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=self.Ptruesph,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                           primary_beam_tr=pb_here,primary_beam_aux_tr=          self.primary_beam_aux,primary_beam_type_tr=self.primary_beam_type,
+                        #    primary_beam_tr=pb_here,primary_beam_aux_tr=          self.primary_beam_aux,primary_beam_type_tr=self.primary_beam_type,
+                           primary_beam_tr=pb_here,primary_beam_aux_tr=self.perturbed_primary_beam_aux,primary_beam_type_tr=self.primary_beam_type,
                            primary_beam_th=pb_here,primary_beam_aux_th=self.perturbed_primary_beam_aux,primary_beam_type_th=self.primary_beam_type,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
@@ -543,7 +544,8 @@ class beam_effects(object):
                            manual_primary_beam_modes=self.manual_primary_beam_modes, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=self.Ptruesph,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                           primary_beam_tr=self.manual_primary_fid,primary_beam_type_tr="manual",
+                        #    primary_beam_tr=self.manual_primary_fid,primary_beam_type_tr="manual",
+                           primary_beam_tr=self.manual_primary_mis,primary_beam_type_tr="manual",
                            primary_beam_th=self.manual_primary_mis,primary_beam_type_th="manual",
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
