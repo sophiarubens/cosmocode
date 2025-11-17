@@ -1133,7 +1133,7 @@ class cosmo_stats(object):
                 if (i%(self.realization_ceiling//10)==0):
                     print("realization",i)
                     ti=time.time()
-                    if (ti-t0>6*3600):
+                    if (ti-t0>3600): # actually save the realizations every hour
                         np.save("P_realizations_unconverged_"+str(ti)+".npy",self.P_realizations)
 
         arr_realiz_holder=np.array(self.P_realizations)
