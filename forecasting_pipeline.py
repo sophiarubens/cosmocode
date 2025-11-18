@@ -26,6 +26,7 @@ H0_Planck18=67.32
 h_Planck18=H0_Planck18/100.
 Omegamh2_Planck18=Omegam_Planck18*h_Planck18**2
 pars_Planck18=[H0_Planck18,Omegabh2_Planck18,Omegamh2_Planck18,AS_Planck18,ns_Planck18] # suitable for get_mps
+parnames_Planck18=                ['H_0',       'Omega_b h**2',      'Omega_c h**2',      '10**9 * A_S',        'n_s'       ]
 scale=1e-9
 dpar_default=1e-3*np.ones(len(pars_Planck18))
 dpar_default[3]*=scale
@@ -1543,34 +1544,27 @@ def cyl_sph_plots(redo_window_calc,
               N_pbws_pert, per_channel_systematic,
               PA_dist, f_types_prefacs, plot_qty, 
                   
-              parnames=pars_Planck18, dpar=dpar_default, 
+              pars=None, parnames=None, dpar=None, 
                   
               b_NS_CHORD=b_NS,N_NS_CHORD=N_NS_full,
               b_EW_CHORD=b_EW,N_EW_CHORD=N_EW_full,
               channel_width=0.183):
-    ############################## cosmo params, constants, and conversion factors ########################################################################################################################
-    # Omegabh2_Planck18=0.022383
-    # Omegach2_Planck18=0.12011
-    # lntentenAS_Planck18=3.0448
-    # tentenAS_Planck18=np.exp(lntentenAS_Planck18)
-    # AS_Planck18=tentenAS_Planck18/10**10
-    # ns_Planck18=0.96605
-    # H0_Planck18=67.32
-    # pi=np.pi
 
     ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
-    scale=1e-9
-    pars_Planck18=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  AS_Planck18,           ns_Planck18])
-    parnames=                ['H_0',       'Omega_b h**2',      'Omega_c h**2',      '10**9 * A_S',        'n_s'       ]
-    pars_Planck18[3]/=scale # A_s management (avoid numerical conditioning–related issues)
-    nprm=len(pars_Planck18)
-    dpar=1e-3*np.ones(nprm) # starting point (numerical derivatives have adaptive step size)
-    dpar[3]*=scale
+    if pars is None:
+        scale=1e-9
+        pars_Planck18=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  AS_Planck18,           ns_Planck18])
+        parnames=                ['H_0',       'Omega_b h**2',      'Omega_c h**2',      '10**9 * A_S',        'n_s'       ]
+        pars_Planck18[3]/=scale # A_s management (avoid numerical conditioning–related issues)
+        nprm=len(pars_Planck18)
+        dpar=1e-3*np.ones(nprm) # starting point (numerical derivatives have adaptive step size)
+        dpar[3]*=scale
+
+        pars=pars_Planck18
 
     ############################## other survey management factors ########################################################################################################################
     nu_ctr_Hz=nu_ctr*1e6
     wl_ctr_m=c/nu_ctr_Hz
-    channel_width=0.183 # 183 kHz from CHORD Wiki -> SWGs -> Galaxies -> CHORD Pathfinder specs -> Spectral resolution (there's no more recent estimate, even from telecon slides, as far as I can tell, although a lot of the info on that page is out of date, e.g. f/D ratio reads 0.21 and not 0.25; pathfinder quotes as 11x6 instead of 10x7...)
 
     ############################## baselines and beams ########################################################################################################################
     b_NS_CHORD=8.5 # m
