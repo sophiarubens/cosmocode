@@ -1549,17 +1549,14 @@ def cyl_sph_plots(redo_window_calc,
               b_EW_CHORD=b_EW,N_EW_CHORD=N_EW_full,
               channel_width=0.183):
     ############################## cosmo params, constants, and conversion factors ########################################################################################################################
-    Omegam_Planck18=0.3158
-    Omegabh2_Planck18=0.022383
-    Omegach2_Planck18=0.12011
-    OmegaLambda_Planck18=0.6842
-    lntentenAS_Planck18=3.0448
-    tentenAS_Planck18=np.exp(lntentenAS_Planck18)
-    AS_Planck18=tentenAS_Planck18/10**10
-    ns_Planck18=0.96605
-    H0_Planck18=67.32
-    pi=np.pi
-    nu_rest_21=1420.405751768 # MHz
+    # Omegabh2_Planck18=0.022383
+    # Omegach2_Planck18=0.12011
+    # lntentenAS_Planck18=3.0448
+    # tentenAS_Planck18=np.exp(lntentenAS_Planck18)
+    # AS_Planck18=tentenAS_Planck18/10**10
+    # ns_Planck18=0.96605
+    # H0_Planck18=67.32
+    # pi=np.pi
 
     ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
     scale=1e-9
@@ -1591,10 +1588,7 @@ def cyl_sph_plots(redo_window_calc,
     hpbw_y= 0.75 * hpbw_x         # we know this tends to be a little narrower, based on measurements (...from D3A ...so far)
 
     ############################## pipeline administration ########################################################################################################################
-    # epsxy=0.02
-    ptail="_"+categ+".npy"
 
-    plot_qty="P" # "Delta2"
     ioname=mode+"_"+str(int(nu_ctr))+"_MHz_"+categ+"_ceil_"+str(ceil)+"_Poisson_"+str(round(frac_tol_conv,2))+"_PA_dist_"+PA_dist+"per_channel_systematic_"+str(per_channel_systematic)+"epsxy_"+str(epsxy)
 
     if plot_qty=="P":
