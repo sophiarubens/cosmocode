@@ -205,7 +205,7 @@ class beam_effects(object):
                 
                  # CONVENIENCE
                  ceil=0,                                                                # avoid any high kpars to speed eval? (for speedy testing, not science) 
-                 PA_recalc=False                                                        # save time by not repeating per-antenna calculations? 
+                 PA_recalc=True                                                        # save time by not repeating per-antenna calculations? 
                  
                  ):                                                                                                                                                     
                 
@@ -1535,31 +1535,66 @@ class per_antenna(beam_effects):
         self.xy_vec=xy_vec
         self.z_vec=z_vec
 
-def cyl_sph_plots(redo_window_calc, 
-                  mode, nu_ctr, epsxy,
-                  ceil, frac_tol_conv, N_sph,
-                  categ, uaa_beam_type, 
-                  N_fidu_types, N_pert_types,
-                  N_pbws_pert, per_channel_systematic,
-                  PA_dist, f_types_prefacs,
-                  plot_qty, 
+def cyl_sph_plots(redo_window_calc,
+              mode, nu_ctr, epsxy,
+              ceil, frac_tol_conv, N_sph,
+              categ, uaa_beam_type, 
+              N_fidu_types, N_pert_types, 
+              N_pbws_pert, per_channel_systematic,
+              PA_dist, f_types_prefacs, plot_qty, 
                   
-                  parnames=pars_Planck18, dpar=dpar_default, 
+              parnames=pars_Planck18, dpar=dpar_default, 
                   
-                  b_NS_CHORD=b_NS,N_NS_CHORD=N_NS_full,
-                  b_EW_CHORD=b_EW,N_EW_CHORD=N_EW_full,
-                  channel_width=0.183):
-    bminCHORD=np.min([b_NS_CHORD,b_EW_CHORD])
-    if mode=="pathfinder": # 10x7=70 antennas (64 w/ receiver hut gaps), 123 baselines
-        bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2)
+              b_NS_CHORD=b_NS,N_NS_CHORD=N_NS_full,
+              b_EW_CHORD=b_EW,N_EW_CHORD=N_EW_full,
+              channel_width=0.183):
+    ############################## cosmo params, constants, and conversion factors ########################################################################################################################
+    Omegam_Planck18=0.3158
+    Omegabh2_Planck18=0.022383
+    Omegach2_Planck18=0.12011
+    OmegaLambda_Planck18=0.6842
+    lntentenAS_Planck18=3.0448
+    tentenAS_Planck18=np.exp(lntentenAS_Planck18)
+    AS_Planck18=tentenAS_Planck18/10**10
+    ns_Planck18=0.96605
+    H0_Planck18=67.32
+    pi=np.pi
+    nu_rest_21=1420.405751768 # MHz
+
+    ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
+    scale=1e-9
+    pars_Planck18=np.asarray([ H0_Planck18, Omegabh2_Planck18,  Omegach2_Planck18,  AS_Planck18,           ns_Planck18])
+    parnames=                ['H_0',       'Omega_b h**2',      'Omega_c h**2',      '10**9 * A_S',        'n_s'       ]
+    pars_Planck18[3]/=scale # A_s management (avoid numerical conditioning–related issues)
+    nprm=len(pars_Planck18)
+    dpar=1e-3*np.ones(nprm) # starting point (numerical derivatives have adaptive step size)
+    dpar[3]*=scale
+
+    ############################## other survey management factors ########################################################################################################################
+    nu_ctr_Hz=nu_ctr*1e6
+    wl_ctr_m=c/nu_ctr_Hz
+    channel_width=0.183 # 183 kHz from CHORD Wiki -> SWGs -> Galaxies -> CHORD Pathfinder specs -> Spectral resolution (there's no more recent estimate, even from telecon slides, as far as I can tell, although a lot of the info on that page is out of date, e.g. f/D ratio reads 0.21 and not 0.25; pathfinder quotes as 11x6 instead of 10x7...)
+
+    ############################## baselines and beams ########################################################################################################################
+    b_NS_CHORD=8.5 # m
+    N_NS_CHORD=24
+    b_EW_CHORD=6.3 # m
+    N_EW_CHORD=22
+    bminCHORD=6.3
+
+    if (mode=="pathfinder"): # 10x7=70 antennas (64 w/ receiver hut gaps), 123 baselines
+        bmaxCHORD=np.sqrt((b_NS_CHORD*10)**2+(b_EW_CHORD*7)**2) # pathfinder (as per the CHORD-all telecon on May 26th, but without holes)
     elif mode=="full": # 24x22=528 antennas (512 w/ receiver hut gaps), 1010 baselines
         bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2)
 
-    nu_ctr_Hz=nu_ctr*1e6
-    wl_ctr_m=c/nu_ctr_Hz
     hpbw_x= wl_ctr_m/D *  pi/180. # rad; lambda/D estimate (actually physically realistic)
     hpbw_y= 0.75 * hpbw_x         # we know this tends to be a little narrower, based on measurements (...from D3A ...so far)
-    
+
+    ############################## pipeline administration ########################################################################################################################
+    epsxy=0.02
+    ptail="_"+categ+".npy"
+
+    plot_qty="P" # "Delta2"
     ioname=mode+"_"+str(int(nu_ctr))+"_MHz_"+categ+"_ceil_"+str(ceil)+"_Poisson_"+str(round(frac_tol_conv,2))+"_PA_dist_"+PA_dist+"per_channel_systematic_"+str(per_channel_systematic)+"epsxy_"+str(epsxy)
 
     if plot_qty=="P":
@@ -1766,14 +1801,12 @@ def cyl_sph_plots(redo_window_calc,
     Pfidu_sph=np.reshape(Pfidu_sph,(Pfidu_sph.shape[-1],))
 
     doubled=np.linspace(kmin_surv,kmax_surv,N_sph*2) # print statements offer no reason why this should have to be a workaround (I think it was because I had conflicting versions of N_sph that were named confusingly and they were off by almost a factor of two: 128 and 250)
-    Pcont_sph=interpn(kcyl_for_interp, Pcont_cyl_surv, doubled, bounds_error=False, fill_value=None)
     Pthought_sph=interpn(kcyl_for_interp, Pthought_cyl_surv, doubled, bounds_error=False, fill_value=None)
     Ptrue_sph=interpn(kcyl_for_interp, Ptrue_cyl_surv, doubled, bounds_error=False, fill_value=None)
 
     Delta2_fidu=kfidu_sph**3*Pfidu_sph/(2*pi**2)
     Delta2_thought=k_sph**3*Pthought_sph/(2*pi**2)
     Delta2_true=k_sph**3*Ptrue_sph/(2*pi**2)
-    Delta2_cont=k_sph**3*Pcont_sph/(2*pi**2)
 
     fidu=[Pfidu_sph,Delta2_fidu]
     thought=[Pthought_sph,Delta2_thought]
@@ -1818,4 +1851,3 @@ def cyl_sph_plots(redo_window_calc,
                         ceil, int(frac_tol_conv*100)))
     fig.tight_layout()
     fig.savefig("SPH_"+ioname+".png",dpi=200)
-    fig.show()
