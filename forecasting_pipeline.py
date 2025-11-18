@@ -1088,10 +1088,6 @@ class cosmo_stats(object):
         else:             # the "normal" case where you're just accumulating a realization
             self.P_realizations.append([P])
         self.unbinned_P=modsq_T_tilde/self.Veff # box-shaped, but calculated according to the power spectrum estimator equation
-        print("modsq_T_tilde=",modsq_T_tilde)
-        print("avg_modsq_T_tilde=",avg_modsq_T_tilde)
-        print("self.Veff=",self.Veff)
-        print("P=",P)
 
     def generate_box(self):
         """
@@ -1782,7 +1778,6 @@ def cyl_sph_plots(redo_window_calc,
     fidu=[Pfidu_sph,Delta2_fidu]
     thought=[Pthought_sph,Delta2_thought]
     true=[Ptrue_sph,Delta2_true]
-    cont=[Pcont_sph,Delta2_cont]
 
     if plot_qty=="P":
         k=0
