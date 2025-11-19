@@ -553,8 +553,8 @@ class beam_effects(object):
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph,
                            manual_primary_beam_modes=self.manual_primary_beam_modes, no_monopole=self.no_monopole)
-        tr.avg_realizations()
-        th.avg_realizations()
+        tr.avg_realizations(interfix="tr")
+        th.avg_realizations(interfix="th")
 
         self.Ptrue_cyl=    tr.P_converged
         self.Pthought_cyl= th.P_converged
@@ -1117,7 +1117,7 @@ class cosmo_stats(object):
         self.T_pristine=T
         self.T_primary=T*self.evaled_primary_for_mul
 
-    def avg_realizations(self):
+    def avg_realizations(self,interfix=""):
         """
         philosophy:
         * since P->box is not deterministic,
@@ -1137,7 +1137,7 @@ class cosmo_stats(object):
                     print("realization",i)
             ti=time.time()
             if ((ti-t0)>3600): # actually save the realizations every hour
-                np.save("P_realizations_unconverged_"+str(ti)+".npy",self.P_realizations)
+                np.save("P_"+interfix+"_unconverged.npy",np.mean(self.P_realizations,axis=0))
                 t0=time.time()
 
         arr_realiz_holder=np.array(self.P_realizations)
@@ -1544,7 +1544,9 @@ def cyl_sph_plots(redo_window_calc,
                   
               b_NS_CHORD=b_NS,N_NS_CHORD=N_NS_full,
               b_EW_CHORD=b_EW,N_EW_CHORD=N_EW_full,
-              freq_bin_width=0.1953125):
+              freq_bin_width=0.1953125,
+              
+              from_saved_power_spectra=False):
 
     ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
     if pars is None:
@@ -1688,29 +1690,27 @@ def cyl_sph_plots(redo_window_calc,
                                         manual_primary_beam_modes=(xy_vec,xy_vec,z_vec))
 
     windowed_survey.print_survey_characteristics()
-    if redo_window_calc:
-        t0=time.time()
-        windowed_survey.calc_Pcont_asym()
-        t1=time.time()
-        print("Pcont calculation time was",t1-t0)
+    if not from_saved_power_spectra:
+        if redo_window_calc:
+            t0=time.time()
+            windowed_survey.calc_Pcont_asym()
+            t1=time.time()
+            print("Pcont calculation time was",t1-t0)
 
-        # Pcont_cyl_surv=windowed_survey.Pcont_cyl_surv
-        Ptrue_cyl_surv=windowed_survey.Ptrue_cyl_surv
-        Pthought_cyl_surv=windowed_survey.Pthought_cyl_surv
-        Pfidu_sph=windowed_survey.Ptruesph
-        kfidu_sph=windowed_survey.ksph
-
-        np.save("Pthought_cyl_surv_"+ioname+".npy",Pthought_cyl_surv)
-        np.save("Ptrue_cyl_"+ioname+".npy",Ptrue_cyl_surv)
-        np.save("Pfidu_sph_"+ioname+".npy",Pfidu_sph)
-        np.save("kfidu_sph_"+ioname+".npy",kfidu_sph)
+            Ptrue_cyl_surv=windowed_survey.Ptrue_cyl_surv
+            Pthought_cyl_surv=windowed_survey.Pthought_cyl_surv
+            np.save("Pthought_cyl_surv_"+ioname+".npy",Pthought_cyl_surv)
+            np.save("Ptrue_cyl_"+ioname+".npy",Ptrue_cyl_surv)
+        else:
+            Pthought_cyl_surv=np.load("Pthought_cyl_surv_"+ioname+".npy")
+            Ptrue_cyl_surv=np.load("Ptrue_cyl_"+ioname+".npy")
     else:
-        Pthought_cyl_surv=np.load("Pthought_cyl_surv_"+ioname+".npy")
-        Ptrue_cyl_surv=np.load("Ptrue_cyl_"+ioname+".npy")
-        Pfidu_sph=np.load("Pfidu_sph_"+ioname+".npy")
-        kfidu_sph=np.load("kfidu_sph_"+ioname+".npy")
+        Pthought_cyl_surv=np.load("P_th_unconverged.npy")
+        Ptrue_cyl_surv=np.load("P_tr_unconverged.npy")
 
     Pcont_cyl_surv=Pthought_cyl_surv-Ptrue_cyl_surv
+    Pfidu_sph=windowed_survey.Ptruesph
+    kfidu_sph=windowed_survey.ksph
     kmin_surv=windowed_survey.kmin_surv
     kmax_surv=windowed_survey.kmax_surv
     kpar=windowed_survey.kpar_surv
@@ -1809,18 +1809,11 @@ def cyl_sph_plots(redo_window_calc,
         fid_label="fiducially beamed data"
     else:
         fid_label=""
-    label_for_eps="frac. unc. in HPBW= "+str(np.round(epsxy,2))
     axs[0].semilogy(k_sph,true[k],label=fid_label,c="C1")
-    axs[0].semilogy(k_sph,thought[k],label=label_for_eps,c="C0")
+    axs[0].semilogy(k_sph,thought[k],c="C0")
 
     frac_dif=(true[k]-thought[k])/true[k]
     axs[1].plot(k_sph,frac_dif,c="C0")
-
-    for m in range(2):
-        axs[m].set_xlim(kmin_surv,kmax_surv*0.75) # /2 in kmax b/c of +/- in box
-    # frac_dif_lim=1.05*np.max(np.abs(frac_dif[:3*N_sph//4]))
-    # axs[1].set_ylim(-frac_dif_lim,frac_dif_lim)
-    axs[0].legend()
     fig.suptitle("{:5} MHz CHORD {} survey \n" \
                 "{}\n" \
                 "{}\n" \
