@@ -444,23 +444,15 @@ class beam_effects(object):
         # holder for numerical derivatives of a cylindrically binned power spectrum (sampled at the survey modes) wrt the params being forecast
         self.cyl_partials=np.zeros((self.N_pars_forecast,self.Nkpar_surv,self.Nkperp_surv))
 
-        settings="primary beam width systematics category =     {}" \
-                 "                               type =         {}" \
-                 "                               distribution = {}" \
-                 "central frequency of survey =                 {:6.2}" \
-                 "observing setup =                             {}" \
-                 "number of high-kparallel channels truncated = {:4}" \
-                 "Poisson noise convergence threshold =         {:8.4}" \
-                 "per-channel systematic =                      {}".format(primary_beam_categ,
-                                                                           primary_beam_type,
-                                                                           PA_distribution,
-                                                                           nu_ctr,
-                                                                           mode,
-                                                                           ceil,
-                                                                           self.frac_tol_conv,
-                                                                           per_channel_systematic)
-        with open("settings.txt", 'w') as file:
-            file.write(settings)
+        with open("settings.txt", "w") as file:
+            file.write("primary beam width systematics category     = "+primary_beam_categ+"\n")
+            file.write("                               type         = "+primary_beam_type+"\n")
+            file.write("                               distribution = "+PA_distribution+"\n")
+            file.write("central frequency of survey                 = "+str(nu_ctr)+"\n")
+            file.write("observing setup                             = "+mode+"\n")
+            file.write("number of high-kparallel channels truncated = "+str(ceil)+"\n")
+            file.write("Poisson noise convergence threshold         = "+str(self.frac_tol_conv)+"\n")
+            file.write("per-channel systematic                      = "+per_channel_systematic+"\n")
 
     def get_mps(self,pars_use,minkh=1e-4,maxkh=1):
         """
