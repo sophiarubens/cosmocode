@@ -445,14 +445,14 @@ class beam_effects(object):
         self.cyl_partials=np.zeros((self.N_pars_forecast,self.Nkpar_surv,self.Nkperp_surv))
 
         with open("settings.txt", "w") as file:
-            file.write("primary beam width systematics category     = "+primary_beam_categ+"\n")
-            file.write("                               type         = "+primary_beam_type+"\n")
-            file.write("                               distribution = "+PA_distribution+"\n")
+            file.write("primary beam width systematics category     = "+str(primary_beam_categ)+"\n")
+            file.write("                               type         = "+str(primary_beam_type)+"\n")
+            file.write("                               distribution = "+str(PA_distribution)+"\n")
             file.write("central frequency of survey                 = "+str(nu_ctr)+"\n")
-            file.write("observing setup                             = "+mode+"\n")
+            file.write("observing setup                             = "+str(mode)+"\n")
             file.write("number of high-kparallel channels truncated = "+str(ceil)+"\n")
             file.write("Poisson noise convergence threshold         = "+str(self.frac_tol_conv)+"\n")
-            file.write("per-channel systematic                      = "+per_channel_systematic+"\n")
+            file.write("per-channel systematic                      = "+str(per_channel_systematic)+"\n")
 
     def get_mps(self,pars_use,minkh=1e-4,maxkh=1):
         """
