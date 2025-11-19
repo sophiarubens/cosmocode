@@ -4,6 +4,7 @@ from camb import model
 from scipy.signal import convolve
 from scipy.interpolate import interpn,interp1d
 from scipy.special import j1
+from scipy.stats import binned_statistic
 from numpy.fft import fftshift,ifftshift,fftn,irfftn,fftfreq,ifft2
 from cosmo_distances import *
 from matplotlib import pyplot as plt
@@ -453,9 +454,9 @@ class beam_effects(object):
             file.write("number of high-kparallel channels truncated       = "+str(ceil)+"\n")
             file.write("Poisson noise convergence threshold               = "+str(self.frac_tol_conv)+"\n")
             file.write("per-channel systematic                            = "+str(per_channel_systematic)+"\n")
-            file.write("number of fiducial beam types (if applicable)     = "+str(self.N_fidu_types)+"\n")
-            file.write("number of perturbed beam types (if applicable)    = "+str(self.N_pert_types)+"\n")
-            file.write("number of perturbed primary beams (if applicable) = "+str(self.PA_N_pbws_pert)+"\n")
+            file.write("number of fiducial beam types (if applicable)     = "+str(PA_N_fidu_types)+"\n")
+            file.write("number of perturbed beam types (if applicable)    = "+str(PA_N_pert_types)+"\n")
+            file.write("number of perturbed primary beams (if applicable) = "+str(PA_N_pbws_pert)+"\n")
 
     def get_mps(self,pars_use,minkh=1e-4,maxkh=1):
         """
@@ -1217,7 +1218,7 @@ class per_antenna(beam_effects):
                  mode="full",b_NS=b_NS,b_EW=b_EW,observing_dec=def_observing_dec,offset_deg=def_offset_deg,
                  N_fiducial_beam_types=N_fid_beam_types,N_pert_types=0,N_pbws_pert=0,pbw_pert_frac=def_pbw_pert_frac,
                  N_timesteps=def_N_timesteps,nu_ctr=nu_HI_z0,
-                 pbw_fidu=None,N_grid_pix=def_PA_N_grid_pix,Delta_nu=0.183,
+                 pbw_fidu=None,N_grid_pix=def_PA_N_grid_pix,Delta_nu=0.1953125,
                  distribution="random",fidu_types_prefactors=None,
                  outname=None,per_channel_systematic=None
                  ):
@@ -1543,7 +1544,7 @@ def cyl_sph_plots(redo_window_calc,
                   
               b_NS_CHORD=b_NS,N_NS_CHORD=N_NS_full,
               b_EW_CHORD=b_EW,N_EW_CHORD=N_EW_full,
-              channel_width=0.183):
+              freq_bin_width=0.1953125):
 
     ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
     if pars is None:
@@ -1596,7 +1597,7 @@ def cyl_sph_plots(redo_window_calc,
                                             # SCIENCE
                                             # the observation
                                             bminCHORD,bmaxCHORD,                                
-                                            nu_ctr,channel_width,                             
+                                            nu_ctr,freq_bin_width,                             
                                             evol_restriction_threshold=def_evol_restriction_threshold,    
                                                 
                                             # beam generalities
@@ -1625,7 +1626,7 @@ def cyl_sph_plots(redo_window_calc,
             windowed_survey=beam_effects(# SCIENCE
                                             # the observation
                                             bminCHORD,bmaxCHORD,                                                             # extreme baselines of the array
-                                            nu_ctr,channel_width,                                                       # for the survey of interest
+                                            nu_ctr,freq_bin_width,                                                       # for the survey of interest
                                             evol_restriction_threshold=def_evol_restriction_threshold,             # how close to coeval is close enough?
                                                 
                                             # beam generalities
@@ -1681,7 +1682,7 @@ def cyl_sph_plots(redo_window_calc,
                                         categ,None,manual_primary_aux,None,
                                         pars_Planck18,pars_Planck18,
                                         N_sph,dpar,
-                                        nu_ctr,channel_width,
+                                        nu_ctr,freq_bin_width,
                                         frac_tol_conv=frac_tol_conv,
                                         pars_forecast_names=parnames, no_monopole=False,
                                         manual_primary_beam_modes=(xy_vec,xy_vec,z_vec))
@@ -1693,24 +1694,23 @@ def cyl_sph_plots(redo_window_calc,
         t1=time.time()
         print("Pcont calculation time was",t1-t0)
 
-        Pcont_cyl_surv=windowed_survey.Pcont_cyl_surv
+        # Pcont_cyl_surv=windowed_survey.Pcont_cyl_surv
         Ptrue_cyl_surv=windowed_survey.Ptrue_cyl_surv
         Pthought_cyl_surv=windowed_survey.Pthought_cyl_surv
         Pfidu_sph=windowed_survey.Ptruesph
         kfidu_sph=windowed_survey.ksph
 
-        np.save("Pcont_cyl_surv_"+ioname+".npy",Pcont_cyl_surv)
         np.save("Pthought_cyl_surv_"+ioname+".npy",Pthought_cyl_surv)
         np.save("Ptrue_cyl_"+ioname+".npy",Ptrue_cyl_surv)
         np.save("Pfidu_sph_"+ioname+".npy",Pfidu_sph)
         np.save("kfidu_sph_"+ioname+".npy",kfidu_sph)
     else:
-        Pcont_cyl_surv=np.load("Pcont_cyl_surv_"+ioname+".npy")
         Pthought_cyl_surv=np.load("Pthought_cyl_surv_"+ioname+".npy")
         Ptrue_cyl_surv=np.load("Ptrue_cyl_"+ioname+".npy")
         Pfidu_sph=np.load("Pfidu_sph_"+ioname+".npy")
         kfidu_sph=np.load("kfidu_sph_"+ioname+".npy")
 
+    Pcont_cyl_surv=Pthought_cyl_surv-Ptrue_cyl_surv
     kmin_surv=windowed_survey.kmin_surv
     kmax_surv=windowed_survey.kmax_surv
     kpar=windowed_survey.kpar_surv
@@ -1744,11 +1744,12 @@ def cyl_sph_plots(redo_window_calc,
         i=num//2
         j=num%2
         vcentre=vcentres[num]
+        plot_qty_here=plot_quantities[num]
         if vcentre is not None:
-            norm=CenteredNorm(vcenter=vcentres[num])
+            norm=CenteredNorm(vcenter=vcentres[num],clip=[np.percentile(plot_qty_here,1),np.percentile(plot_qty_here,99)])
         else: 
             norm=None
-        im=axs[i,j].pcolor(kpar_grid,kperp_grid,plot_quantities[num],cmap=cmaps[num],norm=norm)
+        im=axs[i,j].pcolor(kpar_grid,kperp_grid,plot_qty_here,cmap=cmaps[num],norm=norm)
         axs[i,j].set_title(title_quantities[num])
         axs[i,j].set_aspect('equal')
         plt.colorbar(im,ax=axs[i,j],shrink=0.48) # ,shrink=0.75 # for the 3x2-subplotted figure
@@ -1779,13 +1780,17 @@ def cyl_sph_plots(redo_window_calc,
         axs[i].set_ylabel(y_label)
     axs[0].set_title("side-by-side")
     axs[1].set_title("fractional difference")
-    k_sph=np.linspace(kmin_surv,kmax_surv,N_sph)
-    kcyl_for_interp=(kpar,kperp)
+    k_sph=np.linspace(kmin_surv,kmax_surv,int(N_sph/2))
+    k_sph_for_binning=np.append(k_sph,2*kmax_surv-k_sph[-2])
     Pfidu_sph=np.reshape(Pfidu_sph,(Pfidu_sph.shape[-1],))
 
-    doubled=np.linspace(kmin_surv,kmax_surv,N_sph*2) # print statements offer no reason why this should have to be a workaround (I think it was because I had conflicting versions of N_sph that were named confusingly and they were off by almost a factor of two: 128 and 250)
-    Pthought_sph=interpn(kcyl_for_interp, Pthought_cyl_surv, doubled, bounds_error=False, fill_value=None)
-    Ptrue_sph=interpn(kcyl_for_interp, Ptrue_cyl_surv, doubled, bounds_error=False, fill_value=None)
+    kcyl_mags_for_interp_grid=np.sqrt(kpar_grid**2+kperp_grid**2)
+    N_cyl_k=len(kpar)*len(kperp)
+    kcyl_mags_for_interp_flat=np.reshape(kcyl_mags_for_interp_grid,(N_cyl_k,))
+    Pthought_cyl_surv_flat=np.reshape(Pthought_cyl_surv,(N_cyl_k,))
+    Ptrue_cyl_surv_flat=np.reshape(Ptrue_cyl_surv,(N_cyl_k))
+    Pthought_sph,_,_=binned_statistic(kcyl_mags_for_interp_flat,Pthought_cyl_surv_flat,statistic="mean",bins=k_sph_for_binning)
+    Ptrue_sph,_,_=binned_statistic(kcyl_mags_for_interp_flat,Ptrue_cyl_surv_flat,statistic="mean",bins=k_sph_for_binning)
 
     Delta2_fidu=kfidu_sph**3*Pfidu_sph/(2*pi**2)
     Delta2_thought=k_sph**3*Pthought_sph/(2*pi**2)
@@ -1813,8 +1818,8 @@ def cyl_sph_plots(redo_window_calc,
 
     for m in range(2):
         axs[m].set_xlim(kmin_surv,kmax_surv*0.75) # /2 in kmax b/c of +/- in box
-    frac_dif_lim=1.05*np.max(np.abs(frac_dif[:3*N_sph//4]))
-    axs[1].set_ylim(-frac_dif_lim,frac_dif_lim)
+    # frac_dif_lim=1.05*np.max(np.abs(frac_dif[:3*N_sph//4]))
+    # axs[1].set_ylim(-frac_dif_lim,frac_dif_lim)
     axs[0].legend()
     fig.suptitle("{:5} MHz CHORD {} survey \n" \
                 "{}\n" \
