@@ -1623,7 +1623,7 @@ def cyl_sph_plots(redo_window_calc,
                                             ceil=ceil                                                                                                       
                                             )
 
-            pert_title="primary beam widths perturbed uniformly across the array"
+            categ_title="primary beam widths perturbed uniformly across the array"
         elif categ=="PA":
             windowed_survey=beam_effects(# SCIENCE
                                             # the observation
@@ -1719,7 +1719,7 @@ def cyl_sph_plots(redo_window_calc,
 
     blues=plt.cm.Blues
     pinkgreen=plt.cm.PiYG
-    fig,axs=plt.subplots(2,2,figsize=(12,10))
+    fig,axs=plt.subplots(2,2,figsize=(14,6.5))
     for i in range(2):
         for j in range(2):
             axs[i,j].set_xlabel("k$_{||}$ (1/Mpc)")
@@ -1752,7 +1752,7 @@ def cyl_sph_plots(redo_window_calc,
         im=axs[i,j].pcolor(kpar_grid,kperp_grid,plot_qty_here,cmap=cmaps[num],norm=norm)
         axs[i,j].set_title(title_quantities[num])
         axs[i,j].set_aspect('equal')
-        plt.colorbar(im,ax=axs[i,j],shrink=0.48) # ,shrink=0.75 # for the 3x2-subplotted figure
+        plt.colorbar(im,ax=axs[i,j],shrink=0.35) # ,shrink=0.75 # for the 3x2-subplotted figure
 
     fig.suptitle("{:5} MHz CHORD {} survey \n" \
                 "{}\n" \
@@ -1764,7 +1764,7 @@ def cyl_sph_plots(redo_window_calc,
                 "numerical convenience factors: {} high k-parallel channels truncated and Poisson noise averaged to {} pct" \
                 "".format(nu_ctr,mode,
                         pert_title,
-                        categ,
+                        categ_title,
                         uaa_beam_type,hpbw_x,hpbw_y,
                         qty_title,
                         N_fidu_types,N_pert_types,
@@ -1824,7 +1824,7 @@ def cyl_sph_plots(redo_window_calc,
                 "numerical convenience factors: {} high k-parallel channels truncated and Poisson noise averaged to {} pct" \
                 "".format(nu_ctr,mode,
                         pert_title,
-                        categ,
+                        categ_title,
                         uaa_beam_type,hpbw_x,hpbw_y,
                         qty_title,
                         N_fidu_types,N_pert_types,
