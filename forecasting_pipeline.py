@@ -10,8 +10,6 @@ from cosmo_distances import *
 from matplotlib import pyplot as plt
 from matplotlib.colors import CenteredNorm
 import scipy.sparse as spsp
-
-# sometimes useful for testing
 import time
 
 # cosmological
@@ -196,6 +194,7 @@ class beam_effects(object):
                  pars_set_cosmo=pars_Planck18,pars_forecast=pars_Planck18,              # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
                  uncs=None,frac_unc=0.1,                                                # for Fisher-type calcs
                  pars_forecast_names=None,                                              # for verbose output
+                 P_fid_for_cont_pwr=None, k_idx_for_window=0,                         # examine contaminant power or window functions?
 
                  # NUMERICAL 
                  n_sph_modes=256,dpar=None,                                             # conditioning the CAMB/etc. call
@@ -286,6 +285,15 @@ class beam_effects(object):
                 if PA_recalc:
                     self.PA_N_pert_types=          PA_N_pert_types
                     self.PA_N_pbws_pert=           PA_N_pbws_pert
+                    if mode=="full":
+                        N_ant=512
+                    elif mode=="pathfinder":
+                        N_ant=64
+                    if (self.PA_N_pbws_pert>N_ant): # need to bring the mode full/pf stuff up here
+                        print("WARNING: as called, more antennas would be perturbed than present in this array configuration")
+                        print("resetting with merely all antennas perturbed...")
+                        PA_N_pbws_pert=N_ant
+                        self.PA_N_pbws_pert=PA_N_pbws_pert
                     self.PA_N_timesteps=           PA_N_timesteps
                     self.PA_N_grid_pix=            PA_N_grid_pix
                     self.img_bin_tol=              PA_img_bin_tol
@@ -375,6 +383,8 @@ class beam_effects(object):
             pass
         else:
             raise NotYetImplementedError
+        self.P_fid_for_cont_pwr=P_fid_for_cont_pwr
+        self.k_idx_for_window=k_idx_for_window
 
         # cylindrically binned survey k-modes and box considerations
         kpar_surv=kpar(self.nu_ctr,self.Deltanu,self.Nchan)
@@ -447,7 +457,7 @@ class beam_effects(object):
 
         with open("settings.txt", "w") as file:
             file.write("primary beam width systematics category           = "+str(primary_beam_categ)+"\n")
-            file.write("                               type               = "+str(primary_beam_type)+"\n")
+            file.write("                               type (if UAA mode) = "+str(primary_beam_type)+"\n")
             file.write("                               distribution       = "+str(PA_distribution)+"\n")
             file.write("central frequency of survey                       = "+str(nu_ctr)+"\n")
             file.write("observing setup                                   = "+str(mode)+"\n")
@@ -504,11 +514,19 @@ class beam_effects(object):
             elif voxel_number<threshold_lo:
                 print(prefix+" "+str(voxel_names[i])+"= {:4}, which is suspiciously coarse".format(voxel_number))
 
-    def calc_Pcont_asym(self):
+    def calc_power_contamination(self):
         """
         calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
         contaminant power, calculated as the difference of subtracted spectra with config space–multiplied "true" and "thought" instrument responses
         """
+        if self.P_fid_for_cont_pwr is None:
+            P_fid=self.Ptruesph
+        elif self.P_fid_for_cont_pwr=="window": # make the fiducial power spectrum a numerical top hat
+            P_fid=np.zeros(self.n_sph_modes)
+            P_fid[self.k_idx_for_window]=1.
+        else:
+            raise NotYetImplementedError
+
         if (self.primary_beam_type!="manual"):
             if (self.primary_beam_type=="Gaussian"):
                 pb_here=UAA_Gaussian
@@ -517,7 +535,7 @@ class beam_effects(object):
             else:
                 raise NotYetImplementedError
             tr=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
-                           P_fid=self.Ptruesph,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
+                           P_fid=P_fid,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
                            primary_beam_tr=pb_here,primary_beam_aux_tr=self.primary_beam_aux,primary_beam_type_tr=self.primary_beam_type,
                            primary_beam_th=pb_here,primary_beam_aux_th=self.primary_beam_aux,primary_beam_type_th=self.primary_beam_type,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
@@ -525,7 +543,7 @@ class beam_effects(object):
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
-                           P_fid=self.Ptruesph,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
+                           P_fid=P_fid,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
                         #    primary_beam_tr=pb_here,primary_beam_aux_tr=          self.primary_beam_aux,primary_beam_type_tr=self.primary_beam_type,
                            primary_beam_tr=pb_here,primary_beam_aux_tr=self.perturbed_primary_beam_aux,primary_beam_type_tr=self.primary_beam_type,
                            primary_beam_th=pb_here,primary_beam_aux_th=self.perturbed_primary_beam_aux,primary_beam_type_th=self.primary_beam_type,
@@ -535,7 +553,7 @@ class beam_effects(object):
                            k_fid=self.ksph, no_monopole=self.no_monopole)
         else:
             tr=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
-                           P_fid=self.Ptruesph,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
+                           P_fid=P_fid,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
                            primary_beam_tr=self.manual_primary_fid,primary_beam_type_tr="manual",
                            primary_beam_th=self.manual_primary_fid,primary_beam_type_th="manual",
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
@@ -544,7 +562,7 @@ class beam_effects(object):
                            k_fid=self.ksph,
                            manual_primary_beam_modes=self.manual_primary_beam_modes, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
-                           P_fid=self.Ptruesph,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
+                           P_fid=P_fid,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
                         #    primary_beam_tr=self.manual_primary_fid,primary_beam_type_tr="manual",
                            primary_beam_tr=self.manual_primary_mis,primary_beam_type_tr="manual",
                            primary_beam_th=self.manual_primary_mis,primary_beam_type_th="manual",
@@ -588,6 +606,7 @@ class beam_effects(object):
             self.Ptrue_cyl_surv=self.Ptrue_cyl
 
         # ERROR BARS
+
 
     def cyl_partial(self,n):  
         """        
@@ -648,7 +667,7 @@ class beam_effects(object):
         """
         self.build_cyl_partials()
         print("built partials")
-        self.calc_Pcont_asym()
+        self.calc_power_contamination()
         print("computed Pcont")
         V=0.*self.cyl_partials
         for i in range(self.N_pars_forecast):
@@ -1544,9 +1563,10 @@ def cyl_sph_plots(redo_window_calc,
                   
               b_NS_CHORD=b_NS,N_NS_CHORD=N_NS_full,
               b_EW_CHORD=b_EW,N_EW_CHORD=N_EW_full,
-              freq_bin_width=0.1953125,
+              freq_bin_width=0.1953125, # kHz
               
-              from_saved_power_spectra=False):
+              from_saved_power_spectra=False,
+              contaminant_or_window=None, k_idx_for_window=0):
 
     ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
     if pars is None:
@@ -1581,13 +1601,27 @@ def cyl_sph_plots(redo_window_calc,
 
     ############################## pipeline administration ########################################################################################################################
 
-    ioname=mode+"_"+str(int(nu_ctr))+"_MHz_"+categ+"_ceil_"+str(ceil)+"_Poisson_"+str(round(frac_tol_conv,2))+"_PA_dist_"+PA_dist+"per_channel_systematic_"+str(per_channel_systematic)+"epsxy_"+str(epsxy)
+
+    if contaminant_or_window is not None:
+        qty_title_prefix="Window function "
+        io_pre="WINDOW_"
+    else:
+        qty_title_prefix=""
+        io_pre=""
+    ioname=io_pre+mode+"_"\
+           ""+str(int(nu_ctr))+"_MHz_"\
+           ""+categ+""\
+           "_ceil_"+str(ceil)+""\
+           "_Poisson_"+str(round(frac_tol_conv,2))+""\
+           "_PA_dist_"+PA_dist+""\
+           "_per_channel_systematic_"+str(per_channel_systematic)+""\
+           "_epsxy_"+str(epsxy)
 
     if plot_qty=="P":
-        qty_title="Power"
+        qty_title=qty_title_prefix+"Power"
         y_label="P (K$^2$ Mpc$^3$)"
     elif plot_qty=="Delta2":
-        qty_title="Dimensionless power"
+        qty_title=qty_title_prefix+"Dimensionless power"
         y_label="Δ$^2$ (log(K$^2$/K$^2$)"
 
     ############################## run the pipeline or load results ########################################################################################################################
@@ -1608,8 +1642,9 @@ def cyl_sph_plots(redo_window_calc,
                                             primary_beam_uncs=bundled_non_manual_primary_uncs,
 
                                             # FORECASTING
-                                            pars_set_cosmo=pars_Planck18,pars_forecast=pars_Planck18,        
-                                            pars_forecast_names=parnames,                           
+                                            pars_set_cosmo=pars,pars_forecast=pars,        
+                                            pars_forecast_names=parnames,
+                                            P_fid_for_cont_pwr=contaminant_or_window, k_idx_for_window=k_idx_for_window,                           
 
                                             # NUMERICAL 
                                             n_sph_modes=N_sph,dpar=dpar,                                   
@@ -1646,9 +1681,10 @@ def cyl_sph_plots(redo_window_calc,
                                             per_channel_systematic=per_channel_systematic,
 
                                             # FORECASTING
-                                            pars_set_cosmo=pars_Planck18,pars_forecast=pars_Planck18,              # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
+                                            pars_set_cosmo=pars,pars_forecast=pars,              # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
                                             uncs=None,frac_unc=0.1,                                                # for Fisher-type calcs
                                             pars_forecast_names=parnames,                                              # for verbose output
+                                            P_fid_for_cont_pwr=contaminant_or_window, k_idx_for_window=k_idx_for_window,
 
                                             # NUMERICAL 
                                             n_sph_modes=N_sph,dpar=dpar,                                             # conditioning the CAMB/etc. call
@@ -1693,7 +1729,7 @@ def cyl_sph_plots(redo_window_calc,
     if not from_saved_power_spectra:
         if redo_window_calc:
             t0=time.time()
-            windowed_survey.calc_Pcont_asym()
+            windowed_survey.calc_power_contamination()
             t1=time.time()
             print("Pcont calculation time was",t1-t0)
 
@@ -1752,6 +1788,16 @@ def cyl_sph_plots(redo_window_calc,
         im=axs[i,j].pcolor(kpar_grid,kperp_grid,plot_qty_here,cmap=cmaps[num],norm=norm)
         axs[i,j].set_title(title_quantities[num])
         axs[i,j].set_aspect('equal')
+        if contaminant_or_window=="window":
+            desired_xlims=axs[i,j].get_xlim()
+            desired_ylims=axs[i,j].get_ylim()
+            thetas=np.linspace(0,pi/2)
+            r=kfidu_sph[k_idx_for_window]
+            x=r*np.cos(thetas)
+            y=r*np.sin(thetas)
+            axs[i,j].plot(x,y,c="tab:orange")
+            axs[i,j].set_xlim(desired_xlims)
+            axs[i,j].set_ylim(desired_ylims)
         plt.colorbar(im,ax=axs[i,j],shrink=0.35) # ,shrink=0.75 # for the 3x2-subplotted figure
 
     fig.suptitle("{:5} MHz CHORD {} survey \n" \
@@ -1780,7 +1826,7 @@ def cyl_sph_plots(redo_window_calc,
         axs[i].set_ylabel(y_label)
     axs[0].set_title("side-by-side")
     axs[1].set_title("fractional difference")
-    k_sph=np.linspace(kmin_surv,kmax_surv,int(N_sph/2))
+    k_sph=np.linspace(kmin_surv,kmax_surv,int(N_sph/4))
     k_sph_for_binning=np.append(k_sph,2*kmax_surv-k_sph[-2])
     Pfidu_sph=np.reshape(Pfidu_sph,(Pfidu_sph.shape[-1],))
 
@@ -1814,6 +1860,9 @@ def cyl_sph_plots(redo_window_calc,
 
     frac_dif=(true[k]-thought[k])/true[k]
     axs[1].plot(k_sph,frac_dif,c="C0")
+    if contaminant_or_window=="window":
+        for i in range(2):
+            axs[i].axvline(kfidu_sph[k_idx_for_window],c="tab:orange")
     fig.suptitle("{:5} MHz CHORD {} survey \n" \
                 "{}\n" \
                 "{}\n" \
