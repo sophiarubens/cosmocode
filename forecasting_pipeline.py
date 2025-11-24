@@ -514,7 +514,7 @@ class beam_effects(object):
             elif voxel_number<threshold_lo:
                 print(prefix+" "+str(voxel_names[i])+"= {:4}, which is suspiciously coarse".format(voxel_number))
 
-    def calc_power_contamination(self):
+    def calc_power_contamination(self, isolated=False):
         """
         calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
         contaminant power, calculated as the difference of subtracted spectra with config space–multiplied "true" and "thought" instrument responses
@@ -544,7 +544,6 @@ class beam_effects(object):
                            k_fid=self.ksph, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=P_fid,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                        #    primary_beam_tr=pb_here,primary_beam_aux_tr=          self.primary_beam_aux,primary_beam_type_tr=self.primary_beam_type,
                            primary_beam_tr=pb_here,primary_beam_aux_tr=self.perturbed_primary_beam_aux,primary_beam_type_tr=self.primary_beam_type,
                            primary_beam_th=pb_here,primary_beam_aux_th=self.perturbed_primary_beam_aux,primary_beam_type_th=self.primary_beam_type,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
@@ -563,7 +562,6 @@ class beam_effects(object):
                            manual_primary_beam_modes=self.manual_primary_beam_modes, no_monopole=self.no_monopole)
             th=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=P_fid,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                        #    primary_beam_tr=self.manual_primary_fid,primary_beam_type_tr="manual",
                            primary_beam_tr=self.manual_primary_mis,primary_beam_type_tr="manual",
                            primary_beam_th=self.manual_primary_mis,primary_beam_type_th="manual",
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
@@ -571,42 +569,47 @@ class beam_effects(object):
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph,
                            manual_primary_beam_modes=self.manual_primary_beam_modes, no_monopole=self.no_monopole)
-        tr.avg_realizations(interfix="tr")
-        th.avg_realizations(interfix="th")
+        
+        recalc_tr=False
+        recalc_th=False
+        if isolated==False:
+            recalc_tr=True
+            recalc_th=True
+        if isolated=="thought":
+            recalc_th=True
+        if isolated=="true":
+            recalc_tr=True
 
-        self.Ptrue_cyl=    tr.P_converged
-        self.Pthought_cyl= th.P_converged
-        self.Pcont_cyl=    self.Ptrue_cyl-self.Pthought_cyl
-
-        if (not np.all(self.Pcont_cyl.shape==self.uncs.shape)):
-            interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.Pcont_cyl,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                                      Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
-                                      k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
-                                      no_monopole=self.no_monopole) # hacky use of interpolate_P means the Nk0- and Nk1-determined bins will be treated as fiducial
-            interp_holder.interpolate_P(use_P_fid=True)
-            self.Pcont_cyl_surv=interp_holder.P_interp
-
-            interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.Pthought_cyl,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                                      Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
-                                      k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
-                                      no_monopole=self.no_monopole)
-            interp_holder.interpolate_P(use_P_fid=True)
-            self.Pthought_cyl_surv=interp_holder.P_interp
-
+        if recalc_tr:
+            tr.avg_realizations(interfix="tr")
+            self.N_cumul=tr.N_cumul
+            self.Ptrue_cyl=tr.P_converged
             interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.Ptrue_cyl,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                                      Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
-                                      k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
-                                      no_monopole=self.no_monopole)
+                                    Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
+                                    k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
+                                    no_monopole=self.no_monopole)
             interp_holder.interpolate_P(use_P_fid=True)
             self.Ptrue_cyl_surv=interp_holder.P_interp
-            print("interpolated Pcont, Ptrue, and Pthought to survey modes")
-        else: # no interpolation necessary
-            self.Pcont_cyl_surv=self.Pcont_cyl
-            self.Pthought_cyl_surv=self.Pthought_cyl
-            self.Ptrue_cyl_surv=self.Ptrue_cyl
-
-        # ERROR BARS
-
+        if recalc_th:
+            th.avg_realizations(interfix="th")
+            if not recalc_tr:
+                self.N_cumul=th.N_cumul
+            self.Pthought_cyl=th.P_converged
+            interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.Pthought_cyl,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
+                                        Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
+                                        k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
+                                        no_monopole=self.no_monopole)
+            interp_holder.interpolate_P(use_P_fid=True)
+            self.Pthought_cyl_surv=interp_holder.P_interp
+        if isolated==False:
+            self.Pcont_cyl_surv=self.Ptrue_cyl_surv-self.Pthought_cyl_surv
+        
+        interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.N_cumul,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
+                                    Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
+                                    k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
+                                    no_monopole=self.no_monopole)
+        interp_holder.interpolate_P(use_P_fid=True)
+        self.N_cumul_surv=interp_holder.P_interp
 
     def cyl_partial(self,n):  
         """        
@@ -1094,6 +1097,8 @@ class cosmo_stats(object):
             final_shape=(self.Nk0,self.Nk1)
 
         N_modsq_T_tilde_truncated[N_modsq_T_tilde_truncated==0]=maxint # avoid division-by-zero errors during the division the estimator demands
+        self.N_modes_per_bin=N_modsq_T_tilde_truncated
+        self.N_cumul=self.N_modes_per_bin*self.realization_ceiling
 
         avg_modsq_T_tilde=sum_modsq_T_tilde_truncated/(N_modsq_T_tilde_truncated) # actual estimator math
         P=np.array(avg_modsq_T_tilde/self.Veff)
@@ -1494,21 +1499,21 @@ class per_antenna(beam_effects):
         self.z_channels=nu_HI_z0/surv_channels_MHz-1.
         self.comoving_distances_channels=np.asarray([comoving_distance(chan) for chan in self.z_channels]) # incr.
         self.ctr_chan_comov_dist=self.comoving_distances_channels[N_chan//2]
-        if self.per_channel_systematic is None:
-            surv_beam_widths=surv_wavelengths/D # incr.
-        elif self.per_channel_systematic=="D3A_like":
-            surv_beam_widths=(surv_wavelengths/D)**1.2 # keep things dimensionless, but use a steeper decay
+        surv_beam_widths=1.029*surv_wavelengths/D # incr.            
+        if self.per_channel_systematic=="D3A_like":
+            surv_beam_widths=(surv_beam_widths)**1.2 # keep things dimensionless, but use a steeper decay
             noise_bound_lo=0.75
             noise_bound_hi=1.25
             noise_frac=(noise_bound_hi-noise_bound_lo)*np.random.random_sample(size=(N_chan,))+noise_bound_lo # random_sample draws fall within [0,1) but I want values between [0.75,1.25)*(that channel's beam width)
             surv_beam_widths*=noise_frac
         elif self.per_channel_systematic=="sporadic":
-            surv_beam_widths=surv_wavelengths/D
             bad=np.ones(N_chan)
             bad[N_chan//5:N_chan//4+1]=1.25
             bad[N_chan//2:7*N_chan//13+1]=0.6
             bad[7*N_chan//9:10*N_chan//11]=1.8
             surv_beam_widths*=bad
+        elif self.per_channel_systematic is None:
+            pass
         else:
             raise NotYetImplementedError
 
@@ -1566,7 +1571,8 @@ def cyl_sph_plots(redo_window_calc,
               freq_bin_width=0.1953125, # kHz
               
               from_saved_power_spectra=False,
-              contaminant_or_window=None, k_idx_for_window=0):
+              contaminant_or_window=None, k_idx_for_window=0,
+              isolated=False):
 
     ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
     if pars is None:
@@ -1658,7 +1664,8 @@ def cyl_sph_plots(redo_window_calc,
                                             ceil=ceil                                                                                                       
                                             )
 
-            categ_title="primary beam widths perturbed uniformly across the array"
+            pert_title="primary beam widths perturbed uniformly across the array"
+            categ_title=pert_title
         elif categ=="PA":
             windowed_survey=beam_effects(# SCIENCE
                                             # the observation
@@ -1724,25 +1731,42 @@ def cyl_sph_plots(redo_window_calc,
                                         frac_tol_conv=frac_tol_conv,
                                         pars_forecast_names=parnames, no_monopole=False,
                                         manual_primary_beam_modes=(xy_vec,xy_vec,z_vec))
+    handle_tr=False
+    handle_th=False
+    if isolated==False:
+        handle_tr=True
+        handle_th=True
+    if isolated=="thought":
+        handle_th=True
+    if isolated=="true":
+        handle_tr=True
 
     windowed_survey.print_survey_characteristics()
     if not from_saved_power_spectra:
         if redo_window_calc:
             t0=time.time()
-            windowed_survey.calc_power_contamination()
+            windowed_survey.calc_power_contamination(isolated=isolated)
             t1=time.time()
             print("Pcont calculation time was",t1-t0)
 
-            Ptrue_cyl_surv=windowed_survey.Ptrue_cyl_surv
-            Pthought_cyl_surv=windowed_survey.Pthought_cyl_surv
-            np.save("Pthought_cyl_surv_"+ioname+".npy",Pthought_cyl_surv)
-            np.save("Ptrue_cyl_"+ioname+".npy",Ptrue_cyl_surv)
+            if handle_tr:
+                Ptrue_cyl_surv=windowed_survey.Ptrue_cyl_surv
+                np.save("Ptrue_cyl_"+ioname+".npy",Ptrue_cyl_surv)
+            if handle_th:
+                Pthought_cyl_surv=windowed_survey.Pthought_cyl_surv
+                np.save("Pthought_cyl_surv_"+ioname+".npy",Pthought_cyl_surv)
+            N_cumul_surv=windowed_survey.N_cumul_surv
+            np.save("N_cumul_surv_"+ioname+".npy",N_cumul_surv)
+            if isolated is not False: # break early if you just calculate one windowed power spectrum at a time
+                return None
         else:
             Pthought_cyl_surv=np.load("Pthought_cyl_surv_"+ioname+".npy")
             Ptrue_cyl_surv=np.load("Ptrue_cyl_"+ioname+".npy")
+            N_cumul_surv=np.load("N_cumul_surv_"+ioname+".npy")
     else:
         Pthought_cyl_surv=np.load("P_th_unconverged.npy")
         Ptrue_cyl_surv=np.load("P_tr_unconverged.npy")
+        N_cumul_surv=np.load("N_cumul_surv_"+ioname+".npy")
 
     Pcont_cyl_surv=Pthought_cyl_surv-Ptrue_cyl_surv
     Pfidu_sph=windowed_survey.Ptruesph
@@ -1758,8 +1782,8 @@ def cyl_sph_plots(redo_window_calc,
     fig,axs=plt.subplots(2,2,figsize=(14,6.5))
     for i in range(2):
         for j in range(2):
-            axs[i,j].set_xlabel("k$_{||}$ (1/Mpc)")
-            axs[i,j].set_ylabel("k$_{\perp} (1/Mpc)$")
+            axs[i,j].set_ylabel("k$_{||}$ (1/Mpc)")
+            axs[i,j].set_xlabel("k$_{\perp} (1/Mpc)$")
     title_quantities=["P$_{true}$",
                         "P$_{cont}$=P$_{true}$-P$_{thought}$",
                         "P$_{thought}$",
@@ -1785,7 +1809,7 @@ def cyl_sph_plots(redo_window_calc,
             norm=CenteredNorm(vcenter=vcentres[num],clip=[np.percentile(plot_qty_here,1),np.percentile(plot_qty_here,99)])
         else: 
             norm=None
-        im=axs[i,j].pcolor(kpar_grid,kperp_grid,plot_qty_here,cmap=cmaps[num],norm=norm)
+        im=axs[i,j].pcolor(kpar_grid.T,kperp_grid.T,plot_qty_here.T,cmap=cmaps[num],norm=norm)
         axs[i,j].set_title(title_quantities[num])
         axs[i,j].set_aspect('equal')
         if contaminant_or_window=="window":
@@ -1826,7 +1850,7 @@ def cyl_sph_plots(redo_window_calc,
         axs[i].set_ylabel(y_label)
     axs[0].set_title("side-by-side")
     axs[1].set_title("fractional difference")
-    k_sph=np.linspace(kmin_surv,kmax_surv,int(N_sph/4))
+    k_sph=np.linspace(kmin_surv,kmax_surv,N_sph)
     k_sph_for_binning=np.append(k_sph,2*kmax_surv-k_sph[-2])
     Pfidu_sph=np.reshape(Pfidu_sph,(Pfidu_sph.shape[-1],))
 
@@ -1834,17 +1858,42 @@ def cyl_sph_plots(redo_window_calc,
     N_cyl_k=len(kpar)*len(kperp)
     kcyl_mags_for_interp_flat=np.reshape(kcyl_mags_for_interp_grid,(N_cyl_k,))
     Pthought_cyl_surv_flat=np.reshape(Pthought_cyl_surv,(N_cyl_k,))
-    Ptrue_cyl_surv_flat=np.reshape(Ptrue_cyl_surv,(N_cyl_k))
+    Ptrue_cyl_surv_flat=np.reshape(Ptrue_cyl_surv,(N_cyl_k,))
+    N_cumul_surv_flat=np.reshape(N_cumul_surv,(N_cyl_k,))
     Pthought_sph,_,_=binned_statistic(kcyl_mags_for_interp_flat,Pthought_cyl_surv_flat,statistic="mean",bins=k_sph_for_binning)
     Ptrue_sph,_,_=binned_statistic(kcyl_mags_for_interp_flat,Ptrue_cyl_surv_flat,statistic="mean",bins=k_sph_for_binning)
+    N_cumul_sph,_,_=binned_statistic(kcyl_mags_for_interp_flat,N_cumul_surv_flat,statistic="mean",bins=k_sph_for_binning)
+    Poisson_term=np.sqrt(2/N_cumul_sph)
+    lo_fac=(1-Poisson_term)
+    hi_fac=(1+Poisson_term)
 
-    Delta2_fidu=kfidu_sph**3*Pfidu_sph/(2*pi**2)
-    Delta2_thought=k_sph**3*Pthought_sph/(2*pi**2)
-    Delta2_true=k_sph**3*Ptrue_sph/(2*pi**2)
+    # lo_fac=1-np.sqrt(N_cumul_sph)
+    # hi_fac=1+np.sqrt(N_cumul_sph)
+    print("lo_fac=",lo_fac)
+    print("hi_fac=",hi_fac)
+    Pthought_lo=Pthought_sph*lo_fac
+    Pthought_hi=Pthought_sph*hi_fac
+    Ptrue_lo=Ptrue_sph*lo_fac
+    Ptrue_hi=Ptrue_sph*hi_fac
+
+    Delta2_fac=kfidu_sph**3/(2*pi**2)
+    Delta2_fidu=Pfidu_sph*Delta2_fac
+    print("Pthought_sph.shape=",Pthought_sph.shape)
+    print("Delta2_fac.shape=",Delta2_fac.shape)
+    Delta2_thought=Pthought_sph*Delta2_fac
+    Delta2_true=Ptrue_sph*Delta2_fac
+    Delta2_thought_lo=Pthought_lo*Delta2_fac
+    Delta2_thought_hi=Pthought_hi*Delta2_fac
+    Delta2_true_lo=Ptrue_lo*Delta2_fac
+    Delta2_true_hi=Ptrue_hi*Delta2_fac
 
     fidu=[Pfidu_sph,Delta2_fidu]
     thought=[Pthought_sph,Delta2_thought]
     true=[Ptrue_sph,Delta2_true]
+    thought_lo=[Pthought_lo,Delta2_thought_lo]
+    thought_hi=[Pthought_hi,Delta2_thought_hi]
+    true_lo=[Ptrue_lo,Delta2_true_lo]
+    true_hi=[Ptrue_hi,Delta2_true_hi]
 
     if plot_qty=="P":
         k=0
@@ -1855,14 +1904,19 @@ def cyl_sph_plots(redo_window_calc,
         fid_label="fiducially beamed data"
     else:
         fid_label=""
-    axs[0].semilogy(k_sph,true[k],label=fid_label,c="C1")
+    axs[0].semilogy(k_sph,true[k],c="C1")
     axs[0].semilogy(k_sph,thought[k],c="C0")
+    # axs[0].scatter(kcyl_mags_for_interp_flat,Ptrue_cyl_surv_flat,c="C1") # RE-IMPLEMENT PROPERLY TOMORROW
+    # axs[0].scatter(kcyl_mags_for_interp_flat,Pthought_cyl_surv_flat,c="C0")
+    axs[0].set_yscale("log")
+    axs[0].fill_between(k_sph,true_lo[k],true_hi[k],color="C1",alpha=0.5)
+    axs[0].fill_between(k_sph,thought_lo[k],thought_hi[k],color="C0",alpha=0.5)
 
     frac_dif=(true[k]-thought[k])/true[k]
     axs[1].plot(k_sph,frac_dif,c="C0")
     if contaminant_or_window=="window":
         for i in range(2):
-            axs[i].axvline(kfidu_sph[k_idx_for_window],c="tab:orange")
+            axs[i].axvline(kfidu_sph[k_idx_for_window],c="C2")
     fig.suptitle("{:5} MHz CHORD {} survey \n" \
                 "{}\n" \
                 "{}\n" \
