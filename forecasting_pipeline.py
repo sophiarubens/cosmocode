@@ -1863,33 +1863,50 @@ def cyl_sph_plots(redo_window_calc,
     Pthought_sph,_,_=binned_statistic(kcyl_mags_for_interp_flat,Pthought_cyl_surv_flat,statistic="mean",bins=k_sph_for_binning)
     Ptrue_sph,_,_=binned_statistic(kcyl_mags_for_interp_flat,Ptrue_cyl_surv_flat,statistic="mean",bins=k_sph_for_binning)
     N_cumul_sph,_,_=binned_statistic(kcyl_mags_for_interp_flat,N_cumul_surv_flat,statistic="mean",bins=k_sph_for_binning)
-    Poisson_term=np.sqrt(2/N_cumul_sph)
+
+    # # apply smoothing because the survey bins tend to be pretty narrow, so I tend to get a bit of ringing
+    # N_smoothed=12
+    # k_sph=np.convolve(k_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
+    # kfidu_sph=np.convolve(kfidu_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
+    # Pfidu_sph=np.convolve(Pfidu_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
+    # Pthought_sph=np.convolve(Pthought_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
+    # Ptrue_sph=np.convolve(Ptrue_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
+    # N_cumul_sph=np.convolve(N_cumul_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
+
+    # interpolate ordered data with cubic splines: kcyl_mags_for_interp_flat, Ptrue_cyl_surv_flat, Pthought_cyl_surv_flat
+    sort_arr=np.argsort(kcyl_mags_for_interp_flat)
+    kcyl_interpolated=np.linspace(kmin_surv,kmax_surv,int(N_sph/3))
+    kcyl_mags_for_interp_flat_sorted=kcyl_mags_for_interp_flat[sort_arr]
+    print("kcyl_interpolated.shape=",kcyl_interpolated.shape)
+    print("kcyl_mags_for_interp_flat_sorted.shape=",kcyl_mags_for_interp_flat_sorted.shape)
+    print("Pthought_cyl_surv_flat[sort_arr].shape=",Pthought_cyl_surv_flat[sort_arr].shape)
+    print("Ptrue_cyl_surv_flat[sort_arr].shape=",Ptrue_cyl_surv_flat[sort_arr].shape)
+    Ptr_interpolated=np.interp(kcyl_interpolated,kcyl_mags_for_interp_flat_sorted,Pthought_cyl_surv_flat[sort_arr])
+    Pth_interpolated=np.interp(kcyl_interpolated,kcyl_mags_for_interp_flat_sorted,Ptrue_cyl_surv_flat[sort_arr])
+    N_cumul_interpolated=np.interp(kcyl_interpolated,kcyl_mags_for_interp_flat[sort_arr],N_cumul_surv_flat[sort_arr])
+
+    # Poisson_term=np.sqrt(2/N_cumul_sph)
+    Poisson_term=np.sqrt(2/N_cumul_interpolated)
     lo_fac=(1-Poisson_term)
     hi_fac=(1+Poisson_term)
 
-    # lo_fac=1-np.sqrt(N_cumul_sph)
-    # hi_fac=1+np.sqrt(N_cumul_sph)
-    print("lo_fac=",lo_fac)
-    print("hi_fac=",hi_fac)
-    Pthought_lo=Pthought_sph*lo_fac
-    Pthought_hi=Pthought_sph*hi_fac
-    Ptrue_lo=Ptrue_sph*lo_fac
-    Ptrue_hi=Ptrue_sph*hi_fac
+    Pthought_lo=Ptr_interpolated*lo_fac
+    Pthought_hi=Pth_interpolated*hi_fac
+    Ptrue_lo=Ptr_interpolated*lo_fac
+    Ptrue_hi=Ptr_interpolated*hi_fac
 
-    Delta2_fac=kfidu_sph**3/(2*pi**2)
-    Delta2_fidu=Pfidu_sph*Delta2_fac
-    print("Pthought_sph.shape=",Pthought_sph.shape)
-    print("Delta2_fac.shape=",Delta2_fac.shape)
-    Delta2_thought=Pthought_sph*Delta2_fac
-    Delta2_true=Ptrue_sph*Delta2_fac
+    Delta2_fac=kcyl_interpolated**3/(twopi**2)
+    Delta2_fidu=Pfidu_sph*kfidu_sph**3/(twopi**2)
+    Delta2_thought=Pth_interpolated*Delta2_fac
+    Delta2_true=Ptr_interpolated*Delta2_fac
     Delta2_thought_lo=Pthought_lo*Delta2_fac
     Delta2_thought_hi=Pthought_hi*Delta2_fac
     Delta2_true_lo=Ptrue_lo*Delta2_fac
     Delta2_true_hi=Ptrue_hi*Delta2_fac
 
     fidu=[Pfidu_sph,Delta2_fidu]
-    thought=[Pthought_sph,Delta2_thought]
-    true=[Ptrue_sph,Delta2_true]
+    thought=[Pth_interpolated,Delta2_thought]
+    true=[Ptr_interpolated,Delta2_true]
     thought_lo=[Pthought_lo,Delta2_thought_lo]
     thought_hi=[Pthought_hi,Delta2_thought_hi]
     true_lo=[Ptrue_lo,Delta2_true_lo]
@@ -1900,20 +1917,13 @@ def cyl_sph_plots(redo_window_calc,
     elif plot_qty=="Delta2":
         k=1
 
-    if i==0:
-        fid_label="fiducially beamed data"
-    else:
-        fid_label=""
-    axs[0].semilogy(k_sph,true[k],c="C1")
-    axs[0].semilogy(k_sph,thought[k],c="C0")
-    # axs[0].scatter(kcyl_mags_for_interp_flat,Ptrue_cyl_surv_flat,c="C1") # RE-IMPLEMENT PROPERLY TOMORROW
-    # axs[0].scatter(kcyl_mags_for_interp_flat,Pthought_cyl_surv_flat,c="C0")
-    axs[0].set_yscale("log")
-    axs[0].fill_between(k_sph,true_lo[k],true_hi[k],color="C1",alpha=0.5)
-    axs[0].fill_between(k_sph,thought_lo[k],thought_hi[k],color="C0",alpha=0.5)
+    axs[0].semilogy(kcyl_interpolated,true[k],c="C1")
+    axs[0].semilogy(kcyl_interpolated,thought[k],c="C0")
+    axs[0].fill_between(kcyl_interpolated,true_lo[k],true_hi[k],color="C1",alpha=0.5)
+    axs[0].fill_between(kcyl_interpolated,thought_lo[k],thought_hi[k],color="C0",alpha=0.5)
 
     frac_dif=(true[k]-thought[k])/true[k]
-    axs[1].plot(k_sph,frac_dif,c="C0")
+    axs[1].plot(kcyl_interpolated,frac_dif,c="C0")
     if contaminant_or_window=="window":
         for i in range(2):
             axs[i].axvline(kfidu_sph[k_idx_for_window],c="C2")
@@ -1934,4 +1944,4 @@ def cyl_sph_plots(redo_window_calc,
                         per_channel_systematic,
                         ceil, int(frac_tol_conv*100)))
     fig.tight_layout()
-    fig.savefig("SPH_"+ioname+".png",dpi=200)
+    fig.savefig("SPH_"+ioname+".png",dpi=225)
