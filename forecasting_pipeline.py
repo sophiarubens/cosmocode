@@ -1803,8 +1803,10 @@ def cyl_sph_plots(redo_window_calc,
     kperp=windowed_survey.kperp_surv
     kpar_grid,kperp_grid=np.meshgrid(kpar,kperp,indexing="ij")
 
-    blues=plt.cm.Blues
-    pinkgreen=plt.cm.PiYG
+    # blues=plt.cm.Blues
+    plasma=plt.cm.plasma
+    # pinkgreen=plt.cm.PiYG
+    coolwarm=plt.cm.coolwarm
     fig,axs=plt.subplots(1,4,figsize=(12,6))
     for i in range(4):
         axs[i].set_ylabel("k$_{||}$ (1/Mpc)")
@@ -1817,10 +1819,10 @@ def cyl_sph_plots(redo_window_calc,
                         Pcont_cyl_surv,
                         Pthought_cyl_surv,
                         Pthought_cyl_surv/Ptrue_cyl_surv]
-    cmaps=[blues,
-            pinkgreen,
-            blues,
-            pinkgreen]
+    cmaps=[plasma,
+            coolwarm,
+            plasma,
+            coolwarm]
     vcentres=[None,0,None,1]
     order=[0,2,1,3]
     for i,num in enumerate(order):
