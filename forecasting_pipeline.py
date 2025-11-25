@@ -1850,8 +1850,6 @@ def cyl_sph_plots(redo_window_calc,
         axs[i].set_ylabel(y_label)
     axs[0].set_title("side-by-side")
     axs[1].set_title("fractional difference")
-    k_sph=np.linspace(kmin_surv,kmax_surv,N_sph)
-    k_sph_for_binning=np.append(k_sph,2*kmax_surv-k_sph[-2])
     Pfidu_sph=np.reshape(Pfidu_sph,(Pfidu_sph.shape[-1],))
 
     kcyl_mags_for_interp_grid=np.sqrt(kpar_grid**2+kperp_grid**2)
@@ -1860,49 +1858,44 @@ def cyl_sph_plots(redo_window_calc,
     Pthought_cyl_surv_flat=np.reshape(Pthought_cyl_surv,(N_cyl_k,))
     Ptrue_cyl_surv_flat=np.reshape(Ptrue_cyl_surv,(N_cyl_k,))
     N_cumul_surv_flat=np.reshape(N_cumul_surv,(N_cyl_k,))
-    Pthought_sph,_,_=binned_statistic(kcyl_mags_for_interp_flat,Pthought_cyl_surv_flat,statistic="mean",bins=k_sph_for_binning)
-    Ptrue_sph,_,_=binned_statistic(kcyl_mags_for_interp_flat,Ptrue_cyl_surv_flat,statistic="mean",bins=k_sph_for_binning)
-    N_cumul_sph,_,_=binned_statistic(kcyl_mags_for_interp_flat,N_cumul_surv_flat,statistic="mean",bins=k_sph_for_binning)
 
-    # # apply smoothing because the survey bins tend to be pretty narrow, so I tend to get a bit of ringing
-    # N_smoothed=12
-    # k_sph=np.convolve(k_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
-    # kfidu_sph=np.convolve(kfidu_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
-    # Pfidu_sph=np.convolve(Pfidu_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
-    # Pthought_sph=np.convolve(Pthought_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
-    # Ptrue_sph=np.convolve(Ptrue_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
-    # N_cumul_sph=np.convolve(N_cumul_sph, np.ones(N_smoothed)/N_smoothed, mode="valid")
-
-    # interpolate ordered data with cubic splines: kcyl_mags_for_interp_flat, Ptrue_cyl_surv_flat, Pthought_cyl_surv_flat
     sort_arr=np.argsort(kcyl_mags_for_interp_flat)
-    kcyl_interpolated=np.linspace(kmin_surv,kmax_surv,int(N_sph/3))
+    k_interpolated=np.linspace(kmin_surv,kmax_surv,int(N_sph/10))
     kcyl_mags_for_interp_flat_sorted=kcyl_mags_for_interp_flat[sort_arr]
-    print("kcyl_interpolated.shape=",kcyl_interpolated.shape)
-    print("kcyl_mags_for_interp_flat_sorted.shape=",kcyl_mags_for_interp_flat_sorted.shape)
-    print("Pthought_cyl_surv_flat[sort_arr].shape=",Pthought_cyl_surv_flat[sort_arr].shape)
-    print("Ptrue_cyl_surv_flat[sort_arr].shape=",Ptrue_cyl_surv_flat[sort_arr].shape)
-    Ptr_interpolated=np.interp(kcyl_interpolated,kcyl_mags_for_interp_flat_sorted,Pthought_cyl_surv_flat[sort_arr])
-    Pth_interpolated=np.interp(kcyl_interpolated,kcyl_mags_for_interp_flat_sorted,Ptrue_cyl_surv_flat[sort_arr])
-    N_cumul_interpolated=np.interp(kcyl_interpolated,kcyl_mags_for_interp_flat[sort_arr],N_cumul_surv_flat[sort_arr])
+    Pthought_cyl_surv_flat_sorted=Pthought_cyl_surv_flat[sort_arr]
+    Ptrue_cyl_surv_flat_sorted=Ptrue_cyl_surv_flat[sort_arr]
+    N_cumul_surv_flat_sorted=N_cumul_surv_flat[sort_arr]
+    Ptr_interpolated=np.interp(k_interpolated,kcyl_mags_for_interp_flat_sorted,Pthought_cyl_surv_flat_sorted)
+    Pth_interpolated=np.interp(k_interpolated,kcyl_mags_for_interp_flat_sorted,Ptrue_cyl_surv_flat_sorted)
+    N_cumul_interpolated=np.interp(k_interpolated,kcyl_mags_for_interp_flat[sort_arr],N_cumul_surv_flat_sorted)
 
-    # Poisson_term=np.sqrt(2/N_cumul_sph)
     Poisson_term=np.sqrt(2/N_cumul_interpolated)
+    # Poisson_term=np.sqrt(2/N_cumul_surv_flat_sorted)
     lo_fac=(1-Poisson_term)
     hi_fac=(1+Poisson_term)
 
-    Pthought_lo=Ptr_interpolated*lo_fac
+    Pthought_lo=Pth_interpolated*lo_fac
     Pthought_hi=Pth_interpolated*hi_fac
     Ptrue_lo=Ptr_interpolated*lo_fac
     Ptrue_hi=Ptr_interpolated*hi_fac
+    # Pthought_lo=Pthought_cyl_surv_flat_sorted*lo_fac
+    # Pthought_hi=Pthought_cyl_surv_flat_sorted*hi_fac
+    # Ptrue_lo=Ptrue_cyl_surv_flat_sorted*lo_fac
+    # Ptrue_hi=Ptrue_cyl_surv_flat_sorted*hi_fac
 
-    Delta2_fac=kcyl_interpolated**3/(twopi**2)
+    Delta2_fac_interpolated=k_interpolated**3/(twopi**2)
+    Delta2_fac_flat=kcyl_mags_for_interp_flat**3/(twopi**2)
     Delta2_fidu=Pfidu_sph*kfidu_sph**3/(twopi**2)
-    Delta2_thought=Pth_interpolated*Delta2_fac
-    Delta2_true=Ptr_interpolated*Delta2_fac
-    Delta2_thought_lo=Pthought_lo*Delta2_fac
-    Delta2_thought_hi=Pthought_hi*Delta2_fac
-    Delta2_true_lo=Ptrue_lo*Delta2_fac
-    Delta2_true_hi=Ptrue_hi*Delta2_fac
+    Delta2_thought=Pth_interpolated*Delta2_fac_interpolated
+    Delta2_true=Ptr_interpolated*Delta2_fac_interpolated
+    Delta2_thought_lo=Pthought_lo*Delta2_fac_interpolated
+    Delta2_thought_hi=Pthought_hi*Delta2_fac_interpolated
+    Delta2_true_lo=Ptrue_lo*Delta2_fac_interpolated
+    Delta2_true_hi=Ptrue_hi*Delta2_fac_interpolated
+    # Delta2_thought_lo=Pthought_lo*Delta2_fac_flat
+    # Delta2_thought_hi=Pthought_hi*Delta2_fac_flat
+    # Delta2_true_lo=Ptrue_lo*Delta2_fac_flat
+    # Delta2_true_hi=Ptrue_hi*Delta2_fac_flat
 
     fidu=[Pfidu_sph,Delta2_fidu]
     thought=[Pth_interpolated,Delta2_thought]
@@ -1917,13 +1910,15 @@ def cyl_sph_plots(redo_window_calc,
     elif plot_qty=="Delta2":
         k=1
 
-    axs[0].semilogy(kcyl_interpolated,true[k],c="C1")
-    axs[0].semilogy(kcyl_interpolated,thought[k],c="C0")
-    axs[0].fill_between(kcyl_interpolated,true_lo[k],true_hi[k],color="C1",alpha=0.5)
-    axs[0].fill_between(kcyl_interpolated,thought_lo[k],thought_hi[k],color="C0",alpha=0.5)
+    axs[0].semilogy(k_interpolated,true[k],c="C1")
+    axs[0].semilogy(k_interpolated,thought[k],c="C0")
+    axs[0].fill_between(k_interpolated,true_lo[k],true_hi[k],color="C1",alpha=0.5)
+    axs[0].fill_between(k_interpolated,thought_lo[k],thought_hi[k],color="C0",alpha=0.5)
+    # axs[0].fill_between(kcyl_mags_for_interp_flat,true_lo[k],true_hi[k],color="C1",alpha=0.5)
+    # axs[0].fill_between(kcyl_mags_for_interp_flat,thought_lo[k],thought_hi[k],color="C0",alpha=0.5)
 
     frac_dif=(true[k]-thought[k])/true[k]
-    axs[1].plot(kcyl_interpolated,frac_dif,c="C0")
+    axs[1].plot(k_interpolated,frac_dif,c="C0")
     if contaminant_or_window=="window":
         for i in range(2):
             axs[i].axvline(kfidu_sph[k_idx_for_window],c="C2")
