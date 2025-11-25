@@ -1779,50 +1779,46 @@ def cyl_sph_plots(redo_window_calc,
 
     blues=plt.cm.Blues
     pinkgreen=plt.cm.PiYG
-    fig,axs=plt.subplots(2,2,figsize=(14,6.5))
-    for i in range(2):
-        for j in range(2):
-            axs[i,j].set_ylabel("k$_{||}$ (1/Mpc)")
-            axs[i,j].set_xlabel("k$_{\perp} (1/Mpc)$")
-    title_quantities=["P$_{true}$",
-                        "P$_{cont}$=P$_{true}$-P$_{thought}$",
+    fig,axs=plt.subplots(1,4,figsize=(12,6))
+    for i in range(4):
+        axs[i].set_ylabel("k$_{||}$ (1/Mpc)")
+        axs[i].set_xlabel("k$_{\perp} (1/Mpc)$")
+    title_quantities=["P$_{fidu}$",
+                        "P$_{cont}$=P$_{fidu}$-P$_{thought}$",
                         "P$_{thought}$",
-                        "P$_{thought}$/P$_{true}$",
-                        "P$_{cont}$/P$_{true}=(P$_{true}$-P$_{thought}$)/P$_{true}$"]
+                        "P$_{thought}$/P$_{fidu}$"]
     plot_quantities=[Ptrue_cyl_surv,
                         Pcont_cyl_surv,
                         Pthought_cyl_surv,
-                        Pthought_cyl_surv/Ptrue_cyl_surv,
-                        Pcont_cyl_surv/Ptrue_cyl_surv]
+                        Pthought_cyl_surv/Ptrue_cyl_surv]
     cmaps=[blues,
             pinkgreen,
             blues,
-            pinkgreen,
             pinkgreen]
-    vcentres=[None,0,None,1,0]
-    for num in range(4):
-        i=num//2
-        j=num%2
+    vcentres=[None,0,None,1]
+    order=[0,2,1,3]
+    for i,num in enumerate(order):
+        print("num=",num)
         vcentre=vcentres[num]
         plot_qty_here=plot_quantities[num]
         if vcentre is not None:
             norm=CenteredNorm(vcenter=vcentres[num],clip=[np.percentile(plot_qty_here,1),np.percentile(plot_qty_here,99)])
         else: 
             norm=None
-        im=axs[i,j].pcolor(kpar_grid.T,kperp_grid.T,plot_qty_here.T,cmap=cmaps[num],norm=norm)
-        axs[i,j].set_title(title_quantities[num])
-        axs[i,j].set_aspect('equal')
+        im=axs[i].pcolor(kperp_grid.T,kpar_grid.T,plot_qty_here.T,cmap=cmaps[num],norm=norm)
+        axs[i].set_title(title_quantities[num])
+        axs[i].set_aspect('equal')
         if contaminant_or_window=="window":
-            desired_xlims=axs[i,j].get_xlim()
-            desired_ylims=axs[i,j].get_ylim()
+            desired_xlims=axs[i].get_xlim()
+            desired_ylims=axs[i].get_ylim()
             thetas=np.linspace(0,pi/2)
             r=kfidu_sph[k_idx_for_window]
             x=r*np.cos(thetas)
             y=r*np.sin(thetas)
-            axs[i,j].plot(x,y,c="tab:orange")
-            axs[i,j].set_xlim(desired_xlims)
-            axs[i,j].set_ylim(desired_ylims)
-        plt.colorbar(im,ax=axs[i,j],shrink=0.35) # ,shrink=0.75 # for the 3x2-subplotted figure
+            axs[i].plot(x,y,c="tab:orange")
+            axs[i].set_xlim(desired_xlims)
+            axs[i].set_ylim(desired_ylims)
+        plt.colorbar(im,ax=axs[i]) # ,shrink=0.xx
 
     fig.suptitle("{:5} MHz CHORD {} survey \n" \
                 "{}\n" \
@@ -1870,7 +1866,6 @@ def cyl_sph_plots(redo_window_calc,
     N_cumul_interpolated=np.interp(k_interpolated,kcyl_mags_for_interp_flat[sort_arr],N_cumul_surv_flat_sorted)
 
     Poisson_term=np.sqrt(2/N_cumul_interpolated)
-    # Poisson_term=np.sqrt(2/N_cumul_surv_flat_sorted)
     lo_fac=(1-Poisson_term)
     hi_fac=(1+Poisson_term)
 
@@ -1878,13 +1873,9 @@ def cyl_sph_plots(redo_window_calc,
     Pthought_hi=Pth_interpolated*hi_fac
     Ptrue_lo=Ptr_interpolated*lo_fac
     Ptrue_hi=Ptr_interpolated*hi_fac
-    # Pthought_lo=Pthought_cyl_surv_flat_sorted*lo_fac
-    # Pthought_hi=Pthought_cyl_surv_flat_sorted*hi_fac
-    # Ptrue_lo=Ptrue_cyl_surv_flat_sorted*lo_fac
-    # Ptrue_hi=Ptrue_cyl_surv_flat_sorted*hi_fac
 
     Delta2_fac_interpolated=k_interpolated**3/(twopi**2)
-    Delta2_fac_flat=kcyl_mags_for_interp_flat**3/(twopi**2)
+    # Delta2_fac_flat=kcyl_mags_for_interp_flat**3/(twopi**2)
     Delta2_fidu=Pfidu_sph*kfidu_sph**3/(twopi**2)
     Delta2_thought=Pth_interpolated*Delta2_fac_interpolated
     Delta2_true=Ptr_interpolated*Delta2_fac_interpolated
@@ -1892,10 +1883,6 @@ def cyl_sph_plots(redo_window_calc,
     Delta2_thought_hi=Pthought_hi*Delta2_fac_interpolated
     Delta2_true_lo=Ptrue_lo*Delta2_fac_interpolated
     Delta2_true_hi=Ptrue_hi*Delta2_fac_interpolated
-    # Delta2_thought_lo=Pthought_lo*Delta2_fac_flat
-    # Delta2_thought_hi=Pthought_hi*Delta2_fac_flat
-    # Delta2_true_lo=Ptrue_lo*Delta2_fac_flat
-    # Delta2_true_hi=Ptrue_hi*Delta2_fac_flat
 
     fidu=[Pfidu_sph,Delta2_fidu]
     thought=[Pth_interpolated,Delta2_thought]
@@ -1914,8 +1901,6 @@ def cyl_sph_plots(redo_window_calc,
     axs[0].semilogy(k_interpolated,thought[k],c="C0")
     axs[0].fill_between(k_interpolated,true_lo[k],true_hi[k],color="C1",alpha=0.5)
     axs[0].fill_between(k_interpolated,thought_lo[k],thought_hi[k],color="C0",alpha=0.5)
-    # axs[0].fill_between(kcyl_mags_for_interp_flat,true_lo[k],true_hi[k],color="C1",alpha=0.5)
-    # axs[0].fill_between(kcyl_mags_for_interp_flat,thought_lo[k],thought_hi[k],color="C0",alpha=0.5)
 
     frac_dif=(true[k]-thought[k])/true[k]
     axs[1].plot(k_interpolated,frac_dif,c="C0")
