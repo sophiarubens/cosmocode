@@ -11,6 +11,7 @@ from matplotlib import pyplot as plt
 from matplotlib.colors import CenteredNorm
 import scipy.sparse as spsp
 import time
+realizations_scatter=False # ok enough for local tests, but would be eye-wateringly time-consuming and hard to inspect for Fir runs
 
 # cosmological
 Omegam_Planck18=0.3158
@@ -584,6 +585,19 @@ class beam_effects(object):
             tr.avg_realizations(interfix="tr")
             self.N_cumul=tr.N_cumul
             self.Ptrue_cyl=tr.P_converged
+            if realizations_scatter:
+                Ptr_realizations=tr.P_realizations
+                N_realiz=int(1/tr.frac_tol**2)
+                orig_shape=(self.Nkpar_box,self.Nkperp_box)
+                interpolated_tr=np.zeros((N_realiz,self.Nkpar_surv,self.Nkperp_surv))
+                for i in range(N_realiz):
+                    interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=np.reshape(Ptr_realizations[i],orig_shape),Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
+                                        Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
+                                        k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
+                                        no_monopole=self.no_monopole)
+                    interp_holder.interpolate_P(use_P_fid=True)
+                    interpolated_tr[i]=interp_holder.P_interp
+                self.interpolated_tr=interpolated_tr
             interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.Ptrue_cyl,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
                                     Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
                                     k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
@@ -595,6 +609,17 @@ class beam_effects(object):
             if not recalc_tr:
                 self.N_cumul=th.N_cumul
             self.Pthought_cyl=th.P_converged
+            if realizations_scatter:
+                Pth_realizations=th.P_realizations
+                interpolated_th=np.zeros((N_realiz,self.Nkpar_surv,self.Nkperp_surv))
+                for i in range(N_realiz):
+                    interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=np.reshape(Pth_realizations[i],orig_shape),Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
+                                        Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
+                                        k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
+                                        no_monopole=self.no_monopole)
+                    interp_holder.interpolate_P(use_P_fid=True)
+                    interpolated_th[i]=interp_holder.P_interp
+                self.interpolated_th=interpolated_th
             interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.Pthought_cyl,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
                                         Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
                                         k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
@@ -1165,6 +1190,7 @@ class cosmo_stats(object):
                 t0=time.time()
 
         arr_realiz_holder=np.array(self.P_realizations)
+        self.P_realizations=arr_realiz_holder
         if (arr_realiz_holder.shape[0]>1):
             P_converged=np.mean(arr_realiz_holder,axis=0)
         else:
@@ -1798,7 +1824,6 @@ def cyl_sph_plots(redo_window_calc,
     vcentres=[None,0,None,1]
     order=[0,2,1,3]
     for i,num in enumerate(order):
-        print("num=",num)
         vcentre=vcentres[num]
         plot_qty_here=plot_quantities[num]
         if vcentre is not None:
@@ -1875,7 +1900,6 @@ def cyl_sph_plots(redo_window_calc,
     Ptrue_hi=Ptr_interpolated*hi_fac
 
     Delta2_fac_interpolated=k_interpolated**3/(twopi**2)
-    # Delta2_fac_flat=kcyl_mags_for_interp_flat**3/(twopi**2)
     Delta2_fidu=Pfidu_sph*kfidu_sph**3/(twopi**2)
     Delta2_thought=Pth_interpolated*Delta2_fac_interpolated
     Delta2_true=Ptr_interpolated*Delta2_fac_interpolated
@@ -1897,16 +1921,26 @@ def cyl_sph_plots(redo_window_calc,
     elif plot_qty=="Delta2":
         k=1
 
-    axs[0].semilogy(k_interpolated,true[k],c="C1")
-    axs[0].semilogy(k_interpolated,thought[k],c="C0")
+    axs[0].semilogy(k_interpolated,true[k],c="C1",label="true")
+    axs[0].semilogy(k_interpolated,thought[k],c="C0",label="thought")
     axs[0].fill_between(k_interpolated,true_lo[k],true_hi[k],color="C1",alpha=0.5)
     axs[0].fill_between(k_interpolated,thought_lo[k],thought_hi[k],color="C0",alpha=0.5)
+    axs[0].legend()
 
     frac_dif=(true[k]-thought[k])/true[k]
-    axs[1].plot(k_interpolated,frac_dif,c="C0")
+    axs[1].plot(k_interpolated,frac_dif,c="C2")
     if contaminant_or_window=="window":
         for i in range(2):
-            axs[i].axvline(kfidu_sph[k_idx_for_window],c="C2")
+            axs[i].axvline(kfidu_sph[k_idx_for_window],c="C3")
+    
+
+    if realizations_scatter:
+        interpolated_th=windowed_survey.interpolated_th
+        interpolated_tr=windowed_survey.interpolated_tr
+        flat_shape=windowed_survey.Nkpar_surv*windowed_survey.Nkperp_surv
+        for i in range(windowed_survey.maxiter):
+            axs[0].scatter(np.reshape(kcyl_mags_for_interp_flat,flat_shape),np.reshape(interpolated_tr[i],flat_shape),s=0.1,c="C1")
+            axs[0].scatter(np.reshape(kcyl_mags_for_interp_flat,flat_shape),np.reshape(interpolated_th[i],flat_shape),s=0.1,c="C0")
     fig.suptitle("{:5} MHz CHORD {} survey \n" \
                 "{}\n" \
                 "{}\n" \
