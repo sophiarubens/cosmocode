@@ -11,7 +11,6 @@ from matplotlib import pyplot as plt
 from matplotlib.colors import CenteredNorm
 import scipy.sparse as spsp
 import time
-realizations_scatter=False # ok enough for local tests, but would be eye-wateringly time-consuming and hard to inspect for Fir runs
 
 # cosmological
 Omegam_Planck18=0.3158
@@ -307,36 +306,47 @@ class beam_effects(object):
                     fidu=per_antenna(mode=mode,pbw_fidu=fwhm,N_pert_types=0,
                                     pbw_pert_frac=0,N_timesteps=self.PA_N_timesteps,
                                     N_pbws_pert=0,nu_ctr=nu_ctr,N_grid_pix=PA_N_grid_pix,
-                                    distribution=self.PA_distribution,
-                                    N_fiducial_beam_types=PA_N_fidu_types,fidu_types_prefactors=PA_fidu_types_prefactors,
+                                    N_fiducial_beam_types=1,
                                     outname=PA_ioname)
                     fidu.stack_to_box()
                     print("constructed fiducially-beamed box")
                     fidu_box=fidu.box
                     xy_vec=fidu.xy_vec
                     z_vec=fidu.z_vec
-                    pert=per_antenna(mode=mode,pbw_fidu=fwhm,N_pert_types=self.PA_N_pert_types,
+                    real=per_antenna(mode=mode,pbw_fidu=fwhm,N_pert_types=0,
+                                    pbw_pert_frac=self.primary_beam_uncs,
+                                    N_timesteps=self.PA_N_timesteps,
+                                    N_pbws_pert=0,nu_ctr=nu_ctr,N_grid_pix=PA_N_grid_pix,
+                                    distribution=self.PA_distribution,
+                                    N_fiducial_beam_types=PA_N_fidu_types,fidu_types_prefactors=PA_fidu_types_prefactors,
+                                    outname=PA_ioname)
+                    real.stack_to_box()
+                    print("constructed real-beamed box")
+                    real_box=real.box
+                    thgt=per_antenna(mode=mode,pbw_fidu=fwhm,N_pert_types=self.PA_N_pert_types,
                                     pbw_pert_frac=self.primary_beam_uncs,
                                     N_timesteps=self.PA_N_timesteps,
                                     N_pbws_pert=PA_N_pbws_pert,nu_ctr=nu_ctr,N_grid_pix=PA_N_grid_pix,
                                     distribution=self.PA_distribution,
                                     N_fiducial_beam_types=PA_N_fidu_types,fidu_types_prefactors=PA_fidu_types_prefactors,
                                     outname=PA_ioname,per_channel_systematic=per_channel_systematic)
-                    pert.stack_to_box()
+                    thgt.stack_to_box()
                     print("constructed perturbed-beamed box")
-                    pert_box=pert.box
+                    thgt_box=thgt.box
 
                     np.save("fidu_box_"+PA_ioname+".npy",fidu_box)
-                    np.save("pert_box_"+PA_ioname+".npy",pert_box)
+                    np.save("real_box_"+PA_ioname+".npy",real_box)
+                    np.save("thgt_box_"+PA_ioname+".npy",thgt_box)
                     np.save("xy_vec_"+  PA_ioname+".npy",xy_vec)
                     np.save("z_vec_"+   PA_ioname+".npy",z_vec)
                 else:
                     fidu_box=np.load("fidu_box_"+PA_ioname+".npy")
-                    pert_box=np.load("pert_box_"+PA_ioname+".npy")
+                    real_box=np.load("real_box_"+PA_ioname+".npy")
+                    thgt_box=np.load("thgt_box_"+PA_ioname+".npy")
                     xy_vec=  np.load("xy_vec_"+  PA_ioname+".npy")
                     z_vec=   np.load("z_vec_"+   PA_ioname+".npy")
 
-                primary_beam_aux=[fidu_box,pert_box]
+                primary_beam_aux=[fidu_box,real_box,thgt_box]
                 manual_primary_beam_modes=(xy_vec,xy_vec,z_vec)
             
             # now do the manual-y things
@@ -345,7 +355,7 @@ class beam_effects(object):
             else:
                 self.manual_primary_beam_modes=manual_primary_beam_modes
             try:
-                self.manual_primary_fid,self.manual_primary_mis=primary_beam_aux # assumed to be sampled at the same config space points
+                self.manual_primary_fidu,self.manual_primary_real,self.manual_primary_thgt=primary_beam_aux # assumed to be sampled at the same config space points
             except: # primary beam samplings not unpackable the way they need to be
                 raise NotEnoughInfoError
         else:
@@ -518,7 +528,7 @@ class beam_effects(object):
     def calc_power_contamination(self, isolated=False):
         """
         calculate a cylindrically binned Pcont from an average over the power spectra formed from cylindrically-asymmetric-response-modulated brightness temp fields for a cosmological case of interest
-        contaminant power, calculated as the difference of subtracted spectra with config space–multiplied "true" and "thought" instrument responses
+        contaminant power, calculated as [see memo] useful combinations of three different instrument responses
         """
         if self.P_fid_for_cont_pwr is None:
             P_fid=self.Ptruesph
@@ -535,99 +545,75 @@ class beam_effects(object):
                 pb_here=UAA_Airy
             else:
                 raise NotYetImplementedError
-            tr=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
+            fi=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=P_fid,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                           primary_beam_tr=pb_here,primary_beam_aux_tr=self.primary_beam_aux,primary_beam_type_tr=self.primary_beam_type,
-                           primary_beam_th=pb_here,primary_beam_aux_th=self.primary_beam_aux,primary_beam_type_th=self.primary_beam_type,
+                           primary_beam_num=pb_here,primary_beam_aux_num=self.primary_beam_aux,primary_beam_type_num=self.primary_beam_type,
+                           primary_beam_den=pb_here,primary_beam_aux_den=self.primary_beam_aux,primary_beam_type_den=self.primary_beam_type,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph, no_monopole=self.no_monopole)
-            th=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
+            rt=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=P_fid,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                           primary_beam_tr=pb_here,primary_beam_aux_tr=self.perturbed_primary_beam_aux,primary_beam_type_tr=self.primary_beam_type,
-                           primary_beam_th=pb_here,primary_beam_aux_th=self.perturbed_primary_beam_aux,primary_beam_type_th=self.primary_beam_type,
+                           primary_beam_num=pb_here,primary_beam_aux_num=self.perturbed_primary_beam_aux,primary_beam_type_num=self.primary_beam_type,
+                           primary_beam_den=pb_here,primary_beam_aux_den=self.perturbed_primary_beam_aux,primary_beam_type_den=self.primary_beam_type,
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph, no_monopole=self.no_monopole)
         else:
-            tr=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
+            fi=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=P_fid,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                           primary_beam_tr=self.manual_primary_fid,primary_beam_type_tr="manual",
-                           primary_beam_th=self.manual_primary_fid,primary_beam_type_th="manual",
+                           primary_beam_num=self.manual_primary_fidu,primary_beam_type_num="manual",
+                           primary_beam_den=self.manual_primary_fidu,primary_beam_type_den="manual",
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph,
                            manual_primary_beam_modes=self.manual_primary_beam_modes, no_monopole=self.no_monopole)
-            th=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
+            rt=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,
                            P_fid=P_fid,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                           primary_beam_tr=self.manual_primary_mis,primary_beam_type_tr="manual",
-                           primary_beam_th=self.manual_primary_mis,primary_beam_type_th="manual",
+                           primary_beam_num=self.manual_primary_thgt,primary_beam_type_num="manual",
+                           primary_beam_den=self.manual_primary_thgt,primary_beam_type_den="manual",
                            Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,
                            frac_tol=self.frac_tol_conv,
                            k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv,
                            k_fid=self.ksph,
                            manual_primary_beam_modes=self.manual_primary_beam_modes, no_monopole=self.no_monopole)
         
-        recalc_tr=False
-        recalc_th=False
+        recalc_fi=False
+        recalc_rt=False
         if isolated==False:
-            recalc_tr=True
-            recalc_th=True
+            recalc_fi=True
+            recalc_rt=True
         if isolated=="thought":
-            recalc_th=True
-        if isolated=="true":
-            recalc_tr=True
+            recalc_rt=True
+        if isolated=="fiue":
+            recalc_fi=True
 
-        if recalc_tr:
-            tr.avg_realizations(interfix="tr")
-            self.N_cumul=tr.N_cumul
-            self.Ptrue_cyl=tr.P_converged
-            if realizations_scatter:
-                Ptr_realizations=tr.P_realizations
-                N_realiz=int(1/tr.frac_tol**2)
-                orig_shape=(self.Nkpar_box,self.Nkperp_box)
-                interpolated_tr=np.zeros((N_realiz,self.Nkpar_surv,self.Nkperp_surv))
-                for i in range(N_realiz):
-                    interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=np.reshape(Ptr_realizations[i],orig_shape),Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                                        Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
-                                        k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
-                                        no_monopole=self.no_monopole)
-                    interp_holder.interpolate_P(use_P_fid=True)
-                    interpolated_tr[i]=interp_holder.P_interp
-                self.interpolated_tr=interpolated_tr
-            interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.Ptrue_cyl,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
+        if recalc_fi:
+            fi.avg_realizations(interfix="fi")
+            self.N_cumul=fi.N_cumul
+            self.Pfiducial_cyl=fi.P_converged
+            interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.Pfiducial_cyl,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
                                     Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
                                     k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
                                     no_monopole=self.no_monopole)
             interp_holder.interpolate_P(use_P_fid=True)
-            self.Ptrue_cyl_surv=interp_holder.P_interp
-        if recalc_th:
-            th.avg_realizations(interfix="th")
-            if not recalc_tr:
-                self.N_cumul=th.N_cumul
-            self.Pthought_cyl=th.P_converged
-            if realizations_scatter:
-                Pth_realizations=th.P_realizations
-                interpolated_th=np.zeros((N_realiz,self.Nkpar_surv,self.Nkperp_surv))
-                for i in range(N_realiz):
-                    interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=np.reshape(Pth_realizations[i],orig_shape),Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
-                                        Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
-                                        k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
-                                        no_monopole=self.no_monopole)
-                    interp_holder.interpolate_P(use_P_fid=True)
-                    interpolated_th[i]=interp_holder.P_interp
-                self.interpolated_th=interpolated_th
-            interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.Pthought_cyl,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
+            self.Pfiducial_cyl_surv=interp_holder.P_interp
+        if recalc_rt:
+            rt.avg_realizations(interfix="rt")
+            if not recalc_fi:
+                self.N_cumul=rt.N_cumul
+            self.Prealthought_cyl=rt.P_converged
+            interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.Prealthought_cyl,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
                                         Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
                                         k0bins_interp=self.kpar_surv,k1bins_interp=self.kperp_surv, 
                                         no_monopole=self.no_monopole)
             interp_holder.interpolate_P(use_P_fid=True)
-            self.Pthought_cyl_surv=interp_holder.P_interp
+            self.Prealthought_cyl_surv=interp_holder.P_interp
         if isolated==False:
-            self.Pcont_cyl_surv=self.Ptrue_cyl_surv-self.Pthought_cyl_surv
+            self.Pcont_cyl_surv=self.Pfiducial_cyl_surv-self.Prealthought_cyl_surv
         
         interp_holder=cosmo_stats(self.Lsurv_box_xy,Lz=self.Lsurv_box_z,P_fid=self.N_cumul,Nvox=self.Nvox_box_xy,Nvoxz=self.Nvox_box_z,
                                     Nk0=self.Nkpar_box,Nk1=self.Nkperp_box,                                       
@@ -739,19 +725,19 @@ cosmological brighness temperature boxes for assorted interconnected use cases:
 
 class cosmo_stats(object):
     def __init__(self,
-                 Lxy,Lz=None,                                                                 # one scaling is nonnegotiable for box->spec and spec->box calcs; the other would be useful for rectangular prism box considerations (sky plane slice is square, but LoS extent can differ)
-                 T_pristine=None,T_primary=None,P_fid=None,Nvox=None,Nvoxz=None,              # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
-                 primary_beam_tr=None,primary_beam_aux_tr=None, primary_beam_type_tr="Gaussian", # primary beam considerations
-                 primary_beam_th=None,primary_beam_aux_th=None, primary_beam_type_th="Gaussian", # systematic-y beam (optional)
-                 Nk0=10,Nk1=0,binning_mode="lin",                                             # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
-                 frac_tol=0.1,                                                                # max number of realizations
-                 k0bins_interp=None,k1bins_interp=None,                                       # bins where it would be nice to know about P_converged
-                 P_realizations=None,P_converged=None,                                        # power spectra related to averaging over those from dif box realizations
-                 verbose=False,                                                               # status updates for averaging over realizations
-                 k_fid=None,kind="cubic",avoid_extrapolation=False,                           # helper vars for converting a 1d fid power spec to a box sampling
-                 no_monopole=True,                                                            # consideration when generating boxes
-                 manual_primary_beam_modes=None,                                              # when using a discretely sampled primary beam not sampled internally using a callable, it is necessary to provide knowledge of the modes at which it was sampled
-                 ):                                                                           # implement soon: synthesized beam considerations, other primary beam types, and more
+                 Lxy,Lz=None,                                                                       # one scaling is nonnegotiable for box->spec and spec->box calcs; the other would be useful for rectangular prism box considerations (sky plane slice is square, but LoS extent can differ)
+                 T_pristine=None,T_primary=None,P_fid=None,Nvox=None,Nvoxz=None,                    # need one of either T (pristine or primary) or P to get started; I also check for any conflicts with Nvox
+                 primary_beam_num=None,primary_beam_aux_num=None, primary_beam_type_num="Gaussian", # primary beam considerations
+                 primary_beam_den=None,primary_beam_aux_den=None, primary_beam_type_den="Gaussian", # systematic-y beam (optional)
+                 Nk0=10,Nk1=0,binning_mode="lin",                                                   # binning considerations for power spec realizations (log mode not fully tested yet b/c not impt. for current pipeline)
+                 frac_tol=0.1,                                                                      # max number of realizations
+                 k0bins_interp=None,k1bins_interp=None,                                             # bins where it would be nice to know about P_converged
+                 P_realizations=None,P_converged=None,                                              # power spectra related to averaging over those from dif box realizations
+                 verbose=False,                                                                     # status updates for averaging over realizations
+                 k_fid=None,kind="cubic",avoid_extrapolation=False,                                 # helper vars for converting a 1d fid power spec to a box sampling
+                 no_monopole=True,                                                                  # consideration when generating boxes
+                 manual_primary_beam_modes=None,                                                    # when using a discretely sampled primary beam not sampled internally using a callable, it is necessary to provide knowledge of the modes at which it was sampled
+                 ):                                                                                 # implement soon: synthesized beam considerations, other primary beam types, and more
         """
         Lxy,Lz                    :: float                       :: side length of cosmo box          :: Mpc
         T_pristine                :: (Nvox,Nvox,Nvox) of floats  :: cosmo box (just physics/no beam)  :: K
@@ -827,9 +813,9 @@ class cosmo_stats(object):
                 Pfidshape=P_fid.shape
                 Pfiddims=len(Pfidshape)
                 if (Pfiddims==2):
-                    if primary_beam_tr is None: # trying to do a minimalistic instantiation where I merely provide a fiducial power spectrum and interpolate it
+                    if primary_beam_num is None: # trying to do a minimalistic instantiation where I merely provide a fiducial power spectrum and interpolate it
                         self.fid_Nk0,self.fid_Nk1=Pfidshape
-                        if primary_beam_th is not None: 
+                        if primary_beam_num is not None: 
                             raise ConflictingInfoError # primary beam 1 needs to be the fiducial one; doesn't make sense to claim you have a perturbed but not fiducial pb
                     else:
                         try: # see if the power spec is a CAMB-esque (1,npts) array
@@ -914,17 +900,17 @@ class cosmo_stats(object):
             self.parbin_indices_column_centre=    np.digitize(self.kpar_column_centre,self.k0bins)                     # cyl kpar bin that each voxel falls into
 
         # primary beam
-        self.primary_beam_tr=primary_beam_tr
-        self.primary_beam_aux_tr=primary_beam_aux_tr
-        self.primary_beam_type_tr=primary_beam_type_tr
-        self.manual_primary_beam_modes=manual_primary_beam_modes # _tr and _th assumed to be sampled at the same modes, if this is the case
-        if (self.primary_beam_tr is not None): # non-identity FIDUCIAL primary beam
-            if (self.primary_beam_type_tr=="Gaussian" or self.primary_beam_type_tr=="Airy"):
-                self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_aux_tr
-                evaled_primary_tr=  self.primary_beam_tr(self.xx_grid,self.yy_grid,self.fwhm_x,  self.fwhm_y,  self.r0)                
-            elif (self.primary_beam_type_tr=="manual"):
+        self.primary_beam_num=primary_beam_num
+        self.primary_beam_aux_num=primary_beam_aux_num
+        self.primary_beam_type_num=primary_beam_type_num
+        self.manual_primary_beam_modes=manual_primary_beam_modes # _fi and _rt assumed to be sampled at the same modes, if this is the case
+        if (self.primary_beam_num is not None): # non-identity FIDUCIAL primary beam
+            if (self.primary_beam_type_num=="Gaussian" or self.primary_beam_type_num=="Airy"):
+                self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_aux_num
+                evaled_primary_num=  self.primary_beam_num(self.xx_grid,self.yy_grid,self.fwhm_x,  self.fwhm_y,  self.r0)                
+            elif (self.primary_beam_type_num=="manual"):
                 try:    # to access this branch, the manual/ numerically sampled primary beam needs to be close enough to a numpy array that it has a shape and not, e.g. a callable
-                    primary_beam_tr.shape
+                    primary_beam_num.shape
                 except: # primary beam is a callable (or something else without a shape method), which is not in line with how this part of the code is supposed to work
                     raise ConflictingInfoError 
                 if self.manual_primary_beam_modes is None:
@@ -955,24 +941,24 @@ class cosmo_stats(object):
                 if (z_want_hi>z_have_hi):
                     extrapolation_warning("high z",   z_want_hi,  z_have_hi)
                 print("end..... of manual primary beam extrapolation warning checks")
-                evaled_primary_tr=interpn(manual_primary_beam_modes,
-                                         self.primary_beam_tr,
+                evaled_primary_num=interpn(manual_primary_beam_modes,
+                                         self.primary_beam_num,
                                          (self.xx_grid,self.yy_grid,self.zz_grid),
                                          method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
             else:
                 raise NotYetImplementedError
             
-        self.primary_beam_th=primary_beam_th
-        self.primary_beam_aux_th=primary_beam_aux_th
-        self.primary_beam_type_th=primary_beam_type_th
-        self.manual_primary_beam_modes=manual_primary_beam_modes # _th and _th assumed to be sampled at the same modes, if this is the case
-        if (self.primary_beam_th is not None): # non-identity PERTURBED primary beam
-            if (self.primary_beam_type_th=="Gaussian" or self.primary_beam_type_th=="Airy"):
-                self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_aux_th
-                evaled_primary_th=  self.primary_beam_th(self.xx_grid,self.yy_grid,self.fwhm_x,  self.fwhm_y,  self.r0)                
-            elif (self.primary_beam_type_th=="manual"):
+        self.primary_beam_den=primary_beam_den
+        self.primary_beam_aux_den=primary_beam_aux_den
+        self.primary_beam_type_den=primary_beam_type_den
+        self.manual_primary_beam_modes=manual_primary_beam_modes # _fi and _rt assumed to be sampled at the same modes, if this is the case
+        if (self.primary_beam_den is not None): # non-identity PERTURBED primary beam
+            if (self.primary_beam_type_den=="Gaussian" or self.primary_beam_type_den=="Airy"):
+                self.fwhm_x,self.fwhm_y,self.r0=self.primary_beam_aux_den
+                evaled_primary_den=  self.primary_beam_den(self.xx_grid,self.yy_grid,self.fwhm_x,  self.fwhm_y,  self.r0)                
+            elif (self.primary_beam_type_den=="manual"):
                 try:    # to access this branch, the manual/ numerically sampled primary beam needs to be close enough to a numpy array that it has a shape and not, e.g. a callable
-                    primary_beam_th.shape
+                    primary_beam_den.shape
                 except: # primary beam is a callable (or something else without a shape method), which is not in line with how this part of the code is supposed to work
                     raise ConflictingInfoError 
                 if self.manual_primary_beam_modes is None:
@@ -1003,20 +989,20 @@ class cosmo_stats(object):
                 if (z_want_hi>z_have_hi):
                     extrapolation_warning("high z",   z_want_hi,  z_have_hi)
                 print("end..... of manual primary beam extrapolation warning checks")
-                evaled_primary_th=interpn(manual_primary_beam_modes,
-                                         self.primary_beam_th,
+                evaled_primary_den=interpn(manual_primary_beam_modes,
+                                         self.primary_beam_den,
                                          (self.xx_grid,self.yy_grid,self.zz_grid),
                                          method=self.kind,bounds_error=self.avoid_extrapolation,fill_value=None)
             else:
-                evaled_primary_th=None    
+                evaled_primary_den=None    
 
-            if evaled_primary_th is not None:
-                evaled_primary_use=evaled_primary_th
+            if evaled_primary_den is not None:
+                evaled_primary_use=evaled_primary_den
             else:
-                evaled_primary_use=evaled_primary_tr
+                evaled_primary_use=evaled_primary_num
 
-            evaled_primary_for_div=np.copy(evaled_primary_th)
-            evaled_primary_for_mul=np.copy(evaled_primary_tr)
+            evaled_primary_for_div=np.copy(evaled_primary_den)
+            evaled_primary_for_mul=np.copy(evaled_primary_num)
             evaled_primary_for_div[evaled_primary_for_div<nearly_zero]=maxfloat # protect against division-by-zero errors
             self.evaled_primary_for_div=evaled_primary_for_div
             self.evaled_primary_for_mul=evaled_primary_for_mul
@@ -1026,7 +1012,7 @@ class cosmo_stats(object):
             self.evaled_primary_for_div=np.ones((self.Nvox,self.Nvox,self.Nvoxz))
             self.evaled_primary_for_mul=np.copy(self.evaled_primary_for_div)
         if (self.T_pristine is not None):
-            self.T_primary=self.T_pristine*self.evaled_primary_tr # APPLY THE FIDUCIAL BEAM
+            self.T_primary=self.T_pristine*self.evaled_primary_num # APPLY THE FIDUCIAL BEAM
         ############
         
         # strictness control for realization averaging
@@ -1534,9 +1520,9 @@ class per_antenna(beam_effects):
             surv_beam_widths*=noise_frac
         elif self.per_channel_systematic=="sporadic":
             bad=np.ones(N_chan)
-            bad[N_chan//5:N_chan//4+1]=1.25
-            bad[N_chan//2:7*N_chan//13+1]=0.6
-            bad[7*N_chan//9:10*N_chan//11]=1.8
+            bad[N_chan//5:N_chan//4+1]=1.05
+            bad[N_chan//2:7*N_chan//13+1]=0.9
+            bad[7*N_chan//9:10*N_chan//11]=1.1
             surv_beam_widths*=bad
         elif self.per_channel_systematic is None:
             pass
@@ -1570,7 +1556,7 @@ class per_antenna(beam_effects):
                                            (uu_bin_edges_0,vv_bin_edges_0),
                                            bounds_error=False, fill_value=None) # extrap necessary because the smallest u and v you have at a given slice-needing-extrapolation will be larger than the min u and v mags to extrapolate to
             box[:,:,i]=interpolated_slice
-            if ((i%(N_chan//10))==0):
+            if ((i%(N_chan//4))==0):
                 print("{:7.1f} pct complete".format(i/N_chan*100))
         self.box=box 
         self.theta_max_box=theta_max_box
@@ -1757,15 +1743,15 @@ def cyl_sph_plots(redo_window_calc,
                                         frac_tol_conv=frac_tol_conv,
                                         pars_forecast_names=parnames, no_monopole=False,
                                         manual_primary_beam_modes=(xy_vec,xy_vec,z_vec))
-    handle_tr=False
-    handle_th=False
+    handle_fi=False
+    handle_rt=False
     if isolated==False:
-        handle_tr=True
-        handle_th=True
+        handle_fi=True
+        handle_rt=True
     if isolated=="thought":
-        handle_th=True
+        handle_rt=True
     if isolated=="true":
-        handle_tr=True
+        handle_fi=True
 
     windowed_survey.print_survey_characteristics()
     if not from_saved_power_spectra:
@@ -1775,26 +1761,26 @@ def cyl_sph_plots(redo_window_calc,
             t1=time.time()
             print("Pcont calculation time was",t1-t0)
 
-            if handle_tr:
-                Ptrue_cyl_surv=windowed_survey.Ptrue_cyl_surv
-                np.save("Ptrue_cyl_"+ioname+".npy",Ptrue_cyl_surv)
-            if handle_th:
-                Pthought_cyl_surv=windowed_survey.Pthought_cyl_surv
-                np.save("Pthought_cyl_surv_"+ioname+".npy",Pthought_cyl_surv)
+            if handle_fi:
+                Pfiducial_cyl_surv=windowed_survey.Pfiducial_cyl_surv # self.Pfiducial_cyl_surv-self.Prealthought_cyl_surv
+                np.save("Pfiducial_cyl_"+ioname+".npy",Pfiducial_cyl_surv)
+            if handle_rt:
+                Prealthought_cyl_surv=windowed_survey.Prealthought_cyl_surv
+                np.save("Prealthought_cyl_surv_"+ioname+".npy",Prealthought_cyl_surv)
             N_cumul_surv=windowed_survey.N_cumul_surv
             np.save("N_cumul_surv_"+ioname+".npy",N_cumul_surv)
             if isolated is not False: # break early if you just calculate one windowed power spectrum at a time
                 return None
         else:
-            Pthought_cyl_surv=np.load("Pthought_cyl_surv_"+ioname+".npy")
-            Ptrue_cyl_surv=np.load("Ptrue_cyl_"+ioname+".npy")
+            Prealthought_cyl_surv=np.load("Prealthought_cyl_surv_"+ioname+".npy")
+            Pfiducial_cyl_surv=np.load("Pfiducial_cyl_"+ioname+".npy")
             N_cumul_surv=np.load("N_cumul_surv_"+ioname+".npy")
     else:
-        Pthought_cyl_surv=np.load("P_th_unconverged.npy")
-        Ptrue_cyl_surv=np.load("P_tr_unconverged.npy")
+        Prealthought_cyl_surv=np.load("P_rt_unconverged.npy")
+        Pfiducial_cyl_surv=np.load("P_fi_unconverged.npy")
         N_cumul_surv=np.load("N_cumul_surv_"+ioname+".npy")
 
-    Pcont_cyl_surv=Pthought_cyl_surv-Ptrue_cyl_surv
+    Pcont_cyl_surv=Pfiducial_cyl_surv-Prealthought_cyl_surv
     Pfidu_sph=windowed_survey.Ptruesph
     kfidu_sph=windowed_survey.ksph
     kmin_surv=windowed_survey.kmin_surv
@@ -1803,33 +1789,32 @@ def cyl_sph_plots(redo_window_calc,
     kperp=windowed_survey.kperp_surv
     kpar_grid,kperp_grid=np.meshgrid(kpar,kperp,indexing="ij")
 
-    # blues=plt.cm.Blues
     plasma=plt.cm.plasma
-    # pinkgreen=plt.cm.PiYG
     coolwarm=plt.cm.coolwarm
     fig,axs=plt.subplots(1,4,figsize=(12,6))
     for i in range(4):
         axs[i].set_ylabel("k$_{||}$ (1/Mpc)")
         axs[i].set_xlabel("k$_{\perp} (1/Mpc)$")
-    title_quantities=["P$_{fidu}$",
-                        "P$_{cont}$=P$_{fidu}$-P$_{thought}$",
-                        "P$_{thought}$",
-                        "P$_{thought}$/P$_{fidu}$"]
-    plot_quantities=[Ptrue_cyl_surv,
+    title_quantities=["P$_{fiducial}$",
+                        "P$_{cont}$=P$_{fiducial}$-P$_{real / thought}$",
+                        "P$_{real / thought}$",
+                        "P$_{real / thought}$/P$_{fiducial}$"]
+    plot_quantities=[Pfiducial_cyl_surv,
                         Pcont_cyl_surv,
-                        Pthought_cyl_surv,
-                        Pthought_cyl_surv/Ptrue_cyl_surv]
+                        Prealthought_cyl_surv,
+                        Prealthought_cyl_surv/Pfiducial_cyl_surv]
     cmaps=[plasma,
             coolwarm,
             plasma,
             coolwarm]
     vcentres=[None,0,None,1]
     order=[0,2,1,3]
+    edge=0.1
     for i,num in enumerate(order):
         vcentre=vcentres[num]
         plot_qty_here=plot_quantities[num]
         if vcentre is not None:
-            norm=CenteredNorm(vcenter=vcentres[num],clip=[np.percentile(plot_qty_here,1),np.percentile(plot_qty_here,99)])
+            norm=CenteredNorm(vcenter=vcentres[num],halfrange=0.5*(np.percentile(plot_qty_here,100-edge)-np.percentile(plot_qty_here,edge)))
         else: 
             norm=None
         im=axs[i].pcolor(kperp_grid.T,kpar_grid.T,plot_qty_here.T,cmap=cmaps[num],norm=norm)
@@ -1878,8 +1863,8 @@ def cyl_sph_plots(redo_window_calc,
     kcyl_mags_for_interp_grid=np.sqrt(kpar_grid**2+kperp_grid**2)
     N_cyl_k=len(kpar)*len(kperp)
     kcyl_mags_for_interp_flat=np.reshape(kcyl_mags_for_interp_grid,(N_cyl_k,))
-    Pthought_cyl_surv_flat=np.reshape(Pthought_cyl_surv,(N_cyl_k,))
-    Ptrue_cyl_surv_flat=np.reshape(Ptrue_cyl_surv,(N_cyl_k,))
+    Pthought_cyl_surv_flat=np.reshape(Prealthought_cyl_surv,(N_cyl_k,))
+    Ptrue_cyl_surv_flat=np.reshape(Pfiducial_cyl_surv,(N_cyl_k,))
     N_cumul_surv_flat=np.reshape(N_cumul_surv,(N_cyl_k,))
 
     sort_arr=np.argsort(kcyl_mags_for_interp_flat)
@@ -1903,20 +1888,20 @@ def cyl_sph_plots(redo_window_calc,
 
     Delta2_fac_interpolated=k_interpolated**3/(twopi**2)
     Delta2_fidu=Pfidu_sph*kfidu_sph**3/(twopi**2)
-    Delta2_thought=Pth_interpolated*Delta2_fac_interpolated
-    Delta2_true=Ptr_interpolated*Delta2_fac_interpolated
-    Delta2_thought_lo=Pthought_lo*Delta2_fac_interpolated
-    Delta2_thought_hi=Pthought_hi*Delta2_fac_interpolated
-    Delta2_true_lo=Ptrue_lo*Delta2_fac_interpolated
-    Delta2_true_hi=Ptrue_hi*Delta2_fac_interpolated
+    Delta2_rt=Pth_interpolated*Delta2_fac_interpolated
+    Delta2_fi=Ptr_interpolated*Delta2_fac_interpolated
+    Delta2_rt_lo=Pthought_lo*Delta2_fac_interpolated
+    Delta2_rt_hi=Pthought_hi*Delta2_fac_interpolated
+    Delta2_fi_lo=Ptrue_lo*Delta2_fac_interpolated
+    Delta2_fi_hi=Ptrue_hi*Delta2_fac_interpolated
 
     fidu=[Pfidu_sph,Delta2_fidu]
-    thought=[Pth_interpolated,Delta2_thought]
-    true=[Ptr_interpolated,Delta2_true]
-    thought_lo=[Pthought_lo,Delta2_thought_lo]
-    thought_hi=[Pthought_hi,Delta2_thought_hi]
-    true_lo=[Ptrue_lo,Delta2_true_lo]
-    true_hi=[Ptrue_hi,Delta2_true_hi]
+    thought=[Pth_interpolated,Delta2_rt]
+    true=[Ptr_interpolated,Delta2_fi]
+    thought_lo=[Pthought_lo,Delta2_rt_lo]
+    thought_hi=[Pthought_hi,Delta2_rt_hi]
+    true_lo=[Ptrue_lo,Delta2_fi_lo]
+    true_hi=[Ptrue_hi,Delta2_fi_hi]
 
     if plot_qty=="P":
         k=0
@@ -1935,14 +1920,6 @@ def cyl_sph_plots(redo_window_calc,
         for i in range(2):
             axs[i].axvline(kfidu_sph[k_idx_for_window],c="C3")
     
-
-    if realizations_scatter:
-        interpolated_th=windowed_survey.interpolated_th
-        interpolated_tr=windowed_survey.interpolated_tr
-        flat_shape=windowed_survey.Nkpar_surv*windowed_survey.Nkperp_surv
-        for i in range(windowed_survey.maxiter):
-            axs[0].scatter(np.reshape(kcyl_mags_for_interp_flat,flat_shape),np.reshape(interpolated_tr[i],flat_shape),s=0.1,c="C1")
-            axs[0].scatter(np.reshape(kcyl_mags_for_interp_flat,flat_shape),np.reshape(interpolated_th[i],flat_shape),s=0.1,c="C0")
     fig.suptitle("{:5} MHz CHORD {} survey \n" \
                 "{}\n" \
                 "{}\n" \
