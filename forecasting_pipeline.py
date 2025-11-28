@@ -1534,7 +1534,7 @@ class per_antenna(beam_effects):
             bad[  N_chan//2: 7*N_chan//13+1]=fac2
             bad[7*N_chan//9:10*N_chan//11  ]=fac3
             surv_beam_widths*=bad
-            "sporadic_"+str(fac1)+"_"+str(fac2)+"_"+str(fac3)+"_"
+            per_chan_syst_name="sporadic_"+str(fac1)+"_"+str(fac2)+"_"+str(fac3)+"_"
         elif self.per_channel_systematic is None:
             pass
         else:
@@ -1545,7 +1545,7 @@ class per_antenna(beam_effects):
         plt.ylabel("beam FWHM (rad)")
         plt.title("reference beam widths by frequency bin")
         plt.legend()
-        plt.savefig("beam_chromaticity_slice_"+str(self.nu_ctr)+"_MHz_"+per_chan_syst_name+".png")
+        plt.savefig("beam_chromaticity_slice_"+str(self.nu_ctr_MHz)+"_MHz_"+per_chan_syst_name+".png")
 
         # rescale chromatic beam widths by whatever was passed
         xy_beam_widths=np.array((surv_beam_widths,surv_beam_widths)).T
@@ -1827,7 +1827,7 @@ def cyl_sph_plots(redo_window_calc, redo_box_calc,
                         "systematic-laden and fiducially beamed {} (multiplicative offsets {})\n" \
                         "{} fiducial beam types; {} beam perturbation types\n" \
                         "per-channel systematics: {}\n" \
-                        "numerical convenience factors: {} high k-parallel channels truncated and Poisson noise averaged to {} pct" \
+                        "numerical convenience factors: {} high k-parallel channels truncated and cosmic variance mitigated to {}%" \
                         "".format(nu_ctr,mode,
                                 pert_title,
                                 categ_title,
@@ -1839,8 +1839,8 @@ def cyl_sph_plots(redo_window_calc, redo_box_calc,
     if contaminant_or_window=="window":
         super_title_string="WINDOW FUNCTIONS FOR\n"+super_title_string
 
-    plasma=plt.cm.plasma
-    coolwarm=plt.cm.coolwarm
+    for_diagnostics=plt.cm.PRGn
+    for_spectra=plt.cm.cividis
     fig,axs=plt.subplots(1,4,figsize=(12,6))
     for i in range(4):
         axs[i].set_ylabel("k$_{||}$ (1/Mpc)")
@@ -1853,10 +1853,10 @@ def cyl_sph_plots(redo_window_calc, redo_box_calc,
                         Pcont_cyl_surv,
                         Prealthought_cyl_surv,
                         Prealthought_cyl_surv/Pfiducial_cyl_surv]
-    cmaps=[plasma,
-            coolwarm,
-            plasma,
-            coolwarm]
+    cmaps=[for_spectra,
+           for_diagnostics,
+           for_spectra,
+           for_diagnostics]
     vcentres=[None,0,None,1]
     order=[0,2,1,3]
     edge=0.1
