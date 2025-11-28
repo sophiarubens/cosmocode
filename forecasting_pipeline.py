@@ -289,6 +289,8 @@ class beam_effects(object):
                         N_ant=512
                     elif mode=="pathfinder":
                         N_ant=64
+                    self.N_ant=N_ant
+                    self.N_bl=int(N_ant*(N_ant-1)/2)
                     if (self.PA_N_pbws_pert>N_ant): # need to bring the mode full/pf stuff up here
                         print("WARNING: as called, more antennas would be perturbed than present in this array configuration")
                         print("resetting with merely all antennas perturbed...")
@@ -406,16 +408,16 @@ class beam_effects(object):
         self.Nkpar_surv=len(self.kpar_surv)
         self.bmin=bmin
         self.bmax=bmax
-        self.kperp_surv=kperp(self.nu_ctr,self.Nchan,self.bmin,self.bmax)
+        self.kperp_surv=kperp(self.nu_ctr,self.N_bl,self.bmin,self.bmax)
         self.Nkperp_surv=len(self.kperp_surv)
 
         self.kmin_surv=np.min((self.kpar_surv[ 0],self.kperp_surv[ 0]))
         self.kmax_surv=np.sqrt(self.kpar_surv[-1]**2+self.kperp_surv[-1]**2)
 
         self.Lsurv_box_xy=twopi/self.kperp_surv[0]
-        self.Nvox_box_xy=int(self.Lsurv_box_xy*self.kperp_surv[-1])
+        self.Nvox_box_xy=int(self.Lsurv_box_xy*self.kperp_surv[-1]/pi)
         self.Lsurv_box_z=twopi/self.kpar_surv[0]
-        self.Nvox_box_z=int(self.Lsurv_box_z*self.kpar_surv[-1])
+        self.Nvox_box_z=int(self.Lsurv_box_z*self.kpar_surv[-1]/pi)
         print("Nxy,Nz for generated box realizations=",self.Nvox_box_xy,self.Nvox_box_z)
 
         self.NvoxPracticalityWarning()
@@ -428,15 +430,16 @@ class beam_effects(object):
         self.ksph,self.Ptruesph=self.get_mps(self.pars_set_cosmo,kmin_CAMB,kmax_CAMB)
         self.Deltabox_xy=self.Lsurv_box_xy/self.Nvox_box_xy
         self.Deltabox_z= self.Lsurv_box_z/ self.Nvox_box_z
-        if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airy"):
-            sky_plane_sigmas=self.r0*np.array([self.fwhm_x,self.fwhm_y])/np.sqrt(2*np.log(2))
-            self.all_sigmas=sky_plane_sigmas
-            if (np.any(self.all_sigmas<self.Deltabox_xy) or np.any(self.all_sigmas<self.Deltabox_z)):
-                raise NumericalDeltaError
-        elif (primary_beam_type.lower()=="manual"):
-            print("WARNING: unable to do a robust numerical delta error check when a manual beam is passed")
-        else:
-            raise NotYetImplementedError
+        if mode=="UAA":
+            if (primary_beam_type.lower()=="gaussian" or primary_beam_type.lower()=="airy"):
+                self.all_sigmas=self.r0*np.array([self.fwhm_x,self.fwhm_y])/np.sqrt(2*np.log(2))
+                print("self.all_sigmas,self.Deltabox_xy,self.Deltabox_z=",self.all_sigmas,self.Deltabox_xy,self.Deltabox_z)
+                if (np.any(self.all_sigmas<self.Deltabox_xy) or np.any(self.all_sigmas<self.Deltabox_z)):
+                    raise NumericalDeltaError
+            elif (primary_beam_type.lower()=="manual"):
+                print("WARNING: unable to do a robust numerical delta error check when a manual beam is passed")
+            else:
+                raise NotYetImplementedError
 
         # considerations for power spectra binned to survey k-modes
         _,_,self.Pcyl=self.unbin_to_Pcyl(self.pars_set_cosmo)
@@ -1522,7 +1525,7 @@ class per_antenna(beam_effects):
             bad=np.ones(N_chan)
             bad[N_chan//5:N_chan//4+1]=1.05
             bad[N_chan//2:7*N_chan//13+1]=0.9
-            bad[7*N_chan//9:10*N_chan//11]=1.1
+            bad[7*N_chan//9:10*N_chan//11]=1.25
             surv_beam_widths*=bad
         elif self.per_channel_systematic is None:
             pass
@@ -1568,7 +1571,7 @@ class per_antenna(beam_effects):
         self.xy_vec=xy_vec
         self.z_vec=z_vec
 
-def cyl_sph_plots(redo_window_calc,
+def cyl_sph_plots(redo_window_calc, redo_box_calc,
               mode, nu_ctr, epsxy,
               ceil, frac_tol_conv, N_sph,
               categ, uaa_beam_type, 
@@ -1614,7 +1617,7 @@ def cyl_sph_plots(redo_window_calc,
     elif mode=="full": # 24x22=528 antennas (512 w/ receiver hut gaps), 1010 baselines
         bmaxCHORD=np.sqrt((b_NS_CHORD*N_NS_CHORD)**2+(b_EW_CHORD*N_EW_CHORD)**2)
 
-    hpbw_x= wl_ctr_m/D *  pi/180. # rad; lambda/D estimate (actually physically realistic)
+    hpbw_x= 1.029*wl_ctr_m/D *  pi/180. # rad; lambda/D estimate (actually physically realistic)
     hpbw_y= 0.75 * hpbw_x         # we know this tends to be a little narrower, based on measurements (...from D3A ...so far)
 
     ############################## pipeline administration ########################################################################################################################
@@ -1622,18 +1625,27 @@ def cyl_sph_plots(redo_window_calc,
 
     if contaminant_or_window is not None:
         qty_title_prefix="Window function "
-        io_pre="WINDOW_"
+        c_or_w="wind"
     else:
         qty_title_prefix=""
-        io_pre=""
-    ioname=io_pre+mode+"_"\
-           ""+str(int(nu_ctr))+"_MHz_"\
-           ""+categ+""\
-           "_ceil_"+str(ceil)+""\
-           "_Poisson_"+str(round(frac_tol_conv,2))+""\
-           "_PA_dist_"+PA_dist+""\
-           "_per_channel_systematic_"+str(per_channel_systematic)+""\
-           "_epsxy_"+str(epsxy)
+        c_or_w="cont"
+    per_chan_syst_string="none"
+    if per_channel_systematic=="D3A_like":
+        per_chan_syst_string="D3AL"
+    elif per_channel_systematic=="sporadic":
+        per_chan_syst_string="spor"
+    PA_dist_string="rand"
+    if PA_dist=="corner":
+        PA_dist_string="corn"
+    ioname=mode+"_"+c_or_w+"_"+categ+"_"+per_chan_syst_string+"_"\
+           ""+str(int(nu_ctr))+"MHz__"\
+           "ceil_"+str(ceil)+"__"\
+           "cosmicvar_"+str(round(frac_tol_conv,2))+"__"\
+           "Nreal_"+str(N_fidu_types)+"__"\
+           "Npert_"+str(N_pert_types)+"_"+str(N_pbws_pert)+"__"\
+           "dist_"+PA_dist_string+"__"\
+           "epsxy_"+str(epsxy)+"__"\
+           "realprefacs_"+str(f_types_prefacs)
 
     if plot_qty=="P":
         qty_title=qty_title_prefix+"Power"
@@ -1715,7 +1727,7 @@ def cyl_sph_plots(redo_window_calc,
                                             
                                             # CONVENIENCE
                                             ceil=ceil,                                                                # avoid any high kpars to speed eval? (for speedy testing, not science) 
-                                            PA_recalc=redo_window_calc                                                        # save time by not repeating per-antenna calculations? 
+                                            PA_recalc=redo_box_calc                                                        # save time by not repeating per-antenna calculations? 
                                             
                                             )
 
@@ -1725,7 +1737,7 @@ def cyl_sph_plots(redo_window_calc,
                 PA_title=" in separate corners"
             PA_title
             pert_title=str(N_pbws_pert)+" primary beam widths perturbed randomly throughout the array"
-            categ_title="fiducial beams arranged "+PA_title
+            categ_title="real beams arranged "+PA_title
     else:
         head="placeholder_fname_manual_"
         xy_vec=np.load(head+"_xy_vec.npy")
@@ -1789,6 +1801,29 @@ def cyl_sph_plots(redo_window_calc,
     kperp=windowed_survey.kperp_surv
     kpar_grid,kperp_grid=np.meshgrid(kpar,kperp,indexing="ij")
 
+    actual_beam_type="Gaussian"
+    if mode=="UAA":
+        actual_beam_type=uaa_beam_type
+
+    super_title_string="{:5} MHz CHORD {} survey \n" \
+                        "{}\n" \
+                        "{}\n" \
+                        "{} HPBW {:5.3}+\-{:5.3}% (x) and {:5.3}+/-{:5.3}% (y)\n" \
+                        "systematic-laden and fiducially beamed {} (multiplicative offsets {})\n" \
+                        "{} fiducial beam types; {} beam perturbation types\n" \
+                        "per-channel systematics: {}\n" \
+                        "numerical convenience factors: {} high k-parallel channels truncated and Poisson noise averaged to {} pct" \
+                        "".format(nu_ctr,mode,
+                                pert_title,
+                                categ_title,
+                                actual_beam_type,hpbw_x,100*epsxy,hpbw_y,100*epsxy,
+                                qty_title,f_types_prefacs,
+                                N_fidu_types,N_pert_types,
+                                per_channel_systematic,
+                                ceil, int(frac_tol_conv*100))
+    if contaminant_or_window=="window":
+        super_title_string="WINDOW FUNCTIONS FOR\n"+super_title_string
+
     plasma=plt.cm.plasma
     coolwarm=plt.cm.coolwarm
     fig,axs=plt.subplots(1,4,figsize=(12,6))
@@ -1832,22 +1867,7 @@ def cyl_sph_plots(redo_window_calc,
             axs[i].set_ylim(desired_ylims)
         plt.colorbar(im,ax=axs[i]) # ,shrink=0.xx
 
-    fig.suptitle("{:5} MHz CHORD {} survey \n" \
-                "{}\n" \
-                "{}\n" \
-                "{} HPBW {:5.3} (x) and {:5.3} (y)\n" \
-                "systematic-laden and fiducially beamed {}\n" \
-                "{} fiducial beam types; {} beam perturbation types\n" \
-                "per-channel systematics status {}\n"
-                "numerical convenience factors: {} high k-parallel channels truncated and Poisson noise averaged to {} pct" \
-                "".format(nu_ctr,mode,
-                        pert_title,
-                        categ_title,
-                        uaa_beam_type,hpbw_x,hpbw_y,
-                        qty_title,
-                        N_fidu_types,N_pert_types,
-                        per_channel_systematic,
-                        ceil, int(frac_tol_conv*100)))
+    fig.suptitle(super_title_string)
     fig.tight_layout()
     fig.savefig("CYL_"+ioname+".png",dpi=200)
 
@@ -1920,21 +1940,6 @@ def cyl_sph_plots(redo_window_calc,
         for i in range(2):
             axs[i].axvline(kfidu_sph[k_idx_for_window],c="C3")
     
-    fig.suptitle("{:5} MHz CHORD {} survey \n" \
-                "{}\n" \
-                "{}\n" \
-                "{} HPBW {:5.3} (x) and {:5.3} (y)\n" \
-                "systematic-laden and fiducially beamed {}\n" \
-                "{} fiducial beam types; {} beam perturbation types\n" \
-                "per-channel systematics status {}\n"
-                "numerical convenience factors: {} high k-parallel channels truncated and Poisson noise averaged to {} pct" \
-                "".format(nu_ctr,mode,
-                        pert_title,
-                        categ_title,
-                        uaa_beam_type,hpbw_x,hpbw_y,
-                        qty_title,
-                        N_fidu_types,N_pert_types,
-                        per_channel_systematic,
-                        ceil, int(frac_tol_conv*100)))
+    fig.suptitle(super_title_string)
     fig.tight_layout()
     fig.savefig("SPH_"+ioname+".png",dpi=225)
