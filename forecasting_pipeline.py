@@ -282,15 +282,15 @@ class beam_effects(object):
                 raise NotYetImplementedError
         elif (primary_beam_categ.lower()=="pa" or primary_beam_categ.lower()=="manual"):
             if (primary_beam_categ.lower()=="pa"):
+                if mode=="full":
+                        N_ant=512
+                elif mode=="pathfinder":
+                    N_ant=64
+                self.N_ant=N_ant
+                self.N_bl=int(N_ant*(N_ant-1)/2)
                 if PA_recalc:
                     self.PA_N_pert_types=          PA_N_pert_types
                     self.PA_N_pbws_pert=           PA_N_pbws_pert
-                    if mode=="full":
-                        N_ant=512
-                    elif mode=="pathfinder":
-                        N_ant=64
-                    self.N_ant=N_ant
-                    self.N_bl=int(N_ant*(N_ant-1)/2)
                     if (self.PA_N_pbws_pert>N_ant): # need to bring the mode full/pf stuff up here
                         print("WARNING: as called, more antennas would be perturbed than present in this array configuration")
                         print("resetting with merely all antennas perturbed...")
@@ -1514,23 +1514,38 @@ class per_antenna(beam_effects):
         self.z_channels=nu_HI_z0/surv_channels_MHz-1.
         self.comoving_distances_channels=np.asarray([comoving_distance(chan) for chan in self.z_channels]) # incr.
         self.ctr_chan_comov_dist=self.comoving_distances_channels[N_chan//2]
-        surv_beam_widths=1.029*surv_wavelengths/D # incr.            
+        surv_beam_widths=1.029*surv_wavelengths/D # incr.
+        plt.figure()
+        plt.plot(surv_channels_MHz,surv_beam_widths,label="diffraction-limited Airy FWHM")    
+        per_chan_syst_name="None"        
         if self.per_channel_systematic=="D3A_like":
             surv_beam_widths=(surv_beam_widths)**1.2 # keep things dimensionless, but use a steeper decay
             noise_bound_lo=0.75
             noise_bound_hi=1.25
             noise_frac=(noise_bound_hi-noise_bound_lo)*np.random.random_sample(size=(N_chan,))+noise_bound_lo # random_sample draws fall within [0,1) but I want values between [0.75,1.25)*(that channel's beam width)
             surv_beam_widths*=noise_frac
+            per_chan_syst_name="D3A_like"
         elif self.per_channel_systematic=="sporadic":
             bad=np.ones(N_chan)
-            bad[N_chan//5:N_chan//4+1]=1.05
-            bad[N_chan//2:7*N_chan//13+1]=0.9
-            bad[7*N_chan//9:10*N_chan//11]=1.25
+            fac1=1.05
+            fac2=0.9
+            fac3=1.25
+            bad[  N_chan//5:   N_chan//4+ 1]=fac1
+            bad[  N_chan//2: 7*N_chan//13+1]=fac2
+            bad[7*N_chan//9:10*N_chan//11  ]=fac3
             surv_beam_widths*=bad
+            "sporadic_"+str(fac1)+"_"+str(fac2)+"_"+str(fac3)+"_"
         elif self.per_channel_systematic is None:
             pass
         else:
             raise NotYetImplementedError
+        if self.per_channel_systematic is not None:
+            plt.plot(surv_channels_MHz,surv_beam_widths,label="chromaticity systematic–laden")
+        plt.xlabel("frequency (MHz)")
+        plt.ylabel("beam FWHM (rad)")
+        plt.title("reference beam widths by frequency bin")
+        plt.legend()
+        plt.savefig("beam_chromaticity_slice_"+str(self.nu_ctr)+"_MHz_"+per_chan_syst_name+".png")
 
         # rescale chromatic beam widths by whatever was passed
         xy_beam_widths=np.array((surv_beam_widths,surv_beam_widths)).T
@@ -1792,7 +1807,7 @@ def cyl_sph_plots(redo_window_calc, redo_box_calc,
         Pfiducial_cyl_surv=np.load("P_fi_unconverged.npy")
         N_cumul_surv=np.load("N_cumul_surv_"+ioname+".npy")
 
-    Pcont_cyl_surv=Pfiducial_cyl_surv-Prealthought_cyl_surv
+    Pcont_cyl_surv=Prealthought_cyl_surv-Pfiducial_cyl_surv
     Pfidu_sph=windowed_survey.Ptruesph
     kfidu_sph=windowed_survey.ksph
     kmin_surv=windowed_survey.kmin_surv
@@ -1831,7 +1846,7 @@ def cyl_sph_plots(redo_window_calc, redo_box_calc,
         axs[i].set_ylabel("k$_{||}$ (1/Mpc)")
         axs[i].set_xlabel("k$_{\perp} (1/Mpc)$")
     title_quantities=["P$_{fiducial}$",
-                        "P$_{cont}$=P$_{fiducial}$-P$_{real / thought}$",
+                        "P$_{cont}$=P$_{real / thought}$-P$_{fiducial}$",
                         "P$_{real / thought}$",
                         "P$_{real / thought}$/P$_{fiducial}$"]
     plot_quantities=[Pfiducial_cyl_surv,
