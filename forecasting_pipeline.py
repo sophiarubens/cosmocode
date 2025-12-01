@@ -189,6 +189,7 @@ class beam_effects(object):
                  PA_N_fidu_types=N_fid_beam_types,PA_fidu_types_prefactors=None,        # how many kinds of fiducial beams and how to set them apart
                  PA_N_timesteps=def_PA_N_timesteps,PA_ioname="placeholder",             # numbers of timesteps to put in rotation synthesis, in/output file name
                  PA_distribution="random",mode="full",per_channel_systematic=None,
+                 per_chan_syst_facs=[1.05,0.9,1.25],
 
                  # FORECASTING
                  pars_set_cosmo=pars_Planck18,pars_forecast=pars_Planck18,              # implement soon: build out the functionality for pars_forecast to differ nontrivially from pars_set_cosmo
@@ -282,6 +283,7 @@ class beam_effects(object):
                 raise NotYetImplementedError
         elif (primary_beam_categ.lower()=="pa" or primary_beam_categ.lower()=="manual"):
             if (primary_beam_categ.lower()=="pa"):
+                self.per_chan_syst_facs=per_chan_syst_facs
                 if mode=="full":
                         N_ant=512
                 elif mode=="pathfinder":
@@ -321,7 +323,7 @@ class beam_effects(object):
                                     N_pbws_pert=0,nu_ctr=nu_ctr,N_grid_pix=PA_N_grid_pix,
                                     distribution=self.PA_distribution,
                                     N_fiducial_beam_types=PA_N_fidu_types,fidu_types_prefactors=PA_fidu_types_prefactors,
-                                    outname=PA_ioname)
+                                    outname=PA_ioname,per_channel_systematic=per_channel_systematic,per_chan_syst_facs=self.per_chan_syst_facs)
                     real.stack_to_box()
                     print("constructed real-beamed box")
                     real_box=real.box
@@ -331,10 +333,12 @@ class beam_effects(object):
                                     N_pbws_pert=PA_N_pbws_pert,nu_ctr=nu_ctr,N_grid_pix=PA_N_grid_pix,
                                     distribution=self.PA_distribution,
                                     N_fiducial_beam_types=PA_N_fidu_types,fidu_types_prefactors=PA_fidu_types_prefactors,
-                                    outname=PA_ioname,per_channel_systematic=per_channel_systematic)
+                                    outname=PA_ioname,per_channel_systematic=per_channel_systematic,per_chan_syst_facs=self.per_chan_syst_facs)
                     thgt.stack_to_box()
                     print("constructed perturbed-beamed box")
                     thgt_box=thgt.box
+                    per_chan_syst_name=thgt.per_chan_syst_name
+                    self.per_chan_syst_name=per_chan_syst_name
 
                     np.save("fidu_box_"+PA_ioname+".npy",fidu_box)
                     np.save("real_box_"+PA_ioname+".npy",real_box)
@@ -420,7 +424,7 @@ class beam_effects(object):
         self.Nvox_box_z=int(self.Lsurv_box_z*self.kpar_surv[-1]/pi)
         print("Nxy,Nz for generated box realizations=",self.Nvox_box_xy,self.Nvox_box_z)
 
-        self.NvoxPracticalityWarning()
+        # self.NvoxPracticalityWarning()
 
         # numerical protections for assorted k-ranges
         kmin_box_and_init=(1-init_and_box_tol)*self.kmin_surv
@@ -1259,7 +1263,7 @@ class per_antenna(beam_effects):
                  N_timesteps=def_N_timesteps,nu_ctr=nu_HI_z0,
                  pbw_fidu=None,N_grid_pix=def_PA_N_grid_pix,Delta_nu=0.1953125,
                  distribution="random",fidu_types_prefactors=None,
-                 outname=None,per_channel_systematic=None
+                 outname=None,per_channel_systematic=None,per_chan_syst_facs=None
                  ):
         # array and observation geometry
         self.N_fiducial_beam_types=N_fiducial_beam_types
@@ -1358,6 +1362,7 @@ class per_antenna(beam_effects):
         self.pbw_pert_types=pbw_pert_types
         self.indices_of_ants_w_pert_pbws=indices_of_ants_w_pert_pbws
         self.epsilons=epsilons
+        self.per_chan_syst_facs=per_chan_syst_facs
         
         # ungridded instantaneous uv-coverage (baselines in xyz)        
         uvw_inst=np.zeros((self.N_bl,3))
@@ -1527,14 +1532,16 @@ class per_antenna(beam_effects):
             per_chan_syst_name="D3A_like"
         elif self.per_channel_systematic=="sporadic":
             bad=np.ones(N_chan)
-            fac1=1.05
-            fac2=0.9
-            fac3=1.25
-            bad[  N_chan//5:   N_chan//4+ 1]=fac1
-            bad[  N_chan//2: 7*N_chan//13+1]=fac2
-            bad[7*N_chan//9:10*N_chan//11  ]=fac3
+            per_chan_syst_locs=[slice(  N_chan//5,    N_chan//4+1,1), slice(  N_chan//2,  7*N_chan//13+1,1),slice(11*N_chan//12,   None,        1),
+                                slice(7*N_chan//9, 10*N_chan//11  ,1),slice(  N_chan//10,   N_chan//9+ 1,1),slice( 2*N_chan//3 , 5*N_chan//6   ,1),
+                                slice(4*N_chan//5,  9*N_chan//10  ,1),slice(  None,         N_chan//9,   1),slice( 8*N_chan//11, 4*N_chan//5   ,1),
+                                slice(5*N_chan//6,  7*N_chan//8   ,1)] # (not user-specifiable yet)
+            per_chan_syst_name="sporadic_"
+            for i,fac_i in enumerate(self.per_chan_syst_facs):
+                loc_i=per_chan_syst_locs[i]
+                bad[loc_i]=fac_i
+                per_chan_syst_name=per_chan_syst_name+str(fac_i)+"_"
             surv_beam_widths*=bad
-            per_chan_syst_name="sporadic_"+str(fac1)+"_"+str(fac2)+"_"+str(fac3)+"_"
         elif self.per_channel_systematic is None:
             pass
         else:
@@ -1546,6 +1553,7 @@ class per_antenna(beam_effects):
         plt.title("reference beam widths by frequency bin")
         plt.legend()
         plt.savefig("beam_chromaticity_slice_"+str(self.nu_ctr_MHz)+"_MHz_"+per_chan_syst_name+".png")
+        self.per_chan_syst_name=per_chan_syst_name
 
         # rescale chromatic beam widths by whatever was passed
         xy_beam_widths=np.array((surv_beam_widths,surv_beam_widths)).T
@@ -1602,7 +1610,8 @@ def cyl_sph_plots(redo_window_calc, redo_box_calc,
               
               from_saved_power_spectra=False,
               contaminant_or_window=None, k_idx_for_window=0,
-              isolated=False):
+              isolated=False,
+              per_chan_syst_facs=[]): # the default chromaticity systematic
 
     ############################## bundling and preparing Planck18 cosmo params of interest here ########################################################################################################################
     if pars is None:
@@ -1645,14 +1654,20 @@ def cyl_sph_plots(redo_window_calc, redo_box_calc,
         qty_title_prefix=""
         c_or_w="cont"
     per_chan_syst_string="none"
+    per_chan_syst_name=""
     if per_channel_systematic=="D3A_like":
         per_chan_syst_string="D3AL"
     elif per_channel_systematic=="sporadic":
         per_chan_syst_string="spor"
+        for fac in per_chan_syst_facs:
+            per_chan_syst_name=per_chan_syst_name+str(fac)+"_"
     PA_dist_string="rand"
     if PA_dist=="corner":
         PA_dist_string="corn"
-    ioname=mode+"_"+c_or_w+"_"+categ+"_"+per_chan_syst_string+"_"\
+    # per_chan_syst_name=windowed_survey.per_chan_syst_name
+    # per_chan_syst_name="sporadic_"+str(fac1)+"_"+str(fac2)+"_"+str(fac3)+"_"
+    ioname=mode+"_"+c_or_w+"_"+categ+"_"\
+           ""+per_chan_syst_string+"_"+per_chan_syst_name+"_"\
            ""+str(int(nu_ctr))+"MHz__"\
            "ceil_"+str(ceil)+"__"\
            "cosmicvar_"+str(round(frac_tol_conv,2))+"__"\
@@ -1770,6 +1785,7 @@ def cyl_sph_plots(redo_window_calc, redo_box_calc,
                                         frac_tol_conv=frac_tol_conv,
                                         pars_forecast_names=parnames, no_monopole=False,
                                         manual_primary_beam_modes=(xy_vec,xy_vec,z_vec))
+    
     handle_fi=False
     handle_rt=False
     if isolated==False:
