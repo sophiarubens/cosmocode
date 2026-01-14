@@ -1,7 +1,6 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from cosmo_distances import *
-from bias_helper_fcns import *
 
 Nb512= 1010 # CHORD-512 (as long as receiver hut gaps remove redundancy only and not unique baselines, as I'm sure they planned)
 Nb64=  123  # CHORD-64  (same caveat about the gaps)
@@ -13,10 +12,25 @@ bmin=b_EW
 bmax512=np.sqrt((N_NS*b_NS)**2+(N_EW*b_EW)**2)
 bmax64=bmax512/2.
 
-freqs=np.arange(300,1420,110)
+freqs=np.arange(300,1420,200)
 Ncases=len(freqs)
 colours=plt.cm.Greens(np.linspace(1,0.2,Ncases))
 chanw=0.183
+
+def get_channel_config(nu_ctr,Deltanu,evol_restriction_threshold=1./15.):
+    """
+    args
+    nu_ctr                     = central frequency of the survey
+    Deltanu                    = channel width
+    evol_restriction_threshold = $N\Delta\nu/\nu ~ \Delta z/z ~$ evol_restriction_threshold (1/15 common in some HERA surveys); N = number of channels in the survey
+
+    returns
+    NDeltanu = survey bandwidth
+    N        = number survey channels
+    """
+    NDeltanu=nu_ctr*evol_restriction_threshold
+    N=NDeltanu/Deltanu
+    return NDeltanu,N
 
 case_names=[]
 case_k=[]
@@ -50,8 +64,8 @@ xfill1eq,yin1eq,yout1eq,xfill2eq,yout2eq=quarter_torus_piecewise_curves(0.,eqlo,
 
 torusalpha=0.5
 
-Nsubplots=4
-fig,axs=plt.subplots(1,Nsubplots,figsize=(20,5))
+Nsubplots=2
+fig,axs=plt.subplots(1,Nsubplots,layout="constrained")
 kperp_for_wedge_calc=np.linspace(0,120,3000)
 for j in range(Nsubplots):
     if (j>0):
@@ -75,7 +89,7 @@ for j in range(Nsubplots):
             axs[j].fill_between(kperp,zeroskperp+kparstart,y2=zeroskperp+kparstop,facecolor="none",lw=1,ec=colour          ) # overplot the boundary with no fill so it is not affected by transparency
     axs[j].fill_between(x_fill_bw,y_arc_cons,y2=y_arc_opti,label=hide_th_l+"~ linear theory breakdown",color="c",          alpha=torusalpha,edgecolor=None,linewidth=0)
     axs[j].fill_between(x_fill_bw_2,y_arc_opti_2,                                                      color="c",          alpha=torusalpha,edgecolor=None,linewidth=0) # second fill between bounded by 0 and the the optimistic curve
-    axs[j].fill_between(xfill1,yin1,y2=yout1,              label=hide_th_l+"~ BAO",                    color="tab:purple", alpha=torusalpha,edgecolor=None,linewidth=0)
+    axs[j].fill_between(xfill1,yin1,y2=yout1,              label=hide_th_l+"~ first BAO wiggle",                    color="tab:purple", alpha=torusalpha,edgecolor=None,linewidth=0)
     axs[j].fill_between(xfill2,yout2,                                                                  color="tab:purple", alpha=torusalpha,edgecolor=None,linewidth=0)
     axs[j].fill_between(xfill1eq,yin1eq,y2=yout1eq,        label=hide_th_l+"~ k$_\mathrm{eq}$",        color="r",          alpha=torusalpha,edgecolor=None,linewidth=0)
     axs[j].fill_between(xfill2eq,yout2eq,                                                              color="r",          alpha=torusalpha,edgecolor=None,linewidth=0)
@@ -88,19 +102,11 @@ axs[0].legend()
 axs[0].text(1,25,"- - = upper extent of \n        foreground wedge")
 axs[0].set_xbound(-1,120)
 axs[0].set_ybound(-1,120)
-axs[0].set_title("full plot")
-axs[1].set_title("slight inset")
-axs[1].text(0.1,10.9,"shaded = CHORD-64 (pathfinder)\nempty = CHORD-512 (full)")
-axs[1].set_xbound(-0.1,12)
-axs[1].set_ybound(-0.1,12)
-axs[2].set_title("moderate inset")
-axs[2].legend()
-axs[2].set_xbound(-0.01,1.01*optimistic_breakdown)
-axs[2].set_ybound(-0.01,1.01*optimistic_breakdown)
-axs[3].set_title("drastic inset")
-axs[3].set_xbound(-0.01,1.01*conservative_breakdown)
-axs[3].set_ybound(-0.01,1.01*conservative_breakdown)
-plt.suptitle("Comparing the CHORD-accessible parts of Fourier space to selected theory predictions for selected frequencies across the CHORD band")
-plt.tight_layout()
+axs[0].set_title("complete view")
+axs[1].set_xbound(-0.01,1.01*conservative_breakdown)
+axs[1].set_ybound(-0.01,1.01*conservative_breakdown)
+axs[1].set_title("inset")
+axs[1].legend()
+plt.suptitle("Comparing the CHORD-accessible parts of Fourier space to theory\n" \
+             "predictions for selected frequencies across the CHORD band")
 plt.savefig("fov_theory_comp.png",dpi=600)
-plt.show()
