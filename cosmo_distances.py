@@ -18,6 +18,7 @@ def comoving_distance(z,H0=H0_Planck18,Omegam=Omegam_Planck18,OmegaLambda=OmegaL
     integral,_=quad(comoving_dist_arg,0,z,args=(Omegam,OmegaLambda,))
     return (c*integral)/(H0*1000)
 
+# typical trivial conversions
 def freq2z(nu_rest,nu_obs):
     return nu_rest/nu_obs-1
 
@@ -30,23 +31,39 @@ def wl2z(lambda_rest,lambda_obs):
 def z2wl(lambda_rest,z):
     return lambda_rest*(z+1)
 
+# Fourier space
 def kpar(nu_ctr,chan_width,N_chan,H0=H0_Planck18):
+    """
+    not "pure theory" kparallel values
+    (relies on line-of-sight details of your survey)
+    """
     prefac=1e3*twopi*H0*nu21/c # 1e3 to account for units of H0/c ... assumes nu21 and chan_width have the same units
     z_ctr=freq2z(nu21,nu_ctr)
     Ez=1/comoving_dist_arg(z_ctr)
     zterm=Ez/((1+z_ctr)**2*chan_width)
     kparmax=prefac*zterm
     kparmin=kparmax/N_chan
-    return np.linspace(kparmin,kparmax,N_chan) # evaluating at the z of the central freq of the survey (trusting slow variation...)
+    Delta_kpar=kparmin
+    kpar_bins=np.arange(kparmin,kparmax+Delta_kpar,Delta_kpar)
+    return kpar_bins # evaluating at the z of the central freq of the survey (trusting slow variation...)
 
 def kperp(nu_ctr,N_baselines,bmin,bmax):
+    """
+    not "pure theory" kperp values
+    (relies on sky plane details of your survey)
+    """
     Dc=comoving_distance(freq2z(nu21,nu_ctr)) # evaluating at the z of the central freq of the survey (trusting slow variation, once again)
     prefac=twopi*nu21*1e6/(c*Dc)
     kperpmin=prefac*bmin
     kperpmax=prefac*bmax
-    return np.linspace(kperpmin,kperpmax,N_baselines) # in Mpc^{-1} as long as I use nu21 in MHz, c in m s^{-1}, and Dc in Mpc^{-1}
+    Delta_kperp=kperpmin
+    kperp_bins=np.arange(kperpmin,kperpmax+Delta_kperp,Delta_kperp)
+    return kperp_bins
 
 def wedge_kpar(nu_ctr,kperp,H0=H0_Planck18,nu_rest=nu21):
+    """
+    for some kperps of interest, which kparallels will the interferometer smear the wedge up to?
+    """
     z=freq2z(nu_rest,nu_ctr)
     E=1/comoving_dist_arg(z)
     Dc=comoving_distance(z)
