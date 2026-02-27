@@ -19,42 +19,44 @@ if gen_box:
     test.gen_box_from_simulated_beams()
     test_box=test.box
     xy_vec=test.xy_for_box
+    z_vec=test.CST_z_vec
+    np.save(beam_sim_directory+"z_vec.npy",z_vec)
 else:
     test_box=np.load(beam_sim_directory+"CST_box_"+boxname+".npy")
     xy_vec=np.load(beam_sim_directory+"xy_vec_for_box"+boxname+".npy") 
+    z_vec=np.load(beam_sim_directory+"z_vec.npy")
 
 print("box_test.shape=",test_box.shape)
 
 # examine some slices to see if mínimamente estoy barking up the right tree
-Nfreqs=len(freqs_for_xis)
 fig,axs=plt.subplots(4,3,figsize=(12,12),layout="constrained")
 for j in range(4):
     N0,N1,N2=test_box.shape
 
     cut0=int(N0*j/4)
     yz_slice=test_box[cut0,:,:]
-    im=axs[j,0].imshow(yz_slice.T,origin="lower", #vmax=1,
-                       extent=[xy_vec[0],xy_vec[-1],xis[0],xis[-1]])
+    im=axs[j,0].imshow(yz_slice.T,origin="lower", vmax=1,
+                       extent=[xy_vec[0],xy_vec[-1],z_vec[0],z_vec[-1]])
     plt.colorbar(im,ax=axs[j,0])
     axs[j,0].set_xlabel("y (Mpc)")
     axs[j,0].set_ylabel("z (Mpc)")
-    axs[j,0].set_title(str(cut0)+"/"+str(Nfreqs)+" yz")
+    axs[j,0].set_title(str(cut0)+"/"+str(N2)+" yz")
 
     cut1=int(N1*j/4)
     xz_slice=test_box[:,cut1,:]
-    im=axs[j,1].imshow(xz_slice.T,origin="lower", #vmax=1,
-                       extent=[xy_vec[0],xy_vec[-1],xis[0],xis[-1]])
+    im=axs[j,1].imshow(xz_slice.T,origin="lower", vmax=1,
+                       extent=[xy_vec[0],xy_vec[-1],z_vec[0],z_vec[-1]])
     plt.colorbar(im,ax=axs[j,1])
     axs[j,1].set_xlabel("x (Mpc)")
     axs[j,1].set_ylabel("z (Mpc)")
-    axs[j,1].set_title(str(cut1)+"/"+str(Nfreqs)+" xz")
+    axs[j,1].set_title(str(cut1)+"/"+str(N2)+" xz")
 
     cut2=int(N2*j/4)
     xy_slice=test_box[:,:,cut2]
-    im=axs[j,2].imshow(xy_slice.T,origin="lower", #vmax=1,
+    im=axs[j,2].imshow(xy_slice.T,origin="lower", vmax=1,
                        extent=[xy_vec[0],xy_vec[-1],xy_vec[0],xy_vec[-1]])
     plt.colorbar(im,ax=axs[j,2])
     axs[j,2].set_xlabel("x (Mpc)")
     axs[j,2].set_ylabel("y (Mpc)")
-    axs[j,2].set_title(str(cut2)+"/"+str(Nfreqs)+" xy")
+    axs[j,2].set_title(str(cut2)+"/"+str(N2)+" xy")
     plt.savefig("CST_classified_beam_slices.png")
