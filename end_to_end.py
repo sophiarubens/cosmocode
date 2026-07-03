@@ -2,15 +2,13 @@ from forecasting_pipeline import *
 from matplotlib.colors import LogNorm
 fourpi=2*twopi
 
-# kperpmin,kperpmax=np.array([0.001, 0.1])/u.Mpc
-# kparmin, kparmax= np.array([0.0015,0.15])/u.Mpc
-# kperpmin,kperpmax=np.array([0.02, 0.1])/u.Mpc
-# kparmin, kparmax= np.array([0.04,0.2])/u.Mpc
-
 kperpmin,kperpmax=np.array([0.005, 0.1])/u.Mpc # N even
-kparmin, kparmax= np.array([0.003,0.2])/u.Mpc # N odd
 # kperpmin,kperpmax=np.array([0.006, 0.1])/u.Mpc # N odd
-# kparmin, kparmax= np.array([0.004,0.2])/u.Mpc # N even
+kparmin, kparmax= np.array([0.004,0.2])/u.Mpc # N even
+# kparmin, kparmax= np.array([0.003,0.2])/u.Mpc # N odd
+
+rt=True # True or None
+it=True
 
 kmin=np.sqrt(kperpmin**2+kparmin**2)
 kmax=np.sqrt(kperpmax**2+kparmax**2)
@@ -29,13 +27,11 @@ inc_pwr=k_in.value**1.8
 inc_pwr_norm=np.mean(inc_pwr)
 power_unit=u.mK**2*u.Mpc**3
 
-# P_in_options=[[np.ones(N_in)        *power_unit, "flat"              ],
-#               [dec_pwr/dec_pwr_norm *power_unit, "decaying_power_law"],
-#               [inc_pwr/inc_pwr_norm *power_unit, "growing_power_law" ] ]
-P_in_options=[[dec_pwr/dec_pwr_norm *power_unit, "decaying_power_law"] ]
+P_in_options=[[np.ones(N_in)        *power_unit, "flat"              ],
+              [dec_pwr/dec_pwr_norm *power_unit, "decaying_power_law"],
+              [inc_pwr/inc_pwr_norm *power_unit, "growing_power_law" ] ]
+# P_in_options=[[np.ones(N_in)        *power_unit, "flat"              ]]
 ft=0.05
-rt=None
-it=None
 
 for P_case in P_in_options:
     P_in,P_name=P_case
@@ -43,8 +39,8 @@ for P_case in P_in_options:
                                 P_fid=P_in,k_fid=k_in,
                                 Nvox=Nxy,Nvoxz=Nz,
                                 Nkpar=None,
-                                radial_taper=rt,image_taper=it,
-                                frac_tol=ft)
+                                LoS_taper=rt,image_taper=it,
+                                frac_tol=ft, nu_ctr=600.*u.MHz) # appease the FoG assertion w/ ctr freq but FoG is turned off for now
     stats_container.power_Monte_Carlo()
     print("completed Monte Carlo")
 
@@ -58,6 +54,12 @@ for P_case in P_in_options:
     P_unbinned_MC=stats_container.P_unbinned_MC_complete
     P_out_u=np.reshape(stats_container.P_unbinned_MC_complete, flat_shape)
 
+    T_slice=stats_container.T_pristine[0,:,:]
+    plt.figure()
+    plt.imshow(T_slice.value.T,origin="lower")
+    plt.savefig("T_"+P_name+".png")
+    plt.close()
+
     plt.figure(layout="constrained")
     plt.plot(   k_in,    P_in,    label="input power",         c="C0")
     plt.plot(   k_out_b, P_out_b, label="end-to-end binned",   c="C1", marker=".")
@@ -70,17 +72,18 @@ for P_case in P_in_options:
     plt.title(P_name+" power end-to-end comparison")
     plt.legend(loc="lower left")
     plt.savefig("P_"+P_name+"_end_to_end.png")
-    plt.close() 
+    plt.close()
 
     print("P_out_b[0]=",P_out_b[0])
     print("np.mean(P_out_b[1:])=",np.mean(P_out_b[1:]))
 
     P_in,P_name=P_case
+    print("Nxy,Nz=",Nxy,Nz)
     stats_container=cosmo_stats(Lxy,Lz=Lz,
                                 P_fid=P_in,k_fid=k_in,
                                 Nvox=Nxy,Nvoxz=Nz,
-                                radial_taper=rt,image_taper=it,
-                                frac_tol=ft)
+                                LoS_taper=rt,image_taper=it,
+                                frac_tol=ft, nu_ctr=600*u.MHz)
     stats_container.power_Monte_Carlo()
     print("completed Monte Carlo")
 
